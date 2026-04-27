@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$GitHubRepo,
 
-    [string]$ManifestBranch = "main",
+    [string]$ManifestBranch = "master",
     [string]$AntPath = "",
     [switch]$SkipBuild,
     [switch]$CreateGitTag

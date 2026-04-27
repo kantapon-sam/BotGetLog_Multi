@@ -20,7 +20,7 @@ import javax.swing.JOptionPane;
 public final class AutoUpdateManager {
 
     private static final String DEFAULT_MANIFEST_URL =
-            "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/main/update/version.json";
+            "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/master/update/version.json";
     private static final String MANIFEST_URL_PROPERTY = "botgetlog.update.manifestUrl";
     private static final Pattern JSON_TEXT_PATTERN =
             Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
