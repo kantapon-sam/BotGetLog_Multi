@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.0/BotGetLog_Multi-dist-1.0.0.zip",
-  "sha256": "PUT_SHA256_OF_THE_ZIP_HERE",
-  "notes": "Initial public release."
+    "version":  "1.0.0",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.0/BotGetLog_Multi-dist-1.0.0.zip",
+    "sha256":  "dbe618b86e1eae563fc99d7249677d71d196c243bb057ba65bf6b5ace7e7d546",
+    "notes":  "Released via release.ps1 on 2026-04-27 21:58:31"
 }

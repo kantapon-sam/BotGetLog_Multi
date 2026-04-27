@@ -31,7 +31,7 @@ public final class AppMetadata {
             }
         }
 
-        String manifestVersion = readVersionFromClasspathManifest();
+        String manifestVersion = readVersionFromRunningLocation();
         if (!manifestVersion.isEmpty()) {
             return manifestVersion;
         }
@@ -84,12 +84,21 @@ public final class AppMetadata {
         return "java";
     }
 
-    private static String readVersionFromClasspathManifest() {
-        try (InputStream input = BotGetLog_Multi.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
-            return readVersionFromStream(input);
-        } catch (IOException e) {
-            return "";
+    private static String readVersionFromRunningLocation() {
+        File location = getRunningLocation();
+        if (location.isFile() && location.getName().toLowerCase().endsWith(".jar")) {
+            try (java.util.jar.JarFile jarFile = new java.util.jar.JarFile(location)) {
+                Manifest manifest = jarFile.getManifest();
+                if (manifest == null) {
+                    return "";
+                }
+                String version = manifest.getMainAttributes().getValue("Implementation-Version");
+                return version == null ? "" : version.trim();
+            } catch (IOException e) {
+                return "";
+            }
         }
+        return "";
     }
 
     private static String readVersionFromFile(File file) {

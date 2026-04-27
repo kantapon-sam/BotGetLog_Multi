@@ -12,4 +12,3 @@ Class-Path: lib/commons-collections4-4.5.0.jar lib/commons-codec-1.20.
  e-2.25.4.jar lib/commons-compress-1.28.0.jar lib/snmp4j-3.9.7.jar
 X-COMMENT: Main-Class will be added automatically by build
 Main-Class: com.java.myapp.BotGetLog_Multi
-

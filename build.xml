@@ -81,5 +81,11 @@
                 <include name="com/java/myapp/**/*.class"/>
             </fileset>
         </jar>
+
+        <mkdir dir="${dist.dir}/defaults"/>
+        <copy file="${basedir}/UserInterface_Input.xlsx"
+              tofile="${dist.dir}/defaults/UserInterface_Input.xlsx"
+              failonerror="false"
+              quiet="true"/>
     </target>
 </project>

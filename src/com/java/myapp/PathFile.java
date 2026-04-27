@@ -2,8 +2,14 @@ package com.java.myapp;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 public class PathFile {
+
+    private static final String USER_INPUT_FILE_NAME = "UserInterface_Input.xlsx";
+    private static final String DEFAULT_INPUT_RELATIVE_PATH = "defaults\\" + USER_INPUT_FILE_NAME;
 
     private String CurrentFolder;
     private String UserInterface_Input;
@@ -17,14 +23,13 @@ public class PathFile {
 
     public PathFile() {
         try {
-
-            CurrentFolder = new File(".").getCanonicalPath();
+            CurrentFolder = AppMetadata.getAppDirectory().getCanonicalPath();
             FolderCurrent = new File(CurrentFolder);
             FileBot = FolderCurrent.listFiles();
-            UserInterface_Input = new File(".").getCanonicalPath() + "\\UserInterface_Input.xlsx";
-            Log = new File(".").getCanonicalPath() + "\\_output\\Total_Log\\";
+            UserInterface_Input = ensureUserInputWorkbook(FolderCurrent).getCanonicalPath();
+            Log = FolderCurrent.getCanonicalPath() + "\\_output\\Total_Log\\";
             FileRow = new File(CurrentFolder);
-            LogWork = new File(".").getCanonicalPath() + "\\JAR\\log\\";
+            LogWork = FolderCurrent.getCanonicalPath() + "\\JAR\\log\\";
             new File(Log).mkdirs();
             new File(LogWork).mkdirs();
 
@@ -60,6 +65,22 @@ public class PathFile {
 
     public String getLogWork() {
         return LogWork;
+    }
+
+    private static File ensureUserInputWorkbook(File appDir) throws IOException {
+        File userWorkbook = new File(appDir, USER_INPUT_FILE_NAME);
+        if (userWorkbook.isFile()) {
+            return userWorkbook;
+        }
+
+        File bundledDefault = new File(appDir, DEFAULT_INPUT_RELATIVE_PATH);
+        if (bundledDefault.isFile()) {
+            Path targetPath = userWorkbook.toPath();
+            Files.copy(bundledDefault.toPath(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+            return userWorkbook;
+        }
+
+        return userWorkbook;
     }
 
 }
