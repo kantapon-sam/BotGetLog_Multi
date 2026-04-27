@@ -140,7 +140,7 @@ public class StopProgram extends JFrame implements ActionListener {
         title.setForeground(new Color(110, 231, 255));
         title.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel subtitle = new JLabel("Automation Node Executor - Updated to 1.0.1");
+        JLabel subtitle = new JLabel("Automation Node Executor - Updated to " + BOT_VERSION);
         subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         subtitle.setForeground(new Color(183, 201, 226));
         subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);

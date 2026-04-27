@@ -3033,15 +3033,30 @@ public class Telnet_Multi {
         return firstLine + " ... (+" + (lines.length - 1) + " lines)";
     }
 
-    private static String summarizePromptForConsole(String promptCandidate) {
+    private static String summarizePromptForConsole(String promptCandidate, String responseText,
+            String device, String cmdSet) {
         String cleaned = cleanPromptToken(promptCandidate);
-        if (cleaned.isEmpty()) {
-            return "<none>";
-        }
-        if (containsGatewayMenuPrompt(cleaned)) {
+        if (containsGatewayMenuPrompt(cleaned) || containsGatewayMenuPrompt(responseText)) {
             return canonicalGatewayMenuPrompt();
         }
-        return cleaned;
+        if (!cleaned.isEmpty()) {
+            return cleaned;
+        }
+
+        String vendor = extractVendorPrefix(cmdSet);
+        String extracted = extractPromptCandidateFromText(responseText, vendor, device);
+        if (!extracted.isEmpty()) {
+            return extracted;
+        }
+
+        if (responseText != null && hasInteractivePromptToken(responseText)) {
+            String fallbackToken = cleanPromptToken(extractPromptToken(responseText));
+            if (!fallbackToken.isEmpty()) {
+                return fallbackToken;
+            }
+            return "interactive prompt";
+        }
+        return "<prompt detected>";
     }
 
     private static String joinQuotedValues(List<String> values) {
@@ -5076,7 +5091,7 @@ public class Telnet_Multi {
                                     || isInteractivePromptToken(promptToken)
                                     || containsGatewayMenuPrompt(lowerSnapshot)) {
                                 System.out.println("[PROMPT-OK]" + consolePrefix + " "
-                                        + summarizePromptForConsole(promptToken.isEmpty() ? lowerSnapshot : promptToken));
+                                        + summarizePromptForConsole(promptToken, response.toString(), Device, cmdSet));
                                 waitForPrompt = false;
                                 result = CommandReadResult.prompt();
                             }
