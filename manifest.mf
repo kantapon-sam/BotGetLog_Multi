@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+Implementation-Title: BotGetLog_Multi
+Implementation-Version: 5.4
+X-COMMENT: Main-Class will be added automatically by build
+
+
+

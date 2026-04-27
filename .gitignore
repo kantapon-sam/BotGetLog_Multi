@@ -1,0 +1,10 @@
+/build/
+/dist/
+/outputs/
+/portable/
+/JAR/log/
+/_output/
+/run_stdout.log
+/run_stderr.log
+/outputs/releases/
+/update/version.generated.json

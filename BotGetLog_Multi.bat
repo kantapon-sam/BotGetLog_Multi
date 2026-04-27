@@ -1,0 +1,1 @@
+java -Xmx2048m -jar BotGetLog_Multi.jar
