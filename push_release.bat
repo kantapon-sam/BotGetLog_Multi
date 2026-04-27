@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 if "%~1"=="" (
-    set /p VERSION=Enter version (example 1.0.1): 
+    set /p VERSION=Enter version example 1.0.1: 
 ) else (
     set "VERSION=%~1"
 )
