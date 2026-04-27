@@ -4,6 +4,7 @@
 /portable/
 /JAR/log/
 /_output/
+/nbproject/private/
 /run_stdout.log
 /run_stderr.log
 /outputs/releases/
