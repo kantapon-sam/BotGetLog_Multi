@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Ant-Version: Apache Ant 1.10.8
 Created-By: 17+35-2724 (Oracle Corporation)
 Implementation-Title: BotGetLog_Multi
-Implementation-Version: 5.4
+Implementation-Version: 1.0.0
 Class-Path: lib/commons-collections4-4.5.0.jar lib/commons-codec-1.20.
  0.jar lib/commons-lang3-3.18.0.jar lib/commons-net-3.13.0.jar lib/cur
  vesapi-1.08.jar lib/jsch-2.28.0.jar lib/poi-5.5.1.jar lib/commons-io-

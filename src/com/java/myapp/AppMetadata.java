@@ -1,9 +1,14 @@
 package com.java.myapp;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.CodeSource;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 
 public final class AppMetadata {
 
@@ -25,6 +30,22 @@ public final class AppMetadata {
                 return implementationVersion.trim();
             }
         }
+
+        String manifestVersion = readVersionFromClasspathManifest();
+        if (!manifestVersion.isEmpty()) {
+            return manifestVersion;
+        }
+
+        manifestVersion = readVersionFromFile(new File("manifest.mf"));
+        if (!manifestVersion.isEmpty()) {
+            return manifestVersion;
+        }
+
+        manifestVersion = readVersionFromFile(new File("META-INF\\MANIFEST.MF"));
+        if (!manifestVersion.isEmpty()) {
+            return manifestVersion;
+        }
+
         return FALLBACK_VERSION;
     }
 
@@ -61,5 +82,34 @@ public final class AppMetadata {
             return javaFallback.getAbsolutePath();
         }
         return "java";
+    }
+
+    private static String readVersionFromClasspathManifest() {
+        try (InputStream input = BotGetLog_Multi.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
+            return readVersionFromStream(input);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private static String readVersionFromFile(File file) {
+        if (file == null || !file.isFile()) {
+            return "";
+        }
+        try (InputStream input = new FileInputStream(file)) {
+            return readVersionFromStream(input);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private static String readVersionFromStream(InputStream input) throws IOException {
+        if (input == null) {
+            return "";
+        }
+        Manifest manifest = new Manifest(input);
+        Attributes attributes = manifest.getMainAttributes();
+        String version = attributes.getValue("Implementation-Version");
+        return version == null ? "" : version.trim();
     }
 }

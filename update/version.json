@@ -1,6 +1,6 @@
 {
-  "version": "5.4",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v5.4/BotGetLog_Multi-dist-5.4.zip",
+  "version": "1.0.0",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.0/BotGetLog_Multi-dist-1.0.0.zip",
   "sha256": "PUT_SHA256_OF_THE_ZIP_HERE",
-  "notes": "Initial GitHub auto-update manifest. Replace placeholders before release."
+  "notes": "Initial public release."
 }
