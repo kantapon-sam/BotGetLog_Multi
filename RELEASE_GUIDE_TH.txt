@@ -1,0 +1,170 @@
+BotGetLog_Multi - Release Guide (Thai)
+======================================
+
+ไฟล์นี้สรุปขั้นตอนทำ release, push ขึ้น git, และทดสอบ auto update
+สำหรับโปรเจกต์นี้โดยตรง
+
+โครงสร้างเวอร์ชันที่ใช้งานอยู่
+--------------------------------
+1. v1.0.0 = เวอร์ชันฐานที่ผู้ใช้ดาวน์โหลดครั้งแรก
+2. v1.0.1 = เวอร์ชันถัดไปสำหรับทดสอบ auto update
+3. branch หลักของ repo = master
+4. manifest สำหรับให้แอปเช็กอัปเดต = update\version.json
+
+
+ไฟล์ช่วยกดใช้งานง่าย
+----------------------
+1. make_release.bat
+   ใช้สร้าง ZIP release + อัปเดต manifest.mf + อัปเดต update\version.json
+
+2. push_release.bat
+   ใช้ git add, commit, push master, สร้าง tag, push tag
+
+3. open_release_page.bat
+   ใช้เปิดหน้า GitHub Release ของเวอร์ชันที่ต้องการ
+
+
+ขั้นตอนทำ release ใหม่แบบง่ายที่สุด
+------------------------------------
+1. แก้โค้ดตามที่ต้องการ
+2. ดับเบิลคลิก make_release.bat
+3. ใส่เลขเวอร์ชัน เช่น 1.0.1
+4. รอจน script สร้างไฟล์ ZIP เสร็จ
+5. ดับเบิลคลิก push_release.bat
+6. ใส่เลขเวอร์ชันเดิม เช่น 1.0.1
+7. ใส่ commit message หรือกด Enter เพื่อใช้ค่า default
+8. ดับเบิลคลิก open_release_page.bat
+9. ใส่เลขเวอร์ชันเดิม เช่น 1.0.1
+10. หน้าเว็บ GitHub จะเปิดขึ้น
+11. อัปโหลดไฟล์ ZIP จาก outputs\releases\<version>\
+12. กด Publish release
+
+
+ขั้นตอนแบบละเอียด
+------------------
+
+A) สร้างไฟล์ release package
+----------------------------
+1. เปิดโฟลเดอร์โปรเจกต์
+2. รัน make_release.bat
+3. ใส่เวอร์ชัน เช่น 1.0.1
+4. script จะทำสิ่งนี้ให้อัตโนมัติ
+   - เปลี่ยน Implementation-Version ใน manifest.mf
+   - build โปรเจกต์ด้วย Ant
+   - สร้าง dist\
+   - สร้าง ZIP ไว้ใน outputs\releases\<version>\
+   - คำนวณ SHA-256
+   - เขียนค่าใหม่ลง update\version.json
+
+ตัวอย่างผลลัพธ์ที่ได้
+1. ZIP:
+   outputs\releases\1.0.1\BotGetLog_Multi-dist-1.0.1.zip
+2. manifest:
+   update\version.json
+
+
+B) push ขึ้น git
+----------------
+1. รัน push_release.bat
+2. ใส่เลขเวอร์ชัน เช่น 1.0.1
+3. ใส่ commit message เช่น:
+   Release v1.0.1
+4. script จะทำสิ่งนี้ให้อัตโนมัติ
+   - git add
+   - git commit
+   - git push origin master
+   - git tag v1.0.1
+   - git push origin v1.0.1
+
+หมายเหตุ
+1. ถ้า tag เดิมมีอยู่แล้ว script จะหยุด เพื่อกัน tag ซ้ำ
+2. ถ้าจะใช้เลขเวอร์ชันเดิมอีกครั้ง ต้องลบ tag/release เดิมก่อน
+3. แนะนำให้ใช้เลขใหม่ทุกครั้ง เช่น 1.0.2, 1.0.3
+
+
+C) สร้าง GitHub Release
+-----------------------
+1. รัน open_release_page.bat
+2. ใส่เลขเวอร์ชัน เช่น 1.0.1
+3. เบราว์เซอร์จะเปิดลิงก์ประมาณนี้
+   https://github.com/kantapon-sam/BotGetLog_Multi/releases/new?tag=v1.0.1
+4. ในหน้า GitHub ให้ตั้งค่า
+   - Tag: v1.0.1
+   - Title: v1.0.1
+5. ใส่ Release notes ตัวอย่าง:
+
+   Update release v1.0.1
+
+   - Improved auto update flow
+   - Included default Excel input file
+   - Preserves existing user Excel file
+
+6. อัปโหลดไฟล์ ZIP จาก:
+   outputs\releases\1.0.1\BotGetLog_Multi-dist-1.0.1.zip
+7. กด Publish release
+
+
+D) ทดสอบ auto update
+--------------------
+1. ให้ผู้ใช้หรือเครื่องทดสอบเริ่มจาก v1.0.0
+2. เปิดโปรแกรมจากชุดไฟล์ v1.0.0
+3. โปรแกรมจะเช็ก update\version.json จาก GitHub
+4. ถ้า release ใหม่เป็น v1.0.1
+   popup จะขึ้นถามให้อัปเดต
+5. กด Yes
+6. โปรแกรมจะดาวน์โหลด ZIP, เปิด updater, แทนไฟล์, แล้วเปิดใหม่
+
+หลังอัปเดตสำเร็จ
+1. ตัวแอปเวอร์ชันใหม่จะเปิดขึ้น
+2. ถ้ามีไฟล์ UserInterface_Input.xlsx ของผู้ใช้อยู่แล้ว จะไม่ถูกทับ
+3. ถ้ายังไม่มี ระบบจะใช้ไฟล์ default ที่มากับ release
+
+
+ตำแหน่งไฟล์สำคัญ
+-----------------
+1. release script:
+   release.ps1
+
+2. manifest เวอร์ชัน:
+   manifest.mf
+
+3. update manifest:
+   update\version.json
+
+4. ZIP ที่สร้างแล้ว:
+   outputs\releases\<version>\BotGetLog_Multi-dist-<version>.zip
+
+5. ไฟล์ Excel default:
+   UserInterface_Input.xlsx
+
+
+ถ้าผู้ใช้โหลด ZIP แล้วแตกไฟล์ไม่ได้
+------------------------------------
+1. ให้ลบไฟล์ ZIP เดิมแล้วโหลดใหม่
+2. ให้ใช้ 7-Zip หรือ WinRAR แทน Windows Explorer
+3. ให้แตกไฟล์ไปไว้ในโฟลเดอร์ธรรมดา เช่น Desktop
+4. ถ้ายังไม่ได้ ให้ทดสอบดาวน์โหลด ZIP เดียวกันบนเครื่องผู้พัฒนา
+
+
+ถ้า popup update ขึ้น แต่กด Yes แล้วไม่ไปต่อ
+---------------------------------------------
+1. เช็กว่า GitHub Release ของเวอร์ชันใหม่ publish แล้วจริง
+2. เช็กว่า asset ZIP อัปโหลดครบ
+3. เช็กว่า update\version.json ชี้ URL ถูกเวอร์ชัน
+4. เช็กว่า SHA-256 ใน update\version.json ตรงกับไฟล์ ZIP จริง
+5. เช็กไฟล์ update.log ในโฟลเดอร์แอป
+
+
+ลำดับแนะนำสำหรับใช้งานจริง
+---------------------------
+1. ปล่อย v1.0.0 ให้ผู้ใช้โหลดครั้งแรก
+2. เมื่อมีการแก้โปรแกรม ให้ทำ v1.0.1
+3. ผู้ใช้เปิด v1.0.0 แล้วกดอัปเดตเป็น v1.0.1
+4. รอบต่อไปใช้ 1.0.2, 1.0.3 ตามลำดับ
+
+
+หมายเหตุสำคัญ
+--------------
+1. อย่าใช้เลขเวอร์ชันซ้ำ ถ้าไม่จำเป็น
+2. อย่าแก้ไฟล์ release asset บน GitHub โดยไม่อัปเดต SHA ใน update\version.json
+3. ถ้าจะเปลี่ยนเลขเวอร์ชัน ต้องสร้าง ZIP ใหม่ทุกครั้ง
