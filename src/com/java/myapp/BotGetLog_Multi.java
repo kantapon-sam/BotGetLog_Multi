@@ -838,7 +838,7 @@ public class BotGetLog_Multi {
     }
 
     public static void main(String[] args) {
-        if (AutoUpdateManager.checkForUpdatesAtStartup()) {
+        if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
 
@@ -1745,12 +1745,13 @@ public class BotGetLog_Multi {
                 return;
             }
             restarting = true;
-            String BatFile = currentFolder;
-            String command = "cmd /c start /min \"\" \"" + BatFile + "\\BotGetLog_Multi.bat\" && exit";
+            List<String> command = AppMetadata.buildRestartCommand();
             realOut.printf("[INFO] Restarting via: %s%n", command);
             shutdownCurrentExecutorNow("Restarting BotGetLog_Multi");
-            Runtime.getRuntime().exec(command);
-            realOut.println(" BotGetLog_Multi restarted (minimized).");
+            new ProcessBuilder(command)
+                    .directory(new File(currentFolder))
+                    .start();
+            realOut.println(" BotGetLog_Multi restarted.");
             System.exit(0);
         } catch (IOException ex) {
             Logger.getLogger(BotGetLog_Multi.class.getName()).log(Level.SEVERE, null, ex);

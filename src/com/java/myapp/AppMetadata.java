@@ -7,6 +7,8 @@ import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.CodeSource;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 
@@ -68,7 +70,29 @@ public final class AppMetadata {
             File parent = location.getParentFile();
             return parent != null ? parent : new File(".").getAbsoluteFile();
         }
+        if (isRunningFromIde()) {
+            File classesDir = location;
+            File buildDir = classesDir.getParentFile();
+            File projectDir = buildDir != null ? buildDir.getParentFile() : null;
+            if (projectDir != null && projectDir.isDirectory()) {
+                return projectDir;
+            }
+        }
         return location;
+    }
+
+    public static boolean isRunningFromJar() {
+        File location = getRunningLocation();
+        return location.isFile() && location.getName().toLowerCase().endsWith(".jar");
+    }
+
+    public static boolean isRunningFromIde() {
+        if (isRunningFromJar()) {
+            return false;
+        }
+        File location = getRunningLocation();
+        String normalized = location.getAbsolutePath().replace('/', '\\').toLowerCase();
+        return normalized.endsWith("\\build\\classes");
     }
 
     public static String getJavaExecutable() {
@@ -82,6 +106,27 @@ public final class AppMetadata {
             return javaFallback.getAbsolutePath();
         }
         return "java";
+    }
+
+    public static List<String> buildRestartCommand() {
+        List<String> command = new ArrayList<String>();
+        command.add(getJavaExecutable());
+        command.add("-Dfile.encoding=" + System.getProperty("file.encoding", "UTF-8"));
+
+        File location = getRunningLocation();
+        if (isRunningFromJar()) {
+            command.add("-jar");
+            command.add(location.getAbsolutePath());
+            return command;
+        }
+
+        String classPath = System.getProperty("java.class.path", "");
+        if (!classPath.trim().isEmpty()) {
+            command.add("-cp");
+            command.add(classPath);
+        }
+        command.add(BotGetLog_Multi.class.getName());
+        return command;
     }
 
     private static String readVersionFromRunningLocation() {

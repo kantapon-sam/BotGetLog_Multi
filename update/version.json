@@ -1,6 +1,9 @@
 {
     "version":  "1.0.1",
     "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.1/BotGetLog_Multi-dist-1.0.1.zip",
-    "sha256":  "a9dda903c98f94a199629957fe0927367fd3c1fcafaf54fb6d33f52d41684ec4",
-    "notes":  "Released via release.ps1 on 2026-04-27 22:37:20"
+    "sha256":  "98a52eee2cad66b0eee468fb23bb849bca72907ac95f91771d67dda3ff2e27d1",
+    "notes":  "- Improved auto update flow
+- Added default Excel template for first-time setup
+- Preserved existing user Excel file during update
+"
 }
