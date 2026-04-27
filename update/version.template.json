@@ -1,6 +1,6 @@
 {
   "version": "5.5.0",
-  "url": "https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY/releases/download/v5.5.0/BotGetLog_Multi-dist-5.5.0.zip",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v5.5.0/BotGetLog_Multi-dist-5.5.0.zip",
   "sha256": "PUT_SHA256_OF_THE_ZIP_HERE",
   "notes": "Example: improve network retry logic and fix Excel read handling."
 }

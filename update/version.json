@@ -1,6 +1,6 @@
 {
   "version": "5.4",
-  "url": "https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY/releases/download/v5.4/BotGetLog_Multi-dist-5.4.zip",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v5.4/BotGetLog_Multi-dist-5.4.zip",
   "sha256": "PUT_SHA256_OF_THE_ZIP_HERE",
   "notes": "Initial GitHub auto-update manifest. Replace placeholders before release."
 }
