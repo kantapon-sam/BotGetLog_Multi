@@ -6,25 +6,42 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import javax.swing.JOptionPane;
 
 public class UpdaterMain {
 
+    private static final DateTimeFormatter LOG_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String UPDATE_LOG_NAME = "update.log";
+    private static final Set<String> PRESERVED_TOP_LEVEL = new HashSet<String>(
+            Arrays.asList("UserInterface_Input.xlsx", "_output", "JAR", UPDATE_LOG_NAME));
+
     public static void main(String[] args) {
+        File targetDir = null;
         try {
             Map<String, String> options = parseArgs(args);
             File zipFile = requireFile(options, "--zip");
-            File targetDir = requireDirectoryPath(options, "--target");
+            targetDir = requireDirectoryPath(options, "--target");
             File launchJar = requireFilePath(options, "--launch");
             String javaCommand = requiredValue(options, "--java");
+            String cleanupPath = optionalValue(options, "--cleanup");
 
+            if (cleanupPath != null && !cleanupPath.isEmpty()) {
+                new File(cleanupPath).deleteOnExit();
+            }
+
+            log(targetDir, "Updater started for " + launchJar.getAbsolutePath());
             waitForFileToUnlock(launchJar, 30);
             Path stagingDir = Files.createTempDirectory("botgetlog-update-staging-");
             unzip(zipFile.toPath(), stagingDir);
@@ -32,15 +49,12 @@ public class UpdaterMain {
             Files.deleteIfExists(zipFile.toPath());
             deleteDirectory(stagingDir);
             relaunch(javaCommand, launchJar, targetDir);
-            JOptionPane.showMessageDialog(null,
-                    "Update installed successfully.\nLaunching the new version now.",
-                    "Update Complete",
-                    JOptionPane.INFORMATION_MESSAGE);
+            log(targetDir, "Update installed successfully. Launching the new version now.");
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(null,
-                    "Update failed: " + e.getMessage(),
-                    "Update Error",
-                    JOptionPane.ERROR_MESSAGE);
+            log(targetDir, "Update failed: " + e.getMessage());
+            UpdatePromptDialog.showError("Update Error",
+                    "Update failed.\n" + e.getMessage()
+                    + "\n\nSee update.log in the app folder for details.");
             System.exit(1);
         }
     }
@@ -100,6 +114,9 @@ public class UpdaterMain {
                     try {
                         Path relative = targetRoot.relativize(target);
                         if (relative.toString().isEmpty()) {
+                            return;
+                        }
+                        if (isPreserved(relative)) {
                             return;
                         }
                         Path source = sourceRoot.resolve(relative);
@@ -179,5 +196,37 @@ public class UpdaterMain {
             throw new IllegalArgumentException("Directory not found for " + key + ": " + dir.getAbsolutePath());
         }
         return dir;
+    }
+
+    private static String optionalValue(Map<String, String> options, String key) {
+        String value = options.get(key);
+        return value == null ? "" : value.trim();
+    }
+
+    private static boolean isPreserved(Path relative) {
+        Path first = relative.getNameCount() > 0 ? relative.getName(0) : relative;
+        return first != null && PRESERVED_TOP_LEVEL.contains(first.toString());
+    }
+
+    private static void log(File targetDir, String message) {
+        if (targetDir == null) {
+            return;
+        }
+        String timestamp = LocalDateTime.now().format(LOG_TIME_FORMAT);
+        File logFile = new File(targetDir, UPDATE_LOG_NAME);
+        try {
+            Files.write(logFile.toPath(),
+                    Arrays.asList("[" + timestamp + "] " + message),
+                    java.nio.charset.StandardCharsets.UTF_8,
+                    Files.exists(logFile.toPath())
+                            ? new java.nio.file.OpenOption[]{
+                                java.nio.file.StandardOpenOption.CREATE,
+                                java.nio.file.StandardOpenOption.APPEND
+                            }
+                            : new java.nio.file.OpenOption[]{
+                                java.nio.file.StandardOpenOption.CREATE
+                            });
+        } catch (IOException ignored) {
+        }
     }
 }

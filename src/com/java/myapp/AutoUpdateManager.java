@@ -1,9 +1,11 @@
 package com.java.myapp;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -11,21 +13,25 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.swing.JOptionPane;
 
 public final class AutoUpdateManager {
 
     private static final String DEFAULT_MANIFEST_URL =
             "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/master/update/version.json";
     private static final String MANIFEST_URL_PROPERTY = "botgetlog.update.manifestUrl";
+    private static final String UPDATE_LOG_NAME = "update.log";
     private static final Pattern JSON_TEXT_PATTERN =
             Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
+    private static final DateTimeFormatter LOG_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private AutoUpdateManager() {
     }
@@ -34,41 +40,44 @@ public final class AutoUpdateManager {
         try {
             String manifestUrl = getManifestUrl();
             if (manifestUrl.contains("YOUR_GITHUB_USERNAME") || manifestUrl.contains("YOUR_REPOSITORY")) {
-                System.out.println("[UPDATE] Manifest URL is still using the template placeholder. Update check skipped.");
+                logUpdate("Manifest URL is still using the template placeholder. Update check skipped.");
                 return false;
             }
 
             UpdateManifest manifest = fetchManifest(manifestUrl);
             if (manifest == null || !manifest.isValid()) {
-                System.out.println("[UPDATE] No valid update manifest found.");
+                logUpdate("No valid update manifest found.");
                 return false;
             }
 
             String currentVersion = AppMetadata.getCurrentVersion();
             if (compareVersions(manifest.getVersion(), currentVersion) <= 0) {
-                System.out.printf("[UPDATE] Already on the latest version (%s).%n", currentVersion);
+                logUpdate("Already on the latest version (" + currentVersion + ").");
                 return false;
             }
 
-            String message = buildPromptMessage(currentVersion, manifest);
-            int choice = JOptionPane.showConfirmDialog(
-                    null,
-                    message,
-                    "Update Available",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.INFORMATION_MESSAGE
-            );
-
-            if (choice != JOptionPane.YES_OPTION) {
-                System.out.println("[UPDATE] User postponed the update.");
+            boolean confirmed = UpdatePromptDialog.showUpdatePrompt(currentVersion, manifest);
+            if (!confirmed) {
+                logUpdate("User postponed the update.");
                 return false;
             }
 
-            File downloadedZip = downloadUpdatePackage(manifest);
-            launchUpdater(downloadedZip);
+            UpdatePromptDialog.ProgressHandle progress =
+                    UpdatePromptDialog.showProgress("Preparing Update", "Downloading version " + manifest.getVersion());
+            File downloadedZip = null;
+            try {
+                downloadedZip = downloadUpdatePackage(manifest);
+                progress.updateMessage("Launching updater...");
+                launchUpdater(downloadedZip);
+            } finally {
+                progress.close();
+            }
             return true;
         } catch (Exception e) {
-            System.out.println("[UPDATE] Update flow skipped: " + e.getMessage());
+            String message = "Update could not start.\n" + e.getMessage()
+                    + "\n\nSee update.log in the app folder for details.";
+            logUpdate("Update flow failed: " + e.getMessage(), e);
+            UpdatePromptDialog.showError("Update Error", message);
             return false;
         }
     }
@@ -92,18 +101,8 @@ public final class AutoUpdateManager {
         return configured == null ? DEFAULT_MANIFEST_URL : configured.trim();
     }
 
-    private static String buildPromptMessage(String currentVersion, UpdateManifest manifest) {
-        StringBuilder message = new StringBuilder();
-        message.append("Current version: ").append(currentVersion).append('\n');
-        message.append("Latest version: ").append(manifest.getVersion()).append('\n');
-        if (!manifest.getNotes().isEmpty()) {
-            message.append('\n').append("Release notes:").append('\n').append(manifest.getNotes()).append('\n');
-        }
-        message.append('\n').append("Update now?");
-        return message.toString();
-    }
-
     private static File downloadUpdatePackage(UpdateManifest manifest) throws Exception {
+        logUpdate("Downloading update package from " + manifest.getDownloadUrl());
         HttpURLConnection connection = openConnection(manifest.getDownloadUrl());
         File tempZip = File.createTempFile("botgetlog-update-", ".zip");
         try (InputStream input = new BufferedInputStream(connection.getInputStream());
@@ -123,6 +122,7 @@ public final class AutoUpdateManager {
             }
         }
 
+        logUpdate("Update package downloaded successfully to " + tempZip.getAbsolutePath());
         return tempZip;
     }
 
@@ -134,7 +134,6 @@ public final class AutoUpdateManager {
         }
         File tempUpdaterJar = File.createTempFile("botgetlog-updater-", ".jar");
         Files.copy(updaterJar.toPath(), tempUpdaterJar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        tempUpdaterJar.deleteOnExit();
 
         File runningLocation = AppMetadata.getRunningLocation();
         List<String> command = new ArrayList<String>();
@@ -149,12 +148,14 @@ public final class AutoUpdateManager {
         command.add(runningLocation.getAbsolutePath());
         command.add("--java");
         command.add(AppMetadata.getJavaExecutable());
+        command.add("--cleanup");
+        command.add(tempUpdaterJar.getAbsolutePath());
 
         new ProcessBuilder(command)
                 .directory(appDir)
                 .start();
 
-        System.out.println("[UPDATE] Updater launched. Closing current app for replacement.");
+        logUpdate("Updater launched from " + tempUpdaterJar.getAbsolutePath());
         System.exit(0);
     }
 
@@ -246,6 +247,27 @@ public final class AutoUpdateManager {
             hex.append(String.format("%02x", b));
         }
         return hex.toString();
+    }
+
+    private static void logUpdate(String message) {
+        logUpdate(message, null);
+    }
+
+    private static void logUpdate(String message, Exception error) {
+        String timestamp = LocalDateTime.now().format(LOG_TIME_FORMAT);
+        String line = "[" + timestamp + "] " + message;
+        System.out.println("[UPDATE] " + message);
+
+        File logFile = new File(AppMetadata.getAppDirectory(), UPDATE_LOG_NAME);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
+            writer.write(line);
+            writer.newLine();
+            if (error != null) {
+                writer.write(error.toString());
+                writer.newLine();
+            }
+        } catch (IOException ignored) {
+        }
     }
 }
 
