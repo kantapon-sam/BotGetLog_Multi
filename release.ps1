@@ -62,25 +62,25 @@ function Resolve-AntCommand {
     throw "Unable to find Ant. Install Ant, run from NetBeans environment, or pass -AntPath."
 }
 
-function Update-ImplementationVersion {
+function Update-ApplicationVersion {
     param(
-        [string]$ManifestPath,
+        [string]$ProjectPropertiesPath,
         [string]$NewVersion
     )
 
-    $manifestContent = Get-Content -LiteralPath $ManifestPath -Raw
-    if ($manifestContent -match 'Implementation-Version:\s*.+') {
+    $propertiesContent = Get-Content -LiteralPath $ProjectPropertiesPath -Raw
+    if ($propertiesContent -match '(?m)^application\.version=.*$') {
         $updated = [regex]::Replace(
-            $manifestContent,
-            'Implementation-Version:\s*.+',
-            "Implementation-Version: $NewVersion",
+            $propertiesContent,
+            '(?m)^application\.version=.*$',
+            "application.version=$NewVersion",
             1
         )
     } else {
-        $updated = $manifestContent.TrimEnd() + "`r`nImplementation-Version: $NewVersion`r`n"
+        $updated = $propertiesContent.TrimEnd() + "`r`napplication.version=$NewVersion`r`n"
     }
 
-    Set-FileContentUtf8NoBom -Path $ManifestPath -Content $updated
+    Set-FileContentUtf8NoBom -Path $ProjectPropertiesPath -Content $updated
 }
 
 function Invoke-Build {
@@ -310,8 +310,8 @@ function Ensure-CleanGitRoot {
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $gitRoot = Ensure-CleanGitRoot -ProjectRoot $projectRoot
 
-Write-Step "Updating manifest version"
-Update-ImplementationVersion -ManifestPath (Join-Path $projectRoot "manifest.mf") -NewVersion $Version
+Write-Step "Updating project application version"
+Update-ApplicationVersion -ProjectPropertiesPath (Join-Path $projectRoot "nbproject\project.properties") -NewVersion $Version
 
 Write-Step "Updating GitHub manifest URL in source"
 $rawManifestUrl = "https://raw.githubusercontent.com/$GitHubOwner/$GitHubRepo/$ManifestBranch/update/version.json"
