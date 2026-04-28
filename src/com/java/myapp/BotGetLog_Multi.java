@@ -30,7 +30,7 @@ import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextField;
 
-import com.java.myapp.CpuSmooth;
+
 
 public class BotGetLog_Multi {
     private static final Set<String> rerunOncePerRunKeys = ConcurrentHashMap.newKeySet();

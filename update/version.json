@@ -1,12 +1,6 @@
 {
-    "version":  "1.0.5",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.5/BotGetLog_Multi-dist-1.0.5.zip",
-    "sha256":  "b841afd52214c287098fe987b2aef9513cc77021ae2f26794446b6dcebecfe45",
-    "notes":  "Update release v1.0.5
-
-- Added built-in console window
-- Shows runtime logs even when the app is launched without a .bat file
-- Keeps existing .bat launch flow working
-- Added Copy and Clear controls for console output
-"
+    "version":  "1.0.6",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.6/BotGetLog_Multi-dist-1.0.6.zip",
+    "sha256":  "a2a19586a97737b1f38d728a465fd67479d429c210ccad1c8d60392e0cadf859",
+    "notes":  "Release v1.0.6: add Bot Tool Launcher, integrate Link Optical/ARP/PTP, centralize auto-update, and move logs"
 }

@@ -93,6 +93,39 @@ function Invoke-Build {
     }
 }
 
+function Assert-RequiredReleaseArtifacts {
+    param([string]$ProjectRoot)
+
+    $distDir = Join-Path $ProjectRoot "dist"
+    if (-not (Test-Path -LiteralPath $distDir)) {
+        throw "dist folder not found: $distDir"
+    }
+
+    $requiredArtifacts = @(
+        "BotGetLog_Multi.jar",
+        "Bot Tool Launcher.jar",
+        "Link_Optical.jar",
+        "ARP.jar",
+        "PTP.jar",
+        "README.TXT",
+        "defaults\UserInterface_Input.xlsx",
+        "updater\BotGetLog_Updater.jar"
+    )
+
+    $missingArtifacts = @()
+    foreach ($relativePath in $requiredArtifacts) {
+        $artifactPath = Join-Path $distDir $relativePath
+        if (-not (Test-Path -LiteralPath $artifactPath)) {
+            $missingArtifacts += $relativePath
+        }
+    }
+
+    if ($missingArtifacts.Count -gt 0) {
+        $missingList = $missingArtifacts -join ", "
+        throw "Release package is incomplete. Missing required dist artifacts: $missingList"
+    }
+}
+
 function New-ReleaseZip {
     param(
         [string]$ProjectRoot,
@@ -154,8 +187,14 @@ function New-PortablePackage {
     Copy-Item -LiteralPath (Join-Path $portableSource.FullName "jre") -Destination (Join-Path $portableDir "jre") -Recurse
     Copy-Item -Path (Join-Path $distDir "*") -Destination $portableDir -Recurse
 
-    $outputDir = Join-Path $portableDir "_output\Total_Log"
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    $portableOutputDirs = @(
+        "_output\Total_Log",
+        "_output\Bot_Work_Log",
+        "_output\System_Log"
+    )
+    foreach ($relativeDir in $portableOutputDirs) {
+        New-Item -ItemType Directory -Path (Join-Path $portableDir $relativeDir) -Force | Out-Null
+    }
 
     $runBatContent = @'
 @echo off
@@ -284,6 +323,9 @@ if (-not $SkipBuild) {
 } else {
     Write-Step "Skipping build as requested"
 }
+
+Write-Step "Validating required release artifacts"
+Assert-RequiredReleaseArtifacts -ProjectRoot $projectRoot
 
 Write-Step "Creating release ZIP"
 $zipPath = New-ReleaseZip -ProjectRoot $projectRoot -VersionTag $Version

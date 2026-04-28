@@ -71,6 +71,59 @@
 
     -->
     <target name="-post-jar">
+        <jar destfile="${dist.dir}/Bot Tool Launcher.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.myapp.BotToolLauncher"/>
+                <attribute name="Implementation-Title" value="Bot Tool Launcher"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/myapp/BotToolLauncher.class"/>
+                <include name="com/java/myapp/AppMetadata.class"/>
+                <include name="com/java/myapp/AutoUpdateManager.class"/>
+                <include name="com/java/myapp/LauncherGate.class"/>
+                <include name="com/java/myapp/UpdateManifest.class"/>
+                <include name="com/java/myapp/UpdatePromptDialog.class"/>
+                <include name="com/java/myapp/UpdatePromptDialog$ProgressHandle.class"/>
+            </fileset>
+        </jar>
+
+        <jar destfile="${dist.dir}/Link_Optical.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.myapp.linkoptical.Link_Optical"/>
+                <attribute name="Implementation-Title" value="Link_Optical"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/myapp/LauncherGate.class"/>
+                <include name="com/java/myapp/linkoptical/**/*.class"/>
+            </fileset>
+        </jar>
+
+        <jar destfile="${dist.dir}/ARP.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.myapp.arp.ARP"/>
+                <attribute name="Implementation-Title" value="ARP"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/myapp/LauncherGate.class"/>
+                <include name="com/java/myapp/arp/**/*.class"/>
+            </fileset>
+        </jar>
+
+        <jar destfile="${dist.dir}/PTP.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.myapp.ptp.PTP"/>
+                <attribute name="Implementation-Title" value="PTP"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/myapp/LauncherGate.class"/>
+                <include name="com/java/myapp/ptp/**/*.class"/>
+            </fileset>
+        </jar>
+
         <mkdir dir="${dist.dir}/updater"/>
         <jar destfile="${dist.dir}/updater/BotGetLog_Updater.jar">
             <manifest>

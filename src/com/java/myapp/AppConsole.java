@@ -2,12 +2,14 @@ package com.java.myapp;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
@@ -68,30 +70,45 @@ public final class AppConsole {
         textArea.setForeground(new Color(230, 230, 230));
         textArea.setCaretColor(Color.WHITE);
         textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 14));
+        textArea.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
         DefaultCaret caret = (DefaultCaret) textArea.getCaret();
         caret.setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE);
 
         JButton copyButton = new JButton("Copy");
+        styleActionButton(copyButton, new Color(31, 111, 235), Color.WHITE);
         copyButton.addActionListener(e -> {
             StringSelection selection = new StringSelection(textArea.getText());
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
         });
 
         JButton clearButton = new JButton("Clear");
+        styleActionButton(clearButton, new Color(48, 63, 84), Color.WHITE);
         clearButton.addActionListener(e -> textArea.setText(""));
 
-        JPanel actions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+        actions.setBackground(new Color(235, 235, 235));
         actions.add(copyButton);
         actions.add(clearButton);
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
 
         frame = new JFrame("BotGetLog Multi - Console");
         frame.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
         frame.setLayout(new BorderLayout());
-        frame.add(new JScrollPane(textArea), BorderLayout.CENTER);
+        frame.add(scrollPane, BorderLayout.CENTER);
         frame.add(actions, BorderLayout.SOUTH);
         frame.pack();
         frame.setLocationRelativeTo(null);
+    }
+
+    private static void styleActionButton(JButton button, Color background, Color foreground) {
+        button.setFocusPainted(false);
+        button.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        button.setBackground(background);
+        button.setForeground(foreground);
+        button.setBorder(BorderFactory.createEmptyBorder(7, 16, 7, 16));
     }
 
     private static void append(String value) {

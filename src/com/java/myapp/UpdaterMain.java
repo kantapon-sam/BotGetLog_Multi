@@ -24,12 +24,13 @@ public class UpdaterMain {
     private static final DateTimeFormatter LOG_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String UPDATE_LOG_NAME = "update.log";
+    private static final String UPDATE_LOG_RELATIVE_DIR = "_output\\System_Log";
     private static final Set<String> PRESERVED_TOP_LEVEL = new HashSet<String>(
-            Arrays.asList("UserInterface_Input.xlsx", "_output", "JAR", UPDATE_LOG_NAME));
+            Arrays.asList("UserInterface_Input.xlsx", "_output"));
     private static final Set<String> APP_MANAGED_TOP_LEVEL = new HashSet<String>(
             Arrays.asList("defaults", "lib", "updater"));
     private static final Set<String> APP_MANAGED_FILES = new HashSet<String>(
-            Arrays.asList("BotGetLog_Multi.jar", "README.TXT"));
+            Arrays.asList("BotGetLog_Multi.jar", "Bot Tool Launcher.jar", "Link_Optical.jar", "ARP.jar", "PTP.jar", "README.TXT"));
 
     public static void main(String[] args) {
         File targetDir = null;
@@ -58,7 +59,7 @@ public class UpdaterMain {
             log(targetDir, "Update failed: " + e.getMessage());
             UpdatePromptDialog.showError("Update Error",
                     "Update failed.\n" + e.getMessage()
-                    + "\n\nSee update.log in the app folder for details.");
+                    + "\n\nSee _output\\System_Log\\update.log for details.");
             System.exit(1);
         }
     }
@@ -230,7 +231,9 @@ public class UpdaterMain {
             return;
         }
         String timestamp = LocalDateTime.now().format(LOG_TIME_FORMAT);
-        File logFile = new File(targetDir, UPDATE_LOG_NAME);
+        File logDir = new File(targetDir, UPDATE_LOG_RELATIVE_DIR);
+        logDir.mkdirs();
+        File logFile = new File(logDir, UPDATE_LOG_NAME);
         try {
             Files.write(logFile.toPath(),
                     Arrays.asList("[" + timestamp + "] " + message),

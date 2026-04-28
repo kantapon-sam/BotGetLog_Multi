@@ -1,8 +1,7 @@
 package com.java.myapp;
 
-import java.io.*;
-import java.net.*;
-import javax.swing.*;
+import javax.swing.JOptionPane;
+import javax.swing.UIManager;
 
 public class Dialog {
 
@@ -42,7 +41,7 @@ public class Dialog {
         System.exit(0);
     }
 
-    public void ShowSuccess(String node) throws IOException {
+    public void ShowSuccess(String node) {
         Success();
         JOptionPane.showMessageDialog(null,
                 node+"\n",

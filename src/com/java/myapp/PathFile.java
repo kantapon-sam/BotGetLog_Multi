@@ -10,6 +10,7 @@ public class PathFile {
 
     private static final String USER_INPUT_FILE_NAME = "UserInterface_Input.xlsx";
     private static final String DEFAULT_INPUT_RELATIVE_PATH = "defaults\\" + USER_INPUT_FILE_NAME;
+    private static final String LEGACY_LOG_WORK_RELATIVE_PATH = "JAR\\log";
 
     private String CurrentFolder;
     private String UserInterface_Input;
@@ -29,9 +30,11 @@ public class PathFile {
             UserInterface_Input = ensureUserInputWorkbook(FolderCurrent).getCanonicalPath();
             Log = FolderCurrent.getCanonicalPath() + "\\_output\\Total_Log\\";
             FileRow = new File(CurrentFolder);
-            LogWork = FolderCurrent.getCanonicalPath() + "\\JAR\\log\\";
+            File logWorkDir = AppMetadata.getBotWorkLogDirectory().getCanonicalFile();
+            migrateLegacyWorkLogs(FolderCurrent, logWorkDir);
+            LogWork = logWorkDir.getCanonicalPath() + "\\";
             new File(Log).mkdirs();
-            new File(LogWork).mkdirs();
+            logWorkDir.mkdirs();
 
         } catch (IOException ex) {
             ex.printStackTrace();
@@ -81,6 +84,35 @@ public class PathFile {
         }
 
         return userWorkbook;
+    }
+
+    private static void migrateLegacyWorkLogs(File appDir, File targetDir) throws IOException {
+        if (appDir == null || targetDir == null) {
+            return;
+        }
+
+        File legacyDir = new File(appDir, LEGACY_LOG_WORK_RELATIVE_PATH).getCanonicalFile();
+        if (!legacyDir.isDirectory()) {
+            return;
+        }
+
+        if (legacyDir.equals(targetDir.getCanonicalFile())) {
+            return;
+        }
+
+        targetDir.mkdirs();
+        File[] legacyChildren = legacyDir.listFiles();
+        if (legacyChildren == null) {
+            return;
+        }
+
+        for (File legacyChild : legacyChildren) {
+            File migratedChild = new File(targetDir, legacyChild.getName());
+            if (migratedChild.exists()) {
+                continue;
+            }
+            Files.move(legacyChild.toPath(), migratedChild.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
 }

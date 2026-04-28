@@ -75,7 +75,7 @@ public final class AutoUpdateManager {
             return true;
         } catch (Exception e) {
             String message = "Update could not start.\n" + e.getMessage()
-                    + "\n\nSee update.log in the app folder for details.";
+                    + "\n\nSee _output\\System_Log\\update.log for details.";
             logUpdate("Update flow failed: " + e.getMessage(), e);
             UpdatePromptDialog.showError("Update Error", message);
             return false;
@@ -258,7 +258,11 @@ public final class AutoUpdateManager {
         String line = "[" + timestamp + "] " + message;
         System.out.println("[UPDATE] " + message);
 
-        File logFile = new File(AppMetadata.getAppDirectory(), UPDATE_LOG_NAME);
+        File logFile = AppMetadata.getUpdateLogFile();
+        File parentDir = logFile.getParentFile();
+        if (parentDir != null) {
+            parentDir.mkdirs();
+        }
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, true))) {
             writer.write(line);
             writer.newLine();

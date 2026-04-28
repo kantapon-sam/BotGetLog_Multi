@@ -16,6 +16,11 @@ public final class AppMetadata {
 
     private static final String APP_NAME = "BotGetLog_Multi";
     private static final String FALLBACK_VERSION = "0.0.0";
+    private static final String DEFAULT_MAIN_CLASS = "com.java.myapp.BotGetLog_Multi";
+    private static final String OUTPUT_DIR_NAME = "_output";
+    private static final String BOT_WORK_LOG_DIR_NAME = "Bot_Work_Log";
+    private static final String UPDATE_LOG_DIR_NAME = "System_Log";
+    private static final String UPDATE_LOG_FILE_NAME = "update.log";
 
     private AppMetadata() {
     }
@@ -25,7 +30,7 @@ public final class AppMetadata {
     }
 
     public static String getCurrentVersion() {
-        Package appPackage = BotGetLog_Multi.class.getPackage();
+        Package appPackage = AppMetadata.class.getPackage();
         if (appPackage != null) {
             String implementationVersion = appPackage.getImplementationVersion();
             if (implementationVersion != null && !implementationVersion.trim().isEmpty()) {
@@ -53,7 +58,7 @@ public final class AppMetadata {
 
     public static File getRunningLocation() {
         try {
-            CodeSource codeSource = BotGetLog_Multi.class.getProtectionDomain().getCodeSource();
+            CodeSource codeSource = AppMetadata.class.getProtectionDomain().getCodeSource();
             if (codeSource == null) {
                 return new File(".").getCanonicalFile();
             }
@@ -79,6 +84,22 @@ public final class AppMetadata {
             }
         }
         return location;
+    }
+
+    public static File getOutputDirectory() {
+        return new File(getAppDirectory(), OUTPUT_DIR_NAME);
+    }
+
+    public static File getBotWorkLogDirectory() {
+        return new File(getOutputDirectory(), BOT_WORK_LOG_DIR_NAME);
+    }
+
+    public static File getUpdateLogDirectory() {
+        return new File(getOutputDirectory(), UPDATE_LOG_DIR_NAME);
+    }
+
+    public static File getUpdateLogFile() {
+        return new File(getUpdateLogDirectory(), UPDATE_LOG_FILE_NAME);
     }
 
     public static boolean isRunningFromJar() {
@@ -125,7 +146,11 @@ public final class AppMetadata {
             command.add("-cp");
             command.add(classPath);
         }
-        command.add(BotGetLog_Multi.class.getName());
+        String configuredMainClass = System.getProperty("botgetlog.restart.mainClass", DEFAULT_MAIN_CLASS).trim();
+        if (configuredMainClass.isEmpty()) {
+            configuredMainClass = DEFAULT_MAIN_CLASS;
+        }
+        command.add(configuredMainClass);
         return command;
     }
 
