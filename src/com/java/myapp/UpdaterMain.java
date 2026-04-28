@@ -27,7 +27,7 @@ public class UpdaterMain {
     private static final Set<String> PRESERVED_TOP_LEVEL = new HashSet<String>(
             Arrays.asList("UserInterface_Input.xlsx", "_output", "JAR", UPDATE_LOG_NAME));
     private static final Set<String> APP_MANAGED_TOP_LEVEL = new HashSet<String>(
-            Arrays.asList("lib", "updater"));
+            Arrays.asList("defaults", "lib", "updater"));
     private static final Set<String> APP_MANAGED_FILES = new HashSet<String>(
             Arrays.asList("BotGetLog_Multi.jar", "README.TXT"));
 
