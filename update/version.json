@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.6",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.6/BotGetLog_Multi-dist-1.0.6.zip",
-    "sha256":  "268c28f83f4467e2659a6032a41ab299596713d590e480eb7dd72d21b6114343",
-    "notes":  "Release v1.0.6: add Bot Tool Launcher, integrate Link Optical/ARP/PTP, centralize auto-update, and move logs"
+    "version":  "1.0.7",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.7/BotGetLog_Multi-dist-1.0.7.zip",
+    "sha256":  "fa6d0dcc06082f4e45805776051d40b0e2738d4cddc6dddb9f451b3b1aa02ce6",
+    "notes":  "Release: v1.0.7 package refactor and cleanup"
 }

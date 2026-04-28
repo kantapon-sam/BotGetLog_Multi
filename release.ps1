@@ -50,6 +50,7 @@ function Resolve-AntCommand {
     $candidates = @(
         "C:\Program Files\NetBeans-25\netbeans\extide\ant\bin\ant.bat",
         "C:\Program Files\NetBeans-24\netbeans\extide\ant\bin\ant.bat",
+        "C:\Program Files\NetBeans-12.6\netbeans\extide\ant\bin\ant.bat",
         "C:\Program Files\Apache NetBeans\extide\ant\bin\ant.bat"
     )
 
@@ -282,7 +283,7 @@ function Update-ManifestUrlInSource {
         [string]$RawManifestUrl
     )
 
-    $sourcePath = Join-Path $ProjectRoot "src\com\java\myapp\AutoUpdateManager.java"
+    $sourcePath = Join-Path $ProjectRoot "src\com\java\updater\AutoUpdateManager.java"
     $sourceContent = Get-Content -LiteralPath $sourcePath -Raw
     $pattern = 'https://raw\.githubusercontent\.com/[^"]+/update/version\.json'
     $replacement = $RawManifestUrl.Replace('\', '\\')
@@ -290,7 +291,7 @@ function Update-ManifestUrlInSource {
     if ($sourceContent -match $pattern) {
         $updated = [regex]::Replace($sourceContent, $pattern, $replacement, 1)
     } else {
-        throw "Unable to find manifest URL placeholder in AutoUpdateManager.java"
+        throw "Unable to find manifest URL placeholder in src\com\java\updater\AutoUpdateManager.java"
     }
 
     Set-FileContentUtf8NoBom -Path $sourcePath -Content $updated
