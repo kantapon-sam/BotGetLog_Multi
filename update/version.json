@@ -1,6 +1,11 @@
 {
-    "version":  "1.0.2",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.2/BotGetLog_Multi-dist-1.0.2.zip",
-    "sha256":  "482c3baa5ee53979500fe9a6df2dac691ac6b695c2d8a8d0b948962730d253e8",
-    "notes":  "improve prompt logging and sync version labels"
+    "version":  "1.0.3",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.3/BotGetLog_Multi-dist-1.0.3.zip",
+    "sha256":  "b3419c8640567183a7ba28b32413d58744691a65d25c123afa75e599c411eeb5",
+    "notes":  "Update release v1.0.3
+
+- Improved updater safety
+- Auto updater now only removes old app-managed files
+- Preserves user-created files, custom .bat files, portable JRE, output folders, and local data during update
+"
 }

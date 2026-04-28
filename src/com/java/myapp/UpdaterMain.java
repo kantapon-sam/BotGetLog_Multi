@@ -26,6 +26,10 @@ public class UpdaterMain {
     private static final String UPDATE_LOG_NAME = "update.log";
     private static final Set<String> PRESERVED_TOP_LEVEL = new HashSet<String>(
             Arrays.asList("UserInterface_Input.xlsx", "_output", "JAR", UPDATE_LOG_NAME));
+    private static final Set<String> APP_MANAGED_TOP_LEVEL = new HashSet<String>(
+            Arrays.asList("lib", "updater"));
+    private static final Set<String> APP_MANAGED_FILES = new HashSet<String>(
+            Arrays.asList("BotGetLog_Multi.jar", "README.TXT"));
 
     public static void main(String[] args) {
         File targetDir = null;
@@ -119,6 +123,9 @@ public class UpdaterMain {
                         if (isPreserved(relative)) {
                             return;
                         }
+                        if (!isAppManaged(relative)) {
+                            return;
+                        }
                         Path source = sourceRoot.resolve(relative);
                         if (!Files.exists(source)) {
                             Files.deleteIfExists(target);
@@ -206,6 +213,16 @@ public class UpdaterMain {
     private static boolean isPreserved(Path relative) {
         Path first = relative.getNameCount() > 0 ? relative.getName(0) : relative;
         return first != null && PRESERVED_TOP_LEVEL.contains(first.toString());
+    }
+
+    private static boolean isAppManaged(Path relative) {
+        Path first = relative.getNameCount() > 0 ? relative.getName(0) : relative;
+        if (first == null) {
+            return false;
+        }
+
+        String name = first.toString();
+        return APP_MANAGED_TOP_LEVEL.contains(name) || APP_MANAGED_FILES.contains(name);
     }
 
     private static void log(File targetDir, String message) {

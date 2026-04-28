@@ -122,6 +122,89 @@ function New-ReleaseZip {
     return $zipPath
 }
 
+function New-PortablePackage {
+    param(
+        [string]$ProjectRoot,
+        [string]$VersionTag
+    )
+
+    $distDir = Join-Path $ProjectRoot "dist"
+    if (-not (Test-Path -LiteralPath $distDir)) {
+        throw "dist folder not found: $distDir"
+    }
+
+    $portableRoot = Join-Path $ProjectRoot "portable"
+    $portableName = "BotGetLog_Multi_Portable_$VersionTag"
+    $portableSource = Get-ChildItem -LiteralPath $portableRoot -Directory |
+        Where-Object { $_.Name -ne $portableName } |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "jre\bin\java.exe") } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    if (-not $portableSource) {
+        throw "Portable JRE source not found under: $portableRoot"
+    }
+
+    $portableDir = Join-Path $portableRoot $portableName
+    if (Test-Path -LiteralPath $portableDir) {
+        Remove-Item -LiteralPath $portableDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $portableDir | Out-Null
+
+    Copy-Item -LiteralPath (Join-Path $portableSource.FullName "jre") -Destination (Join-Path $portableDir "jre") -Recurse
+    Copy-Item -Path (Join-Path $distDir "*") -Destination $portableDir -Recurse
+
+    $outputDir = Join-Path $portableDir "_output\Total_Log"
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+
+    $runBatContent = @'
+@echo off
+setlocal
+cd /d "%~dp0"
+
+if not exist "%~dp0jre\bin\java.exe" (
+    echo Portable Java runtime not found in "%~dp0jre".
+    pause
+    exit /b 1
+)
+
+if not exist "%~dp0BotGetLog_Multi.jar" (
+    echo Application JAR not found in "%~dp0".
+    pause
+    exit /b 1
+)
+
+"%~dp0jre\bin\java.exe" -jar "%~dp0BotGetLog_Multi.jar"
+set "EXIT_CODE=%ERRORLEVEL%"
+
+if not "%EXIT_CODE%"=="0" (
+    echo.
+    echo Program exited with code %EXIT_CODE%.
+    pause
+)
+
+exit /b %EXIT_CODE%
+'@
+    Set-FileContentUtf8NoBom -Path (Join-Path $portableDir "run.bat") -Content $runBatContent
+
+    $releaseDir = Join-Path $ProjectRoot "outputs\releases\$VersionTag"
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+    $zipName = "BotGetLog_Multi-portable-$VersionTag.zip"
+    $zipPath = Join-Path $releaseDir $zipName
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+
+    Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+    return @{
+        PortableDir = $portableDir
+        PortableZip = $zipPath
+        PortableSource = $portableSource.FullName
+    }
+}
+
 function Write-UpdateManifest {
     param(
         [string]$ProjectRoot,
@@ -206,6 +289,9 @@ Write-Step "Creating release ZIP"
 $zipPath = New-ReleaseZip -ProjectRoot $projectRoot -VersionTag $Version
 $zipName = Split-Path -Leaf $zipPath
 
+Write-Step "Creating portable package"
+$portableInfo = New-PortablePackage -ProjectRoot $projectRoot -VersionTag $Version
+
 Write-Step "Calculating SHA-256"
 $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
 
@@ -227,6 +313,9 @@ if ($CreateGitTag) {
 Write-Host ""
 Write-Host "Release package ready:" -ForegroundColor Green
 Write-Host "ZIP: $zipPath"
+Write-Host "Portable folder: $($portableInfo.PortableDir)"
+Write-Host "Portable ZIP: $($portableInfo.PortableZip)"
+Write-Host "Portable JRE source: $($portableInfo.PortableSource)"
 Write-Host "SHA256: $sha256"
 Write-Host "Manifest: $($manifestInfo.ManifestPath)"
 Write-Host "Release URL: $($manifestInfo.ReleaseUrl)"
