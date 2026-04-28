@@ -79,7 +79,7 @@ public class BotGetLog_Multi {
     private static final long startTime = System.currentTimeMillis();
 
     private static final java.io.PrintStream realOut
-            = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
+            = AppConsole.createPrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), false);
     private static final Object BOT_LOG_LOCK = new Object();
     private static final DateTimeFormatter BOT_LOG_DAY_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final int BOT_LOG_BUFFER_SIZE = 16 * 1024;
@@ -838,11 +838,11 @@ public class BotGetLog_Multi {
     }
 
     public static void main(String[] args) {
+        AppConsole.install();
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
 
-        System.setOut(new java.io.PrintStream(System.out, true));
         backgroundWorkersActive = true;
 
         //   Sleep +  beep - 5 -
@@ -1627,13 +1627,10 @@ public class BotGetLog_Multi {
             synchronized (realOut) {
                 String msg = String.format("\rProgress: [%s] %.1f%% (%d/%d)", bar, percent, done, total);
                 realOut.print(msg);
-                System.out.print(msg);
                 if (done >= total) {
                     realOut.println();
-                    System.out.println();
                 }
                 realOut.flush();
-                System.out.flush();
             }
             lastProgressConsoleUpdateMs = now;
         }
