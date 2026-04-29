@@ -1,9 +1,0 @@
-# Copy this file to analytics.properties, fill in your real Apps Script URL,
-# then keep analytics.properties in the project root before building a release.
-# build.xml will copy the real analytics.properties into dist automatically.
-
-enabled=true
-endpointUrl=https://script.google.com/macros/s/DEPLOYMENT_ID/exec
-apiKey=change-me
-maxBatchSize=20
-debug=false
