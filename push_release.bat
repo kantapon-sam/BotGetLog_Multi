@@ -33,7 +33,7 @@ if not errorlevel 1 (
 
 echo.
 echo Staging files...
-git add manifest.mf META-INF\MANIFEST.MF build.xml release.ps1 UserInterface_Input.xlsx update\version.json update\version.template.json src\com\java\myapp
+git add manifest.mf META-INF\MANIFEST.MF build.xml release.ps1 UserInterface_Input.xlsx update\version.json update\version.template.json nbproject\project.properties src\com\java
 if errorlevel 1 (
     echo git add failed.
     pause
