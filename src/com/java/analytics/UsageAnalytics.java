@@ -14,9 +14,9 @@ import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
@@ -35,16 +35,10 @@ public final class UsageAnalytics {
 
     private static final String ENABLED_PROPERTY = "botgetlog.analytics.enabled";
     private static final String ENABLED_ENV = "BOTGETLOG_ANALYTICS_ENABLED";
-    private static final String TOKEN_PROPERTY = "botgetlog.analytics.token";
-    private static final String TOKEN_ENV = "BOTGETLOG_ANALYTICS_TOKEN";
-    private static final String REPO_OWNER_PROPERTY = "botgetlog.analytics.repoOwner";
-    private static final String REPO_OWNER_ENV = "BOTGETLOG_ANALYTICS_REPO_OWNER";
-    private static final String REPO_NAME_PROPERTY = "botgetlog.analytics.repoName";
-    private static final String REPO_NAME_ENV = "BOTGETLOG_ANALYTICS_REPO_NAME";
-    private static final String DISPATCH_URL_PROPERTY = "botgetlog.analytics.dispatchUrl";
-    private static final String DISPATCH_URL_ENV = "BOTGETLOG_ANALYTICS_DISPATCH_URL";
-    private static final String EVENT_TYPE_PROPERTY = "botgetlog.analytics.eventType";
-    private static final String EVENT_TYPE_ENV = "BOTGETLOG_ANALYTICS_EVENT_TYPE";
+    private static final String ENDPOINT_URL_PROPERTY = "botgetlog.analytics.endpointUrl";
+    private static final String ENDPOINT_URL_ENV = "BOTGETLOG_ANALYTICS_ENDPOINT_URL";
+    private static final String API_KEY_PROPERTY = "botgetlog.analytics.apiKey";
+    private static final String API_KEY_ENV = "BOTGETLOG_ANALYTICS_API_KEY";
     private static final String MAX_BATCH_SIZE_PROPERTY = "botgetlog.analytics.maxBatchSize";
     private static final String MAX_BATCH_SIZE_ENV = "BOTGETLOG_ANALYTICS_MAX_BATCH_SIZE";
     private static final String DEBUG_PROPERTY = "botgetlog.analytics.debug";
@@ -54,7 +48,8 @@ public final class UsageAnalytics {
     private static final String MACHINE_ID_FILE_NAME = "machine-id.txt";
     private static final String FLUSH_LOCK_FILE_NAME = "analytics-flush.lock";
     private static final String ANALYTICS_LOG_FILE_NAME = "analytics.log";
-    private static final String DEFAULT_EVENT_TYPE = "app_launch_batch";
+    private static final String DEFAULT_ENDPOINT_URL = "";
+    private static final String DEFAULT_API_KEY = "";
     private static final int DEFAULT_BATCH_SIZE = 20;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
@@ -100,7 +95,7 @@ public final class UsageAnalytics {
         }
         AnalyticsConfig config = AnalyticsConfig.load();
         if (!config.isValid()) {
-            log("Analytics is enabled but configuration is incomplete.");
+            log("Analytics is enabled but endpointUrl is missing.");
             return;
         }
 
@@ -234,53 +229,57 @@ public final class UsageAnalytics {
     }
 
     private static void dispatchBatch(AnalyticsConfig config, List<LaunchEvent> batch) throws IOException {
-        HttpURLConnection connection = openDispatchConnection(config);
-        byte[] payload = buildDispatchPayload(config, batch).getBytes(StandardCharsets.UTF_8);
+        HttpURLConnection connection = openConnection(config.endpointUrl);
+        byte[] payload = buildRequestPayload(config, batch).getBytes(StandardCharsets.UTF_8);
+        String response;
         try {
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(payload);
             }
+            response = readResponseBody(connection);
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) {
-                String response = readResponseBody(connection);
-                throw new IOException("Dispatch failed with HTTP " + status + ": " + response);
+                throw new IOException("Apps Script returned HTTP " + status + ": " + response);
             }
         } finally {
             connection.disconnect();
         }
+
+        if (!containsOkTrue(response)) {
+            throw new IOException("Apps Script response did not confirm success: " + response);
+        }
     }
 
-    private static HttpURLConnection openDispatchConnection(AnalyticsConfig config) throws IOException {
-        URL url = new URL(config.dispatchUrl);
+    private static HttpURLConnection openConnection(String endpointUrl) throws IOException {
+        URL url = new URL(endpointUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("POST");
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("Accept", "application/vnd.github+json");
-        connection.setRequestProperty("Authorization", "Bearer " + config.token);
+        connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
         connection.setRequestProperty("User-Agent", AppMetadata.getAppName() + "-analytics");
         return connection;
     }
 
-    private static String buildDispatchPayload(AnalyticsConfig config, List<LaunchEvent> batch) {
+    private static String buildRequestPayload(AnalyticsConfig config, List<LaunchEvent> batch) {
         StringBuilder json = new StringBuilder(1024);
-        json.append("{\"event_type\":\"")
-                .append(escapeJson(config.eventType))
-                .append("\",\"client_payload\":{");
+        json.append("{");
         json.append("\"source\":\"").append(escapeJson(AppMetadata.getAppName())).append("\",");
-        json.append("\"batch_created_at\":\"").append(escapeJson(OffsetDateTime.now(ZoneOffset.UTC).format(ISO_TIME))).append("\",");
-        json.append("\"events\":[");
+        json.append("\"batch_created_at\":\"").append(escapeJson(OffsetDateTime.now(ZoneOffset.UTC).format(ISO_TIME))).append("\"");
+        if (!config.apiKey.isEmpty()) {
+            json.append(",\"api_key\":\"").append(escapeJson(config.apiKey)).append("\"");
+        }
+        json.append(",\"events\":[");
         for (int i = 0; i < batch.size(); i++) {
             if (i > 0) {
                 json.append(',');
             }
             json.append(batch.get(i).toJson());
         }
-        json.append("]}}");
+        json.append("]}");
         return json.toString();
     }
 
@@ -300,6 +299,11 @@ public final class UsageAnalytics {
             }
             return new String(output.toByteArray(), StandardCharsets.UTF_8).trim();
         }
+    }
+
+    private static boolean containsOkTrue(String response) {
+        String normalized = safe(response).replace(" ", "").replace("\r", "").replace("\n", "").toLowerCase();
+        return normalized.contains("\"ok\":true");
     }
 
     private static File getAnalyticsDirectory() {
@@ -429,43 +433,33 @@ public final class UsageAnalytics {
 
     private static final class AnalyticsConfig {
 
-        final String dispatchUrl;
-        final String token;
-        final String eventType;
+        final String endpointUrl;
+        final String apiKey;
         final int maxBatchSize;
 
-        private AnalyticsConfig(String dispatchUrl, String token, String eventType, int maxBatchSize) {
-            this.dispatchUrl = dispatchUrl;
-            this.token = token;
-            this.eventType = eventType;
+        private AnalyticsConfig(String endpointUrl, String apiKey, int maxBatchSize) {
+            this.endpointUrl = endpointUrl;
+            this.apiKey = apiKey;
             this.maxBatchSize = maxBatchSize;
         }
 
         static AnalyticsConfig load() {
-            String owner = resolveValue(REPO_OWNER_PROPERTY, REPO_OWNER_ENV, "repoOwner");
-            String repo = resolveValue(REPO_NAME_PROPERTY, REPO_NAME_ENV, "repoName");
-            String configuredUrl = resolveValue(DISPATCH_URL_PROPERTY, DISPATCH_URL_ENV, "dispatchUrl");
-            String dispatchUrl = !configuredUrl.isEmpty()
-                    ? configuredUrl
-                    : buildDispatchUrl(owner, repo);
-            String token = resolveValue(TOKEN_PROPERTY, TOKEN_ENV, "token");
-            String eventType = resolveValue(EVENT_TYPE_PROPERTY, EVENT_TYPE_ENV, "eventType");
-            if (eventType.isEmpty()) {
-                eventType = DEFAULT_EVENT_TYPE;
+            String endpointUrl = resolveValue(ENDPOINT_URL_PROPERTY, ENDPOINT_URL_ENV, "endpointUrl");
+            if (endpointUrl.isEmpty()) {
+                endpointUrl = DEFAULT_ENDPOINT_URL;
+            }
+            String apiKey = resolveValue(API_KEY_PROPERTY, API_KEY_ENV, "apiKey");
+            if (apiKey.isEmpty()) {
+                apiKey = DEFAULT_API_KEY;
             }
             int maxBatchSize = parseInt(resolveValue(MAX_BATCH_SIZE_PROPERTY, MAX_BATCH_SIZE_ENV, "maxBatchSize"), DEFAULT_BATCH_SIZE);
-            return new AnalyticsConfig(dispatchUrl, token, eventType, maxBatchSize);
+            return new AnalyticsConfig(endpointUrl, apiKey, maxBatchSize);
         }
 
         boolean isValid() {
-            return !dispatchUrl.isEmpty() && !token.isEmpty();
-        }
-
-        private static String buildDispatchUrl(String owner, String repo) {
-            if (owner.isEmpty() || repo.isEmpty()) {
-                return "";
-            }
-            return "https://api.github.com/repos/" + owner + "/" + repo + "/dispatches";
+            return !endpointUrl.isEmpty()
+                    && endpointUrl.indexOf("DEPLOYMENT_ID") < 0
+                    && endpointUrl.indexOf("PASTE_") < 0;
         }
     }
 

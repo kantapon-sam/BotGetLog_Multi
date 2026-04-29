@@ -162,5 +162,9 @@
               tofile="${dist.dir}/analytics.properties.template"
               failonerror="false"
               quiet="true"/>
+        <copy file="${basedir}/analytics.properties"
+              tofile="${dist.dir}/analytics.properties"
+              failonerror="false"
+              quiet="true"/>
     </target>
 </project>

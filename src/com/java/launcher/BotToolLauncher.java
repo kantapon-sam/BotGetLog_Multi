@@ -35,7 +35,7 @@ public class BotToolLauncher {
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String LEGACY_LOG_DIR = "JAR\\log";
-    private static final String FALLBACK_VERSION = "1.0.7";
+    private static final String FALLBACK_VERSION = "1.0.9";
 
     private JFrame frame;
     private JTextArea textArea;
