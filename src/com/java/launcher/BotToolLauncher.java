@@ -2,20 +2,42 @@ package com.java.launcher;
 
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
+import java.awt.Desktop;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Insets;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.FileInputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.URI;
+import java.net.SocketException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.CodeSource;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -33,8 +55,75 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    private static final String LEGACY_LOG_DIR = "JAR\\log";
-    private static final String FALLBACK_VERSION = "1.0.10";
+    // Version 1.0.11: cleanup legacy launcher items, keep Reset scoped to _output\Total_Log,
+    // and stabilize Chrome Auto Login with launcher-data storage plus silent activity logging.
+    private static final String FALLBACK_VERSION = "1.0.11";
+    private static final int WEB_PING_TIMEOUT_MS = 800;
+    private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
+    private static final Color WEB_PANEL_BACKGROUND = new Color(231, 239, 253);
+    private static final Color CARD_BORDER = new Color(205, 214, 225);
+    private static final Color TOOL_BUTTON_BACKGROUND = new Color(44, 62, 80);
+    private static final Color TOOL_BUTTON_FOREGROUND = Color.WHITE;
+    private static final Color WEB_BUTTON_BACKGROUND = new Color(21, 101, 192);
+    private static final Color WEB_BUTTON_FOREGROUND = Color.WHITE;
+    private static final Color LOGIN_BUTTON_BACKGROUND = new Color(30, 64, 110);
+    private static final Color SECONDARY_BUTTON_BACKGROUND = new Color(234, 236, 240);
+    private static final Color SECONDARY_BUTTON_FOREGROUND = new Color(42, 52, 64);
+    private static final int SIDE_PANEL_WIDTH = 360;
+    private static final String[] VPN_KEYWORDS = {
+        "juniper", "pulse", "pangp", "globalprotect", "forti", "forticlient",
+        "cisco", "anyconnect", "wireguard", "openvpn", "zscaler", "checkpoint", "vpn"
+    };
+    private static final List<WebTarget> WEB_TARGETS = Arrays.asList(
+            new WebTarget("zenicone_nea", "ZenicOne_NEA",
+                    "https://10.35.228.158:28001/portal-athena/",
+                    "https://10.11.2.77:28001/portal-athena/"),
+            new WebTarget("zenicone_cw", "ZenicOne_C&W",
+                    "https://10.35.227.124:28001/portal-athena/",
+                    "https://10.50.179.11:28001/portal-athena/"),
+            new WebTarget("nce", "NCE",
+                    "https://10.35.228.22:31943/",
+                    "https://10.50.174.15:31943/"),
+            new WebTarget("pms", "PMS",
+                    "https://10.35.228.115/login",
+                    "https://10.50.238.85/login"),
+            new WebTarget("planwork", "Planwork",
+                    "http://10.35.224.243/maximo/",
+                    "http://10.50.90.191/maximo/"),
+            new WebTarget("tuar", "TUAR",
+                    "http://10.35.224.175/tuar/",
+                    "http://10.50.64.186/tuar/"),
+            new WebTarget("fr_planwork", "FR-Planwork",
+                    "http://10.35.227.82/FR-Planwork/",
+                    "http://10.50.90.36/FR-Planwork/"),
+            new WebTarget("corp", "Corp",
+                    "http://10.35.227.82/CorpInvNew/",
+                    "http://10.50.90.36/CorpInvNew/"),
+            new WebTarget("cacti_dtac", "Cacti_Dtac",
+                    "http://192.168.127.46/",
+                    "http://192.168.127.46/"),
+            new WebTarget("cerberus", "Cerberus",
+                    "https://cerberus.dtacnetwork.co.th/",
+                    "https://cerberus.dtacnetwork.co.th/"),
+            new WebTarget("trueconnect", "Trueconnect",
+                    "https://trueconnect.ekoapp.com/",
+                    "https://trueconnect.ekoapp.com/"),
+            new WebTarget("proms", "Proms",
+                    "http://promsweb.true.th/proms/login",
+                    "http://promsweb.true.th/proms/login"),
+            new WebTarget("atts", "ATTS",
+                    "https://atts.truecorp.co.th/",
+                    "https://atts.truecorp.co.th/"),
+            new WebTarget("itsm", "ITSM",
+                    "https://ticketing-eu.managed-services.prod.sdt.ericsson.net/arsys",
+                    "https://ticketing-eu.managed-services.prod.sdt.ericsson.net/arsys"),
+            new WebTarget("change_password_clls", "Change password CLLS",
+                    "http://10.50.90.170/logincenter/",
+                    "http://10.50.90.170/logincenter/")
+    );
+
+    private final CredentialStore credentialStore = new CredentialStore();
+    private final LoginRecipeRegistry loginRecipeRegistry = new LoginRecipeRegistry();
 
     private JFrame frame;
     private JTextArea textArea;
@@ -44,6 +133,11 @@ public class BotToolLauncher {
     private JButton ptpButton;
     private JButton resetButton;
     private JButton exitButton;
+    private JButton refreshLinksButton;
+    private JPanel webButtonsPanel;
+    private JLabel webStatusLabel;
+    private String vpnStatusSummary;
+    private List<ResolvedWebTarget> lastResolvedTargets = Collections.emptyList();
 
     private void show() {
         setLookAndFeel();
@@ -65,6 +159,8 @@ public class BotToolLauncher {
             return;
         }
 
+        vpnStatusSummary = getVpnStatusSummary();
+
         textArea = new JTextArea(24, 92);
         textArea.setEditable(false);
         textArea.setLineWrap(false);
@@ -81,6 +177,7 @@ public class BotToolLauncher {
         ptpButton = new JButton("PTP");
         resetButton = new JButton("Reset");
         exitButton = new JButton("Exit");
+        refreshLinksButton = new JButton("Refresh Links");
 
         launchBotButton.addActionListener(e -> launchBotJar());
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
@@ -88,15 +185,19 @@ public class BotToolLauncher {
         ptpButton.addActionListener(e -> launchPtpJar());
         resetButton.addActionListener(e -> resetGeneratedFiles());
         exitButton.addActionListener(e -> frame.dispose());
+        refreshLinksButton.addActionListener(e -> refreshWebLinksAsync());
+        styleToolButton(launchBotButton);
+        styleToolButton(linkOpticalButton);
+        styleToolButton(arpButton);
+        styleToolButton(ptpButton);
+        styleSecondaryButton(resetButton);
+        styleSecondaryButton(exitButton);
+        styleSecondaryButton(refreshLinksButton);
 
         JPanel actionListPanel = new JPanel();
         actionListPanel.setLayout(new BoxLayout(actionListPanel, BoxLayout.Y_AXIS));
-        actionListPanel.setBackground(new Color(235, 235, 235));
-        actionListPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-
-        JLabel actionTitle = new JLabel("Tool Menu");
-        actionTitle.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        actionTitle.setAlignmentX(JLabel.LEFT_ALIGNMENT);
+        actionListPanel.setBackground(PANEL_BACKGROUND);
+        actionListPanel.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
 
         JPanel actionButtonsPanel = new JPanel(new GridLayout(0, 1, 0, 8));
         actionButtonsPanel.setOpaque(false);
@@ -107,18 +208,32 @@ public class BotToolLauncher {
         actionButtonsPanel.add(resetButton);
         actionButtonsPanel.add(exitButton);
 
-        actionListPanel.add(actionTitle);
-        actionListPanel.add(Box.createVerticalStrut(10));
-        actionListPanel.add(actionButtonsPanel);
+        actionListPanel.add(createToolSectionPanel(actionButtonsPanel));
+        actionListPanel.add(Box.createVerticalStrut(16));
+        actionListPanel.add(createWebLinksPanel());
+        actionListPanel.add(Box.createVerticalGlue());
+
+        JScrollPane sideScrollPane = new JScrollPane(
+                actionListPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        );
+        sideScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        sideScrollPane.getViewport().setBackground(PANEL_BACKGROUND);
+        sideScrollPane.setBackground(PANEL_BACKGROUND);
+        sideScrollPane.setPreferredSize(new Dimension(SIDE_PANEL_WIDTH, 0));
+        sideScrollPane.getVerticalScrollBar().setUnitIncrement(18);
 
         frame = new JFrame("Bot Tool Launcher - Console");
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
         frame.add(new JScrollPane(textArea), BorderLayout.CENTER);
-        frame.add(actionListPanel, BorderLayout.EAST);
-        frame.setPreferredSize(new Dimension(980, 640));
+        frame.add(sideScrollPane, BorderLayout.EAST);
+        frame.setPreferredSize(new Dimension(1160, 680));
         frame.pack();
         frame.setLocationRelativeTo(null);
+
+        refreshWebLinksAsync();
     }
 
     private String buildLauncherText() {
@@ -126,6 +241,7 @@ public class BotToolLauncher {
         StringBuilder text = new StringBuilder();
         text.append("[INFO] Bot Tool Launcher initialized").append(lineBreak);
         text.append("[INFO] Current version: ").append(getCurrentVersion()).append(lineBreak);
+        text.append("[VPN] ").append(vpnStatusSummary == null ? "Not detected" : vpnStatusSummary).append(lineBreak);
         text.append("[INFO] Select a menu from the buttons below.").append(lineBreak);
         text.append(lineBreak);
         text.append("1. BotGetLog").append(lineBreak);
@@ -148,6 +264,655 @@ public class BotToolLauncher {
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
         return text.toString();
+    }
+
+    private JPanel createToolSectionPanel(JPanel actionButtonsPanel) {
+        JPanel toolPanel = createCardPanel(Color.WHITE);
+        toolPanel.setAlignmentX(JPanel.CENTER_ALIGNMENT);
+        toolPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        JLabel actionTitle = new JLabel("Tool Menu");
+        actionTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        actionTitle.setAlignmentX(JLabel.CENTER_ALIGNMENT);
+
+        actionButtonsPanel.setAlignmentX(JPanel.CENTER_ALIGNMENT);
+
+        toolPanel.add(actionTitle);
+        toolPanel.add(Box.createVerticalStrut(12));
+        toolPanel.add(actionButtonsPanel);
+        return toolPanel;
+    }
+
+    private JPanel createWebLinksPanel() {
+        JPanel webPanel = createCardPanel(WEB_PANEL_BACKGROUND);
+        webPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(193, 210, 235)),
+                BorderFactory.createEmptyBorder(12, 12, 12, 12)
+        ));
+        webPanel.setAlignmentX(JPanel.CENTER_ALIGNMENT);
+        webPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        JLabel webTitle = new JLabel("Web Shortcuts");
+        webTitle.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        webTitle.setAlignmentX(JLabel.CENTER_ALIGNMENT);
+
+        webStatusLabel = new JLabel("Checking reachable links...");
+        webStatusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        webStatusLabel.setForeground(new Color(58, 76, 97));
+        webStatusLabel.setAlignmentX(JLabel.CENTER_ALIGNMENT);
+
+        webButtonsPanel = new JPanel();
+        webButtonsPanel.setLayout(new BoxLayout(webButtonsPanel, BoxLayout.Y_AXIS));
+        webButtonsPanel.setOpaque(false);
+        webButtonsPanel.setAlignmentX(JPanel.CENTER_ALIGNMENT);
+
+        refreshLinksButton.setAlignmentX(JButton.CENTER_ALIGNMENT);
+
+        webPanel.add(webTitle);
+        webPanel.add(Box.createVerticalStrut(8));
+        webPanel.add(webStatusLabel);
+        webPanel.add(Box.createVerticalStrut(10));
+        webPanel.add(webButtonsPanel);
+        webPanel.add(Box.createVerticalStrut(10));
+        webPanel.add(refreshLinksButton);
+        return webPanel;
+    }
+
+    private void refreshWebLinksAsync() {
+        if (webStatusLabel != null) {
+            webStatusLabel.setText("Checking reachable links...");
+        }
+        if (refreshLinksButton != null) {
+            refreshLinksButton.setEnabled(false);
+        }
+        new Thread(() -> {
+            String preferredGroup = detectPreferredWebGroup();
+            List<ResolvedWebTarget> resolvedTargets = resolveWebTargets(preferredGroup);
+            SwingUtilities.invokeLater(() -> updateWebLinksPanel(resolvedTargets));
+        }, "web-link-refresh").start();
+    }
+
+    private void updateWebLinksPanel(List<ResolvedWebTarget> resolvedTargets) {
+        if (webButtonsPanel == null || webStatusLabel == null) {
+            return;
+        }
+
+        lastResolvedTargets = new ArrayList<ResolvedWebTarget>(resolvedTargets);
+        webButtonsPanel.removeAll();
+        webStatusLabel.setText(buildWebStatusText(resolvedTargets));
+        for (ResolvedWebTarget target : resolvedTargets) {
+            webButtonsPanel.add(createWebShortcutRow(target));
+            webButtonsPanel.add(Box.createVerticalStrut(8));
+        }
+
+        webButtonsPanel.revalidate();
+        webButtonsPanel.repaint();
+        if (refreshLinksButton != null) {
+            refreshLinksButton.setEnabled(true);
+        }
+    }
+
+    private String buildWebStatusText(List<ResolvedWebTarget> resolvedTargets) {
+        int availableCount = 0;
+        for (ResolvedWebTarget target : resolvedTargets) {
+            if (target.available) {
+                availableCount++;
+            }
+        }
+        return "Available links: " + availableCount + " / " + resolvedTargets.size();
+    }
+
+    private JPanel createWebShortcutRow(ResolvedWebTarget target) {
+        JPanel rowPanel = createCardPanel(Color.WHITE);
+        rowPanel.setAlignmentX(JPanel.CENTER_ALIGNMENT);
+        rowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        JLabel titleLabel = new JLabel(target.label);
+        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        titleLabel.setAlignmentX(JLabel.LEFT_ALIGNMENT);
+
+        SiteCredential savedCredential = credentialStore.load(target.siteId);
+        JPanel actionPanel = new JPanel();
+        actionPanel.setLayout(new BoxLayout(actionPanel, BoxLayout.Y_AXIS));
+        actionPanel.setOpaque(false);
+        actionPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        JPanel primaryActionPanel = new JPanel(new GridLayout(1, 2, 8, 0));
+        primaryActionPanel.setOpaque(false);
+        primaryActionPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        JButton openButton = new JButton("Open");
+        styleSmallActionButton(openButton, WEB_BUTTON_BACKGROUND, WEB_BUTTON_FOREGROUND);
+        openButton.setEnabled(target.available);
+        openButton.setToolTipText(target.available ? target.url : "Unavailable: ping failed on both routes");
+        openButton.addActionListener(e -> openWebLink(target));
+
+        JButton autoLoginButton = new JButton(savedCredential != null && savedCredential.hasUsableCredential()
+                ? "Auto Login" : "Setup");
+        styleSmallActionButton(autoLoginButton, LOGIN_BUTTON_BACKGROUND, TOOL_BUTTON_FOREGROUND);
+        autoLoginButton.setEnabled(target.available);
+        autoLoginButton.setToolTipText(target.available
+                ? "Open Chrome and fill saved credentials"
+                : "Unavailable: ping failed on both routes");
+        autoLoginButton.addActionListener(e -> handleAutoLogin(target));
+
+        JButton settingsButton = new JButton("Credentials");
+        styleSmallActionButton(settingsButton, SECONDARY_BUTTON_BACKGROUND, SECONDARY_BUTTON_FOREGROUND);
+        settingsButton.setToolTipText("Save username/password for " + target.label);
+        settingsButton.addActionListener(e -> handleSiteSettings(target));
+        settingsButton.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        primaryActionPanel.add(openButton);
+        primaryActionPanel.add(autoLoginButton);
+
+        actionPanel.add(primaryActionPanel);
+        actionPanel.add(Box.createVerticalStrut(8));
+        actionPanel.add(settingsButton);
+
+        rowPanel.add(titleLabel);
+        rowPanel.add(Box.createVerticalStrut(4));
+        rowPanel.add(actionPanel);
+        return rowPanel;
+    }
+
+    private void handleSiteSettings(ResolvedWebTarget target) {
+        SiteSettingsDialog.Result result = SiteSettingsDialog.showDialog(
+                frame,
+                target.siteId,
+                target.label,
+                credentialStore.load(target.siteId)
+        );
+        if (result.isCancelled()) {
+            return;
+        }
+        if (result.isClearRequested()) {
+            credentialStore.clear(result.getSiteId());
+            appendLine("[LOGIN] Cleared saved credential for " + target.label);
+        } else if (result.getCredential() != null) {
+            credentialStore.save(result.getCredential());
+            appendLine("[LOGIN] Saved credential for " + target.label);
+        }
+        rerenderWebLinks();
+    }
+
+    private void handleAutoLogin(ResolvedWebTarget target) {
+        if (!target.available) {
+            JOptionPane.showMessageDialog(
+                    frame,
+                    target.label + " is unavailable right now.\nPing failed on both routes.",
+                    "Link unavailable",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        SiteCredential credential = credentialStore.load(target.siteId);
+        if (credential == null || !credential.hasUsableCredential()) {
+            SiteSettingsDialog.Result result = SiteSettingsDialog.showDialog(
+                    frame,
+                    target.siteId,
+                    target.label,
+                    credential
+            );
+            if (result.isCancelled() || result.isClearRequested() || result.getCredential() == null) {
+                return;
+            }
+            credential = result.getCredential();
+            credentialStore.save(credential);
+            rerenderWebLinks();
+            appendLine("[LOGIN] Saved credential for " + target.label);
+        }
+
+        appendLine("[LOGIN] Auto Login started in Chrome for " + target.label);
+        AutoLoginLauncher.launch(frame, target.siteId, target.label, target.url);
+    }
+
+    private void rerenderWebLinks() {
+        if (lastResolvedTargets == null || lastResolvedTargets.isEmpty()) {
+            return;
+        }
+        updateWebLinksPanel(new ArrayList<ResolvedWebTarget>(lastResolvedTargets));
+    }
+
+    private void openWebLink(ResolvedWebTarget target) {
+        appendLine("[WEB] Opening " + target.label + " -> " + target.url);
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(target.url));
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            new ProcessBuilder("cmd", "/c", "start", "", target.url).start();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(
+                    frame,
+                    "Unable to open link\n" + target.url + "\n" + ex.getMessage(),
+                    "Open link failed",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
+    }
+
+    private static String detectPreferredWebGroup() {
+        String pulseUri = detectPulseConnectedUri();
+        if (pulseUri == null || pulseUri.trim().isEmpty()) {
+            return null;
+        }
+
+        String normalized = pulseUri.toLowerCase(Locale.ENGLISH);
+        if (normalized.contains("apollo")) {
+            return "apollo";
+        }
+        if (normalized.contains("pegasus")) {
+            return "pegasus";
+        }
+        return null;
+    }
+
+    private static List<ResolvedWebTarget> resolveWebTargets(String preferredGroup) {
+        List<ResolvedWebTarget> resolvedTargets = new ArrayList<>();
+        for (WebTarget target : WEB_TARGETS) {
+            resolvedTargets.add(resolveWebTarget(target, preferredGroup));
+        }
+        return resolvedTargets;
+    }
+
+    private static ResolvedWebTarget resolveWebTarget(WebTarget target, String preferredGroup) {
+        List<WebCandidate> candidates = buildCandidateOrder(target, preferredGroup);
+        for (WebCandidate candidate : candidates) {
+            if (canPingUrl(candidate.url)) {
+                return new ResolvedWebTarget(target.siteId, target.label, candidate.url, true);
+            }
+        }
+        WebCandidate fallback = candidates.isEmpty() ? new WebCandidate(target.apolloUrl) : candidates.get(0);
+        return new ResolvedWebTarget(target.siteId, target.label, fallback.url, false);
+    }
+
+    private static List<WebCandidate> buildCandidateOrder(WebTarget target, String preferredGroup) {
+        List<WebCandidate> candidates = new ArrayList<>(2);
+        if ("pegasus".equalsIgnoreCase(preferredGroup)) {
+            candidates.add(new WebCandidate(target.pegasusUrl));
+            candidates.add(new WebCandidate(target.apolloUrl));
+            return candidates;
+        }
+        candidates.add(new WebCandidate(target.apolloUrl));
+        candidates.add(new WebCandidate(target.pegasusUrl));
+        return candidates;
+    }
+
+    private static boolean canPingUrl(String urlText) {
+        try {
+            String host = new URL(urlText).getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return false;
+            }
+
+            Process process = new ProcessBuilder(
+                    "ping", "-n", "1", "-w", String.valueOf(WEB_PING_TIMEOUT_MS), host
+            ).redirectErrorStream(true).start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                while (reader.readLine() != null) {
+                    // Drain output so the ping process cannot block on a full buffer.
+                }
+            }
+            return process.waitFor() == 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private static JPanel createCardPanel(Color background) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(true);
+        panel.setBackground(background);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(CARD_BORDER),
+                BorderFactory.createEmptyBorder(12, 12, 12, 12)
+        ));
+        return panel;
+    }
+
+    private static void styleToolButton(JButton button) {
+        styleButton(button, TOOL_BUTTON_BACKGROUND, TOOL_BUTTON_FOREGROUND, 42, new Font("Segoe UI", Font.BOLD, 13));
+    }
+
+    private static void styleSecondaryButton(JButton button) {
+        styleButton(button, SECONDARY_BUTTON_BACKGROUND, SECONDARY_BUTTON_FOREGROUND, 38, new Font("Segoe UI", Font.BOLD, 12));
+    }
+
+    private static void styleSmallActionButton(JButton button, Color background, Color foreground) {
+        styleButton(button, background, foreground, 36, new Font("Segoe UI", Font.BOLD, 11));
+        button.setHorizontalAlignment(JButton.CENTER);
+        button.setPreferredSize(new Dimension(120, 36));
+        button.setMinimumSize(new Dimension(80, 36));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+    }
+
+    private static void styleButton(JButton button, Color background, Color foreground, int preferredHeight, Font font) {
+        button.setFont(font);
+        button.setBackground(background);
+        button.setForeground(foreground);
+        button.setOpaque(true);
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setMargin(new Insets(10, 14, 10, 14));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferredHeight));
+        button.setPreferredSize(new Dimension(SIDE_PANEL_WIDTH - 80, preferredHeight));
+        button.setMinimumSize(new Dimension(220, preferredHeight));
+        button.setAlignmentX(JComponent.CENTER_ALIGNMENT);
+    }
+
+    private static String getVpnStatusSummary() {
+        String pulseUri = detectPulseConnectedUri();
+        if (pulseUri != null && !pulseUri.isEmpty()) {
+            return "Connected: " + pulseUri;
+        }
+
+        String adapterSummary = detectVpnFromNetworkInterfaces();
+        if (adapterSummary != null && !adapterSummary.isEmpty()) {
+            return "Connected: " + adapterSummary;
+        }
+
+        String processSummary = detectVpnFromProcesses();
+        if (processSummary != null && !processSummary.isEmpty()) {
+            return "Client running: " + processSummary;
+        }
+
+        return "Not detected";
+    }
+
+    private static String detectPulseConnectedUri() {
+        String uri = readLatestPulseConnectedUriFromLog();
+        if (uri == null || uri.trim().isEmpty()) {
+            String connectionId = readLatestPulseConnectedId();
+            if (connectionId == null || connectionId.isEmpty()) {
+                return null;
+            }
+
+            Map<String, String> uriById = readPulseConnectionUris();
+            uri = uriById.get(connectionId);
+            if (uri == null || uri.trim().isEmpty()) {
+                return null;
+            }
+        }
+
+        uri = uri.trim();
+        if (uri.startsWith("https://")) {
+            return uri.substring("https://".length());
+        }
+        if (uri.startsWith("http://")) {
+            return uri.substring("http://".length());
+        }
+        return uri;
+    }
+
+    private static String readLatestPulseConnectedId() {
+        File logFile = new File("C:\\ProgramData\\Pulse Secure\\Logging\\debuglog.log");
+        if (!logFile.isFile()) {
+            return null;
+        }
+
+        String currentId = null;
+        String connectedId = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(logFile)))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("Connected to an SA (Network Connect) uri ")) {
+                    int idStart = line.indexOf("on_ChannelComplete - ");
+                    if (idStart >= 0) {
+                        currentId = line.substring(idStart + "on_ChannelComplete - ".length()).trim();
+                    }
+                }
+
+                int channelIndex = line.indexOf("on_ChannelComplete - ");
+                if (channelIndex >= 0) {
+                    currentId = line.substring(channelIndex + "on_ChannelComplete - ".length()).trim();
+                }
+
+                if (line.contains("Connection Status: Connected") && currentId != null && !currentId.isEmpty()) {
+                    connectedId = currentId;
+                }
+
+                if (line.contains("Connected to an SA (Network Connect) uri ")) {
+                    if (currentId != null && !currentId.isEmpty()) {
+                        connectedId = currentId;
+                    }
+                }
+            }
+        } catch (IOException ex) {
+            return null;
+        }
+        return connectedId;
+    }
+
+    private static String readLatestPulseConnectedUriFromLog() {
+        File logFile = new File("C:\\ProgramData\\Pulse Secure\\Logging\\debuglog.log");
+        if (!logFile.isFile()) {
+            return null;
+        }
+
+        String lastUri = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(logFile)))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                int uriIndex = line.indexOf("Connected to an SA (Network Connect) uri ");
+                if (uriIndex < 0) {
+                    continue;
+                }
+
+                String suffix = line.substring(uriIndex + "Connected to an SA (Network Connect) uri ".length()).trim();
+                int viaIndex = suffix.indexOf(" via ");
+                if (viaIndex >= 0) {
+                    suffix = suffix.substring(0, viaIndex).trim();
+                }
+                if (!suffix.isEmpty()) {
+                    lastUri = suffix;
+                }
+            }
+        } catch (IOException ex) {
+            return null;
+        }
+
+        return lastUri;
+    }
+
+    private static Map<String, String> readPulseConnectionUris() {
+        File connStore = new File("C:\\ProgramData\\Pulse Secure\\ConnectionStore\\connstore.dat");
+        if (!connStore.isFile()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, String> uriById = new HashMap<>();
+        String currentId = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(connStore)))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("ive \"")) {
+                    int start = trimmed.indexOf('"');
+                    int end = trimmed.indexOf('"', start + 1);
+                    if (start >= 0 && end > start) {
+                        currentId = trimmed.substring(start + 1, end);
+                    }
+                    continue;
+                }
+
+                if (currentId != null && trimmed.startsWith("uri: \"")) {
+                    int start = trimmed.indexOf('"');
+                    int end = trimmed.lastIndexOf('"');
+                    if (start >= 0 && end > start) {
+                        uriById.put(currentId, trimmed.substring(start + 1, end));
+                    }
+                    continue;
+                }
+
+                if (trimmed.equals("}")) {
+                    currentId = null;
+                }
+            }
+        } catch (IOException ex) {
+            return Collections.emptyMap();
+        }
+
+        return uriById;
+    }
+
+    private static String detectVpnFromNetworkInterfaces() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            if (interfaces == null) {
+                return null;
+            }
+
+            List<String> matches = new ArrayList<>();
+            for (NetworkInterface networkInterface : Collections.list(interfaces)) {
+                if (!isPossibleVpnInterface(networkInterface)) {
+                    continue;
+                }
+
+                String vendor = inferVpnVendor(networkInterface.getName(), networkInterface.getDisplayName());
+                String ipv4 = getIpv4Address(networkInterface);
+                String displayName = networkInterface.getDisplayName();
+                String interfaceName = networkInterface.getName();
+                StringBuilder summary = new StringBuilder();
+                summary.append(vendor);
+                if (displayName != null && !displayName.trim().isEmpty()) {
+                    summary.append(" via ").append(displayName.trim());
+                    if (interfaceName != null && !interfaceName.trim().isEmpty()
+                            && !displayName.trim().equalsIgnoreCase(interfaceName.trim())) {
+                        summary.append(" [").append(interfaceName.trim()).append("]");
+                    }
+                } else if (interfaceName != null && !interfaceName.trim().isEmpty()) {
+                    summary.append(" via ").append(interfaceName.trim());
+                }
+                if (ipv4 != null && !ipv4.isEmpty()) {
+                    summary.append(" (").append(ipv4).append(")");
+                }
+                matches.add(summary.toString());
+            }
+
+            if (matches.isEmpty()) {
+                return null;
+            }
+            return String.join(", ", matches);
+        } catch (SocketException ex) {
+            return null;
+        }
+    }
+
+    private static boolean isPossibleVpnInterface(NetworkInterface networkInterface) throws SocketException {
+        if (networkInterface == null || !networkInterface.isUp() || networkInterface.isLoopback() || networkInterface.isVirtual()) {
+            return false;
+        }
+
+        String combinedName = ((networkInterface.getName() == null ? "" : networkInterface.getName()) + " "
+                + (networkInterface.getDisplayName() == null ? "" : networkInterface.getDisplayName()))
+                .toLowerCase(Locale.ENGLISH);
+
+        boolean keywordMatch = false;
+        for (String keyword : VPN_KEYWORDS) {
+            if (combinedName.contains(keyword)) {
+                keywordMatch = true;
+                break;
+            }
+        }
+        if (!keywordMatch) {
+            return false;
+        }
+
+        return getIpv4Address(networkInterface) != null;
+    }
+
+    private static String getIpv4Address(NetworkInterface networkInterface) {
+        Enumeration<InetAddress> inetAddresses = networkInterface.getInetAddresses();
+        while (inetAddresses.hasMoreElements()) {
+            InetAddress address = inetAddresses.nextElement();
+            if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+                return address.getHostAddress();
+            }
+        }
+        return null;
+    }
+
+    private static String inferVpnVendor(String name, String displayName) {
+        String combined = ((name == null ? "" : name) + " " + (displayName == null ? "" : displayName))
+                .toLowerCase(Locale.ENGLISH);
+        if (combined.contains("juniper") || combined.contains("pulse")) {
+            return "Juniper/Pulse";
+        }
+        if (combined.contains("pangp") || combined.contains("globalprotect")) {
+            return "GlobalProtect";
+        }
+        if (combined.contains("forti")) {
+            return "FortiClient";
+        }
+        if (combined.contains("anyconnect") || combined.contains("cisco")) {
+            return "Cisco AnyConnect";
+        }
+        if (combined.contains("wireguard")) {
+            return "WireGuard";
+        }
+        if (combined.contains("openvpn")) {
+            return "OpenVPN";
+        }
+        if (combined.contains("zscaler")) {
+            return "Zscaler";
+        }
+        if (combined.contains("checkpoint")) {
+            return "Check Point";
+        }
+        return displayName != null && !displayName.trim().isEmpty() ? displayName.trim() : "VPN";
+    }
+
+    private static String detectVpnFromProcesses() {
+        Set<String> detected = new LinkedHashSet<>();
+        Process process = null;
+        try {
+            process = new ProcessBuilder("tasklist").redirectErrorStream(true).start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String normalized = line.toLowerCase(Locale.ENGLISH);
+                    if (normalized.contains("pangp") || normalized.contains("globalprotect")) {
+                        detected.add("GlobalProtect");
+                    } else if (normalized.contains("pulse") || normalized.contains("juniper")) {
+                        detected.add("Juniper/Pulse");
+                    } else if (normalized.contains("forti")) {
+                        detected.add("FortiClient");
+                    } else if (normalized.contains("anyconnect") || normalized.contains("cisco")) {
+                        detected.add("Cisco AnyConnect");
+                    } else if (normalized.contains("wireguard")) {
+                        detected.add("WireGuard");
+                    } else if (normalized.contains("openvpn")) {
+                        detected.add("OpenVPN");
+                    } else if (normalized.contains("zscaler")) {
+                        detected.add("Zscaler");
+                    } else if (normalized.contains("checkpoint")) {
+                        detected.add("Check Point");
+                    }
+                }
+            }
+            process.waitFor();
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+
+        if (detected.isEmpty()) {
+            return null;
+        }
+        return String.join(", ", detected);
     }
 
     private static String getCurrentVersion() {
@@ -236,7 +1001,7 @@ public class BotToolLauncher {
         Object[] options = {"Yes", "No"};
         int answer = JOptionPane.showOptionDialog(
                 frame,
-                "Delete generated log/output files now?",
+                "Delete files in _output\\Total_Log now?",
                 "Confirm Reset",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE,
@@ -250,18 +1015,14 @@ public class BotToolLauncher {
             return;
         }
 
-        File appDir = getAppDirectory();
-        File outputDir = new File(appDir, OUTPUT_DIR);
-        File legacyLogDir = new File(appDir, LEGACY_LOG_DIR);
+        File outputDir = new File(getAppDirectory(), OUTPUT_DIR);
+        File totalLogDir = new File(outputDir, "Total_Log");
 
         int deletedCount = 0;
-        deletedCount += deleteContents(outputDir);
-        deletedCount += deleteRecursively(legacyLogDir);
+        deletedCount += deleteContents(totalLogDir);
 
         outputDir.mkdirs();
-        new File(outputDir, "Total_Log").mkdirs();
-        AppMetadata.getBotWorkLogDirectory().mkdirs();
-        AppMetadata.getUpdateLogDirectory().mkdirs();
+        totalLogDir.mkdirs();
 
         appendLine("[RESET] Completed. Deleted items: " + deletedCount);
         JOptionPane.showMessageDialog(
@@ -421,6 +1182,45 @@ public class BotToolLauncher {
             return;
         }
         SwingUtilities.invokeLater(() -> new BotToolLauncher().show());
+    }
+
+    private static final class WebTarget {
+
+        private final String siteId;
+        private final String label;
+        private final String pegasusUrl;
+        private final String apolloUrl;
+
+        private WebTarget(String siteId, String label, String pegasusUrl, String apolloUrl) {
+            this.siteId = siteId;
+            this.label = label;
+            this.pegasusUrl = pegasusUrl;
+            this.apolloUrl = apolloUrl;
+        }
+    }
+
+    private static final class WebCandidate {
+
+        private final String url;
+
+        private WebCandidate(String url) {
+            this.url = url;
+        }
+    }
+
+    private static final class ResolvedWebTarget {
+
+        private final String siteId;
+        private final String label;
+        private final String url;
+        private final boolean available;
+
+        private ResolvedWebTarget(String siteId, String label, String url, boolean available) {
+            this.siteId = siteId;
+            this.label = label;
+            this.url = url;
+            this.available = available;
+        }
     }
 }
 

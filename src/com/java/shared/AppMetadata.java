@@ -18,6 +18,10 @@ public final class AppMetadata {
     private static final String FALLBACK_VERSION = "0.0.0";
     private static final String DEFAULT_MAIN_CLASS = "com.java.botgetlog.BotGetLog_Multi";
     private static final String OUTPUT_DIR_NAME = "_output";
+    private static final String LAUNCHER_DATA_DIR_NAME = "launcher-data";
+    private static final String LAUNCHER_CREDENTIALS_FILE_NAME = "credentials.properties";
+    private static final String LAUNCHER_CHROME_PROFILE_DIR_NAME = "chrome-profile";
+    private static final String LAUNCHER_AUTO_LOGIN_LOG_FILE_NAME = "auto-login.log";
     private static final String BOT_WORK_LOG_DIR_NAME = "Bot_Work_Log";
     private static final String UPDATE_LOG_DIR_NAME = "System_Log";
     private static final String UPDATE_LOG_FILE_NAME = "update.log";
@@ -88,6 +92,22 @@ public final class AppMetadata {
 
     public static File getOutputDirectory() {
         return new File(getAppDirectory(), OUTPUT_DIR_NAME);
+    }
+
+    public static File getLauncherDataDirectory() {
+        return new File(getAppDirectory(), LAUNCHER_DATA_DIR_NAME);
+    }
+
+    public static File getLauncherCredentialStoreFile() {
+        return new File(getLauncherDataDirectory(), LAUNCHER_CREDENTIALS_FILE_NAME);
+    }
+
+    public static File getLauncherChromeProfileDirectory() {
+        return new File(getLauncherDataDirectory(), LAUNCHER_CHROME_PROFILE_DIR_NAME);
+    }
+
+    public static File getLauncherAutoLoginLogFile() {
+        return new File(getLauncherDataDirectory(), LAUNCHER_AUTO_LOGIN_LOG_FILE_NAME);
     }
 
     public static File getBotWorkLogDirectory() {

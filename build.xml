@@ -89,10 +89,9 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
-                <include name="com/java/launcher/BotToolLauncher.class"/>
+                <include name="com/java/launcher/**/*.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/updater/AutoUpdateManager.class"/>
-                <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/updater/UpdateManifest.class"/>
                 <include name="com/java/updater/UpdatePromptDialog.class"/>
                 <include name="com/java/updater/UpdatePromptDialog$ProgressHandle.class"/>
