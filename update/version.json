@@ -1,6 +1,6 @@
 {
     "version":  "1.0.11",
     "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.11/BotGetLog_Multi-dist-1.0.11.zip",
-    "sha256":  "1c9a911d78a9884c5966faf10406a69407ec1eea7dc2b4d8ecce5b29f57cc7bc",
-    "notes":  "Released via release.ps1 on 2026-04-30 03:03:36"
+    "sha256":  "c4113282e21b26e7a9856e2b1fbb01e632e40717a2e7c5555e13915776c7e8f8",
+    "notes":  "Released 1.0.11: refine Bot Tool Launcher web shortcuts, move launcher data to launcher-data, improve Chrome Auto Login stability, and scope Reset to _output\Total_Log only."
 }
