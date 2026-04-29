@@ -1,6 +1,5 @@
 package com.java.tools.arp;
 
-import com.java.analytics.UsageAnalytics;
 import com.java.launcher.LauncherGate;
 import java.io.BufferedReader;
 import java.io.File;
@@ -31,7 +30,6 @@ public class ARP {
         if (LauncherGate.redirectToLauncherIfNeeded("ARP")) {
             return;
         }
-        UsageAnalytics.trackLaunchAsync("ARP");
         Dialog.setLAF();
         Dialog D = new Dialog();
 

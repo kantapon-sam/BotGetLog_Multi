@@ -1,6 +1,5 @@
 package com.java.launcher;
 
-import com.java.analytics.UsageAnalytics;
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
 import java.awt.BorderLayout;
@@ -35,7 +34,7 @@ public class BotToolLauncher {
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String LEGACY_LOG_DIR = "JAR\\log";
-    private static final String FALLBACK_VERSION = "1.0.9";
+    private static final String FALLBACK_VERSION = "1.0.10";
 
     private JFrame frame;
     private JTextArea textArea;
@@ -421,7 +420,6 @@ public class BotToolLauncher {
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
-        UsageAnalytics.trackLaunchAsync("BotToolLauncher");
         SwingUtilities.invokeLater(() -> new BotToolLauncher().show());
     }
 }

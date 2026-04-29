@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.9",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.9/BotGetLog_Multi-dist-1.0.9.zip",
-    "sha256":  "aabb12f5a38807fa783ab81d08b3cec50caccbf610ecb3076081de0f30e57476",
-    "notes":  "Release: v1.0.9 switch usage analytics from GitHub to Google Apps Script and Google Sheets with silent local batching"
+    "version":  "1.0.10",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.10/BotGetLog_Multi-dist-1.0.10.zip",
+    "sha256":  "edebf7cfcd0ee5bd5e338bcfb5d5ca52caa51af99aa9dd8740344ec6973ce433",
+    "notes":  "Release v1.0.10 remove usage analytics and clean up legacy analytics files"
 }

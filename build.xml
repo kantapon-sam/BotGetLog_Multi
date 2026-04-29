@@ -89,7 +89,6 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
-                <include name="com/java/analytics/**/*.class"/>
                 <include name="com/java/launcher/BotToolLauncher.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/updater/AutoUpdateManager.class"/>
@@ -107,7 +106,6 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
-                <include name="com/java/analytics/**/*.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/tools/linkoptical/**/*.class"/>
@@ -121,7 +119,6 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
-                <include name="com/java/analytics/**/*.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/tools/arp/**/*.class"/>
@@ -135,7 +132,6 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
-                <include name="com/java/analytics/**/*.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/tools/ptp/**/*.class"/>
@@ -156,14 +152,6 @@
         <mkdir dir="${dist.dir}/defaults"/>
         <copy file="${basedir}/UserInterface_Input.xlsx"
               tofile="${dist.dir}/defaults/UserInterface_Input.xlsx"
-              failonerror="false"
-              quiet="true"/>
-        <copy file="${basedir}/analytics.properties.template"
-              tofile="${dist.dir}/analytics.properties.template"
-              failonerror="false"
-              quiet="true"/>
-        <copy file="${basedir}/analytics.properties"
-              tofile="${dist.dir}/analytics.properties"
               failonerror="false"
               quiet="true"/>
     </target>

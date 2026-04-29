@@ -31,6 +31,10 @@ public class UpdaterMain {
             Arrays.asList("defaults", "lib", "updater"));
     private static final Set<String> APP_MANAGED_FILES = new HashSet<String>(
             Arrays.asList("BotGetLog_Multi.jar", "Bot Tool Launcher.jar", "Link_Optical.jar", "ARP.jar", "PTP.jar", "README.TXT"));
+    private static final List<String> LEGACY_CLEANUP_PATHS = Arrays.asList(
+            "analytics.properties",
+            "analytics.properties.template",
+            "_output\\Analytics");
 
     public static void main(String[] args) {
         File targetDir = null;
@@ -51,6 +55,7 @@ public class UpdaterMain {
             Path stagingDir = Files.createTempDirectory("botgetlog-update-staging-");
             unzip(zipFile.toPath(), stagingDir);
             syncTree(stagingDir, targetDir.toPath());
+            cleanupLegacyArtifacts(targetDir.toPath());
             Files.deleteIfExists(zipFile.toPath());
             deleteDirectory(stagingDir);
             relaunch(javaCommand, launchJar, targetDir);
@@ -165,6 +170,21 @@ public class UpdaterMain {
                         throw new RuntimeException(e);
                     }
                 });
+    }
+
+    private static void cleanupLegacyArtifacts(Path targetRoot) throws IOException {
+        for (String relativePath : LEGACY_CLEANUP_PATHS) {
+            Path target = targetRoot.resolve(relativePath).normalize();
+            if (!target.startsWith(targetRoot) || !Files.exists(target)) {
+                continue;
+            }
+
+            if (Files.isDirectory(target)) {
+                deleteDirectory(target);
+            } else {
+                Files.deleteIfExists(target);
+            }
+        }
     }
 
     private static Map<String, String> parseArgs(String[] args) {

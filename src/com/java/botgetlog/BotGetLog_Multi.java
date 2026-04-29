@@ -1,6 +1,5 @@
 package com.java.botgetlog;
 
-import com.java.analytics.UsageAnalytics;
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
 import java.awt.Toolkit;
@@ -845,8 +844,6 @@ public class BotGetLog_Multi {
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
-        UsageAnalytics.trackLaunchAsync("BotGetLog_Multi");
-
         backgroundWorkersActive = true;
 
         //   Sleep +  beep - 5 -
