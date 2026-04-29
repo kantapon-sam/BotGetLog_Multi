@@ -1,0 +1,9 @@
+# Copy this file to analytics.properties and fill in your real values.
+
+enabled=false
+repoOwner=OWNER
+repoName=REPOSITORY_NAME
+token=github_pat_xxx
+eventType=app_launch_batch
+maxBatchSize=20
+debug=false

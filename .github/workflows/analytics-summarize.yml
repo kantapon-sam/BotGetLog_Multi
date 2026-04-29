@@ -1,0 +1,42 @@
+name: Analytics Summarize
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build analytics summaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ANALYTICS_ISSUE_NUMBER: ${{ vars.BOTGETLOG_ANALYTICS_ISSUE_NUMBER }}
+          ANALYTICS_OUTPUT_DIR: analytics
+        run: python tools/analytics/summarize_issue_comments.py
+
+      - name: Commit refreshed analytics files
+        run: |
+          if git diff --quiet -- analytics; then
+            echo "No analytics changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add analytics
+          git commit -m "Update usage analytics summary"
+          git push

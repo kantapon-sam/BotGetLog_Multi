@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.7",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.7/BotGetLog_Multi-dist-1.0.7.zip",
-    "sha256":  "fa6d0dcc06082f4e45805776051d40b0e2738d4cddc6dddb9f451b3b1aa02ce6",
-    "notes":  "Release: v1.0.7 package refactor and cleanup"
+    "version":  "1.0.8",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.8/BotGetLog_Multi-dist-1.0.8.zip",
+    "sha256":  "ae030776d7b0ec0722cd1eab089df15a97263c695faa2196c9494934ba48fb23",
+    "notes":  "Release: v1.0.8 add optional usage analytics with local queue, silent background sync, and analytics.properties setup"
 }

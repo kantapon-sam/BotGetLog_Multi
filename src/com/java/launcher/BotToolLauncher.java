@@ -1,5 +1,6 @@
 package com.java.launcher;
 
+import com.java.analytics.UsageAnalytics;
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
 import java.awt.BorderLayout;
@@ -420,6 +421,7 @@ public class BotToolLauncher {
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
+        UsageAnalytics.trackLaunchAsync("BotToolLauncher");
         SwingUtilities.invokeLater(() -> new BotToolLauncher().show());
     }
 }
