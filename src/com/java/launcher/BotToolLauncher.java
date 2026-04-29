@@ -8,8 +8,11 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.RenderingHints;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -171,13 +174,13 @@ public class BotToolLauncher {
         textArea.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
         textArea.setText(buildLauncherText());
 
-        launchBotButton = new JButton("BotGetLog");
-        linkOpticalButton = new JButton("Link Optical");
-        arpButton = new JButton("ARP");
-        ptpButton = new JButton("PTP");
-        resetButton = new JButton("Reset");
-        exitButton = new JButton("Exit");
-        refreshLinksButton = new JButton("Refresh Links");
+        launchBotButton = new LauncherButton("BotGetLog");
+        linkOpticalButton = new LauncherButton("Link Optical");
+        arpButton = new LauncherButton("ARP");
+        ptpButton = new LauncherButton("PTP");
+        resetButton = new LauncherButton("Reset");
+        exitButton = new LauncherButton("Exit");
+        refreshLinksButton = new LauncherButton("Refresh Links");
 
         launchBotButton.addActionListener(e -> launchBotJar());
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
@@ -381,13 +384,13 @@ public class BotToolLauncher {
         primaryActionPanel.setOpaque(false);
         primaryActionPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
 
-        JButton openButton = new JButton("Open");
+        JButton openButton = new LauncherButton("Open");
         styleSmallActionButton(openButton, WEB_BUTTON_BACKGROUND, WEB_BUTTON_FOREGROUND);
         openButton.setEnabled(target.available);
         openButton.setToolTipText(target.available ? target.url : "Unavailable: ping failed on both routes");
         openButton.addActionListener(e -> openWebLink(target));
 
-        JButton autoLoginButton = new JButton(savedCredential != null && savedCredential.hasUsableCredential()
+        JButton autoLoginButton = new LauncherButton(savedCredential != null && savedCredential.hasUsableCredential()
                 ? "Auto Login" : "Setup");
         styleSmallActionButton(autoLoginButton, LOGIN_BUTTON_BACKGROUND, TOOL_BUTTON_FOREGROUND);
         autoLoginButton.setEnabled(target.available);
@@ -396,7 +399,7 @@ public class BotToolLauncher {
                 : "Unavailable: ping failed on both routes");
         autoLoginButton.addActionListener(e -> handleAutoLogin(target));
 
-        JButton settingsButton = new JButton("Credentials");
+        JButton settingsButton = new LauncherButton("Credentials");
         styleSmallActionButton(settingsButton, SECONDARY_BUTTON_BACKGROUND, SECONDARY_BUTTON_FOREGROUND);
         settingsButton.setToolTipText("Save username/password for " + target.label);
         settingsButton.addActionListener(e -> handleSiteSettings(target));
@@ -596,7 +599,8 @@ public class BotToolLauncher {
         button.setFont(font);
         button.setBackground(background);
         button.setForeground(foreground);
-        button.setOpaque(true);
+        button.setOpaque(false);
+        button.setContentAreaFilled(false);
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -605,6 +609,34 @@ public class BotToolLauncher {
         button.setPreferredSize(new Dimension(SIDE_PANEL_WIDTH - 80, preferredHeight));
         button.setMinimumSize(new Dimension(220, preferredHeight));
         button.setAlignmentX(JComponent.CENTER_ALIGNMENT);
+    }
+
+    private static Color mixColors(Color first, Color second, float ratio) {
+        if (first == null) {
+            return second == null ? Color.GRAY : second;
+        }
+        if (second == null) {
+            return first;
+        }
+        float clamped = Math.max(0f, Math.min(1f, ratio));
+        float inverse = 1f - clamped;
+        int red = Math.round(first.getRed() * inverse + second.getRed() * clamped);
+        int green = Math.round(first.getGreen() * inverse + second.getGreen() * clamped);
+        int blue = Math.round(first.getBlue() * inverse + second.getBlue() * clamped);
+        return new Color(red, green, blue);
+    }
+
+    private static Color shiftColor(Color base, float amount) {
+        if (base == null) {
+            return Color.GRAY;
+        }
+        if (amount == 0f) {
+            return base;
+        }
+        if (amount > 0f) {
+            return mixColors(base, Color.WHITE, amount);
+        }
+        return mixColors(base, Color.BLACK, -amount);
     }
 
     private static String getVpnStatusSummary() {
@@ -1222,5 +1254,38 @@ public class BotToolLauncher {
             this.available = available;
         }
     }
-}
 
+    private static final class LauncherButton extends JButton {
+
+        private LauncherButton(String text) {
+            super(text);
+            setRolloverEnabled(true);
+            setContentAreaFilled(false);
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g2 = (Graphics2D) graphics.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            Color base = getBackground();
+            Color fill = isEnabled() ? base : mixColors(base, PANEL_BACKGROUND, 0.55f);
+            if (isEnabled() && getModel().isPressed()) {
+                fill = shiftColor(base, -0.18f);
+            } else if (isEnabled() && getModel().isRollover()) {
+                fill = shiftColor(base, 0.08f);
+            }
+
+            g2.setColor(fill);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+            g2.setColor(shiftColor(fill, -0.22f));
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+            g2.dispose();
+
+            super.paintComponent(graphics);
+        }
+    }
+}

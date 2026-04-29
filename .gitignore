@@ -2,8 +2,8 @@
 /dist/
 /outputs/
 /portable/
-/JAR/log/
 /_output/
+/launcher-data/
 /nbproject/private/
 /run_stdout.log
 /run_stderr.log

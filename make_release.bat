@@ -33,5 +33,6 @@ if errorlevel 1 (
 echo.
 echo Release package created successfully.
 echo ZIP: outputs\releases\%VERSION%\BotGetLog_Multi-dist-%VERSION%.zip
+echo Portable ZIP: outputs\releases\%VERSION%\BotGetLog_Multi-portable-%VERSION%.zip
 echo.
 pause
