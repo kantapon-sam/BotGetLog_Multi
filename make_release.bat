@@ -18,11 +18,21 @@ if "%VERSION%"=="" (
     exit /b 1
 )
 
+if not "%~2"=="" (
+    set "RELEASE_NOTES=%~2"
+)
+
 echo.
 echo Creating release package for version %VERSION% ...
+echo Version files will be updated automatically.
+if not "%RELEASE_NOTES%"=="" (
+    echo Manual release comment override detected.
+) else (
+    echo Release notes source: auto ^(GitHub Release body -^> tag message -^> latest commit message^)
+)
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0release.ps1" -Version %VERSION% -GitHubOwner %OWNER% -GitHubRepo %REPO% -AntPath "%ANT_PATH%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0release.ps1" -Version "%VERSION%" -GitHubOwner "%OWNER%" -GitHubRepo "%REPO%" -AntPath "%ANT_PATH%" -ReleaseNotes "%RELEASE_NOTES%"
 if errorlevel 1 (
     echo.
     echo Release creation failed.
@@ -34,5 +44,6 @@ echo.
 echo Release package created successfully.
 echo ZIP: outputs\releases\%VERSION%\BotGetLog_Multi-dist-%VERSION%.zip
 echo Portable ZIP: outputs\releases\%VERSION%\BotGetLog_Multi-portable-%VERSION%.zip
+if not "%RELEASE_NOTES%"=="" echo Comment override: %RELEASE_NOTES%
 echo.
 pause

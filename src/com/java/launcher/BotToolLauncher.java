@@ -58,8 +58,7 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.0.12: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.0.12.
+    // Version 1.0.12: automate release notes from GitHub, tag message, or latest commit message.
     private static final String FALLBACK_VERSION = "1.0.12";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
