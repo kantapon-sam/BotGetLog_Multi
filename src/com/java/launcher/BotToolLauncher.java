@@ -58,9 +58,9 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.0.11: cleanup legacy launcher items, keep Reset scoped to _output\Total_Log,
-    // and stabilize Chrome Auto Login with launcher-data storage plus silent activity logging.
-    private static final String FALLBACK_VERSION = "1.0.11";
+    // Version 1.0.12: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.0.12.
+    private static final String FALLBACK_VERSION = "1.0.12";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
     private static final Color WEB_PANEL_BACKGROUND = new Color(231, 239, 253);
@@ -78,50 +78,45 @@ public class BotToolLauncher {
         "cisco", "anyconnect", "wireguard", "openvpn", "zscaler", "checkpoint", "vpn"
     };
     private static final List<WebTarget> WEB_TARGETS = Arrays.asList(
-            new WebTarget("zenicone_nea", "ZenicOne_NEA",
+            WebTarget.routed("zenicone_nea", "ZenicOne_NEA",
                     "https://10.35.228.158:28001/portal-athena/",
                     "https://10.11.2.77:28001/portal-athena/"),
-            new WebTarget("zenicone_cw", "ZenicOne_C&W",
+            WebTarget.routed("zenicone_cw", "ZenicOne_C&W",
                     "https://10.35.227.124:28001/portal-athena/",
                     "https://10.50.179.11:28001/portal-athena/"),
-            new WebTarget("nce", "NCE",
+            WebTarget.routed("nce", "NCE",
                     "https://10.35.228.22:31943/",
                     "https://10.50.174.15:31943/"),
-            new WebTarget("pms", "PMS",
+            WebTarget.routed("pms", "PMS",
                     "https://10.35.228.115/login",
                     "https://10.50.238.85/login"),
-            new WebTarget("planwork", "Planwork",
+            WebTarget.routed("planwork", "Planwork",
                     "http://10.35.224.243/maximo/",
-                    "http://10.50.90.191/maximo/"),
-            new WebTarget("tuar", "TUAR",
+                    "http://10.50.90.191/maximo/",
+                    "https://maximo.truecorp.co.th/maximo"),
+            WebTarget.routed("tuar", "TUAR",
                     "http://10.35.224.175/tuar/",
                     "http://10.50.64.186/tuar/"),
-            new WebTarget("fr_planwork", "FR-Planwork",
+            WebTarget.routed("fr_planwork", "FR-Planwork",
                     "http://10.35.227.82/FR-Planwork/",
                     "http://10.50.90.36/FR-Planwork/"),
-            new WebTarget("corp", "Corp",
+            WebTarget.routed("corp", "Corp",
                     "http://10.35.227.82/CorpInvNew/",
                     "http://10.50.90.36/CorpInvNew/"),
-            new WebTarget("cacti_dtac", "Cacti_Dtac",
-                    "http://192.168.127.46/",
+            WebTarget.shared("cacti_dtac", "Cacti_Dtac",
                     "http://192.168.127.46/"),
-            new WebTarget("cerberus", "Cerberus",
-                    "https://cerberus.dtacnetwork.co.th/",
+            WebTarget.shared("cerberus", "Cerberus",
                     "https://cerberus.dtacnetwork.co.th/"),
-            new WebTarget("trueconnect", "Trueconnect",
-                    "https://trueconnect.ekoapp.com/",
+            WebTarget.shared("trueconnect", "Trueconnect",
                     "https://trueconnect.ekoapp.com/"),
-            new WebTarget("proms", "Proms",
+            WebTarget.shared("proms", "Proms",
                     "http://promsweb.true.th/proms/login",
-                    "http://promsweb.true.th/proms/login"),
-            new WebTarget("atts", "ATTS",
-                    "https://atts.truecorp.co.th/",
+                    "https://proms.truecorp.co.th/proms/"),
+            WebTarget.shared("atts", "ATTS",
                     "https://atts.truecorp.co.th/"),
-            new WebTarget("itsm", "ITSM",
-                    "https://ticketing-eu.managed-services.prod.sdt.ericsson.net/arsys",
+            WebTarget.shared("itsm", "ITSM",
                     "https://ticketing-eu.managed-services.prod.sdt.ericsson.net/arsys"),
-            new WebTarget("change_password_clls", "Change password CLLS",
-                    "http://10.50.90.170/logincenter/",
+            WebTarget.shared("change_password_clls", "Change password CLLS",
                     "http://10.50.90.170/logincenter/")
     );
 
@@ -535,15 +530,31 @@ public class BotToolLauncher {
     }
 
     private static List<WebCandidate> buildCandidateOrder(WebTarget target, String preferredGroup) {
-        List<WebCandidate> candidates = new ArrayList<>(2);
+        LinkedHashSet<String> orderedUrls = new LinkedHashSet<String>();
         if ("pegasus".equalsIgnoreCase(preferredGroup)) {
-            candidates.add(new WebCandidate(target.pegasusUrl));
-            candidates.add(new WebCandidate(target.apolloUrl));
-            return candidates;
+            addCandidateUrl(orderedUrls, target.pegasusUrl);
+            addCandidateUrl(orderedUrls, target.apolloUrl);
+        } else {
+            addCandidateUrl(orderedUrls, target.apolloUrl);
+            addCandidateUrl(orderedUrls, target.pegasusUrl);
         }
-        candidates.add(new WebCandidate(target.apolloUrl));
-        candidates.add(new WebCandidate(target.pegasusUrl));
+
+        for (String extraUrl : target.extraUrls) {
+            addCandidateUrl(orderedUrls, extraUrl);
+        }
+
+        List<WebCandidate> candidates = new ArrayList<WebCandidate>(orderedUrls.size());
+        for (String url : orderedUrls) {
+            candidates.add(new WebCandidate(url));
+        }
         return candidates;
+    }
+
+    private static void addCandidateUrl(Set<String> orderedUrls, String url) {
+        if (orderedUrls == null || url == null || url.trim().isEmpty()) {
+            return;
+        }
+        orderedUrls.add(url.trim());
     }
 
     private static boolean canPingUrl(String urlText) {
@@ -1222,12 +1233,26 @@ public class BotToolLauncher {
         private final String label;
         private final String pegasusUrl;
         private final String apolloUrl;
+        private final List<String> extraUrls;
 
-        private WebTarget(String siteId, String label, String pegasusUrl, String apolloUrl) {
+        private WebTarget(String siteId, String label, String pegasusUrl, String apolloUrl, String... extraUrls) {
             this.siteId = siteId;
             this.label = label;
             this.pegasusUrl = pegasusUrl;
             this.apolloUrl = apolloUrl;
+            if (extraUrls == null || extraUrls.length == 0) {
+                this.extraUrls = Collections.emptyList();
+            } else {
+                this.extraUrls = Collections.unmodifiableList(Arrays.asList(extraUrls));
+            }
+        }
+
+        private static WebTarget routed(String siteId, String label, String pegasusUrl, String apolloUrl, String... extraUrls) {
+            return new WebTarget(siteId, label, pegasusUrl, apolloUrl, extraUrls);
+        }
+
+        private static WebTarget shared(String siteId, String label, String sharedUrl, String... extraUrls) {
+            return new WebTarget(siteId, label, sharedUrl, sharedUrl, extraUrls);
         }
     }
 

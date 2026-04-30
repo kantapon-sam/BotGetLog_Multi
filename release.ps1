@@ -10,6 +10,7 @@ param(
 
     [string]$ManifestBranch = "master",
     [string]$AntPath = "",
+    [string]$ReleaseNotes = "",
     [switch]$SkipBuild,
     [switch]$CreateGitTag
 )
@@ -30,6 +31,193 @@ function Set-FileContentUtf8NoBom {
 
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
+function Normalize-ReleaseNotesText {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+
+    return ([regex]::Replace($Text.Trim(), '\s+', ' ')).Trim()
+}
+
+function Sanitize-ReleaseNotesText {
+    param(
+        [string]$Text,
+        [string]$VersionText
+    )
+
+    $normalized = Normalize-ReleaseNotesText -Text $Text
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return ""
+    }
+
+    $versionPattern = [regex]::Escape($VersionText)
+    $patterns = @(
+        "^(?i)releases?\s+v?$versionPattern\s*:\s*",
+        "^(?i)released\s+v?$versionPattern\s*:\s*",
+        "^(?i)version\s+v?$versionPattern\s*:\s*",
+        "^(?i)releases?\s+v?\d+(?:\.\d+)*\s*:\s*",
+        "^(?i)released\s+v?\d+(?:\.\d+)*\s*:\s*",
+        "^(?i)version\s+v?\d+(?:\.\d+)*\s*:\s*",
+        "^(?i)refresh release\s+v?\d+(?:\.\d+)*\s*$",
+        "^(?i)releases?\s+v?\d+(?:\.\d+)*\s*$"
+    )
+
+    foreach ($pattern in $patterns) {
+        $normalized = [regex]::Replace($normalized, $pattern, "")
+    }
+
+    return Normalize-ReleaseNotesText -Text $normalized
+}
+
+function Get-GitHubReleaseNotesInfo {
+    param(
+        [string]$Owner,
+        [string]$Repo,
+        [string]$VersionText
+    )
+
+    $headers = @{
+        "Accept" = "application/vnd.github+json"
+        "User-Agent" = "BotGetLog_Multi-release-script"
+    }
+    $tagCandidates = @("v$VersionText", $VersionText) | Select-Object -Unique
+
+    foreach ($tagName in $tagCandidates) {
+        try {
+            $uri = "https://api.github.com/repos/$Owner/$Repo/releases/tags/$tagName"
+            $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 15 -ErrorAction Stop
+            $body = Sanitize-ReleaseNotesText -Text $response.body -VersionText $VersionText
+            if (-not [string]::IsNullOrWhiteSpace($body)) {
+                return [pscustomobject]@{
+                    Text = $body
+                    Source = "GitHub release body ($tagName)"
+                }
+            }
+        } catch {
+            continue
+        }
+    }
+
+    return $null
+}
+
+function Get-LocalTagReleaseNotesInfo {
+    param(
+        [string]$GitRoot,
+        [string]$VersionText
+    )
+
+    $tagCandidates = @("v$VersionText", $VersionText) | Select-Object -Unique
+    foreach ($tagName in $tagCandidates) {
+        $tagContents = (& git -C $GitRoot for-each-ref "refs/tags/$tagName" "--format=%(contents)" 2>$null) | Out-String
+        $normalized = Sanitize-ReleaseNotesText -Text $tagContents -VersionText $VersionText
+        if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+            return [pscustomobject]@{
+                Text = $normalized
+                Source = "local git tag message ($tagName)"
+            }
+        }
+    }
+
+    return $null
+}
+
+function Get-LatestCommitReleaseNotesInfo {
+    param(
+        [string]$GitRoot,
+        [string]$VersionText
+    )
+
+    $commitMessage = (& git -C $GitRoot log -1 "--pretty=%B" 2>$null) | Out-String
+    $normalized = Sanitize-ReleaseNotesText -Text $commitMessage -VersionText $VersionText
+    if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+        return [pscustomobject]@{
+            Text = $normalized
+            Source = "latest commit message"
+        }
+    }
+
+    return $null
+}
+
+function Get-ReleaseNotesInfo {
+    param(
+        [string]$VersionText,
+        [string]$ProvidedNotes,
+        [string]$Owner,
+        [string]$Repo,
+        [string]$GitRoot
+    )
+
+    $normalized = Normalize-ReleaseNotesText -Text $ProvidedNotes
+    if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+        return [pscustomobject]@{
+            Text = $normalized
+            Source = "manual override"
+        }
+    }
+
+    $gitHubReleaseNotes = Get-GitHubReleaseNotesInfo -Owner $Owner -Repo $Repo -VersionText $VersionText
+    if ($gitHubReleaseNotes) {
+        return $gitHubReleaseNotes
+    }
+
+    $tagReleaseNotes = Get-LocalTagReleaseNotesInfo -GitRoot $GitRoot -VersionText $VersionText
+    if ($tagReleaseNotes) {
+        return $tagReleaseNotes
+    }
+
+    $commitReleaseNotes = Get-LatestCommitReleaseNotesInfo -GitRoot $GitRoot -VersionText $VersionText
+    if ($commitReleaseNotes) {
+        return $commitReleaseNotes
+    }
+
+    return [pscustomobject]@{
+        Text = "Refresh build metadata, launcher release notes, and package artifacts for version $VersionText."
+        Source = "default fallback"
+    }
+}
+
+function New-WrappedCommentLines {
+    param(
+        [string]$Indent,
+        [string]$Text,
+        [int]$MaxWidth = 100
+    )
+
+    $prefix = "$Indent// "
+    $availableWidth = [Math]::Max(30, $MaxWidth - $prefix.Length)
+    $words = ([regex]::Replace($Text.Trim(), '\s+', ' ')).Split(' ')
+    $lines = New-Object System.Collections.Generic.List[string]
+    $current = ""
+
+    foreach ($word in $words) {
+        if ([string]::IsNullOrWhiteSpace($word)) {
+            continue
+        }
+
+        if ([string]::IsNullOrEmpty($current)) {
+            $current = $word
+            continue
+        }
+
+        if (($current.Length + 1 + $word.Length) -le $availableWidth) {
+            $current = "$current $word"
+        } else {
+            $lines.Add($prefix + $current)
+            $current = $word
+        }
+    }
+
+    if (-not [string]::IsNullOrEmpty($current)) {
+        $lines.Add($prefix + $current)
+    }
+
+    return $lines
 }
 
 function Resolve-AntCommand {
@@ -82,6 +270,64 @@ function Update-ApplicationVersion {
     }
 
     Set-FileContentUtf8NoBom -Path $ProjectPropertiesPath -Content $updated
+}
+
+function Update-LauncherVersionComment {
+    param(
+        [string]$ProjectRoot,
+        [string]$NewVersion,
+        [string]$ReleaseNotesText
+    )
+
+    $launcherPath = Join-Path $ProjectRoot "src\com\java\launcher\BotToolLauncher.java"
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in Get-Content -LiteralPath $launcherPath) {
+        $lines.Add($line)
+    }
+
+    $versionLineIndex = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*private static final String FALLBACK_VERSION = "') {
+            $versionLineIndex = $i
+            break
+        }
+    }
+
+    if ($versionLineIndex -lt 0) {
+        throw "Unable to find FALLBACK_VERSION in src\com\java\launcher\BotToolLauncher.java"
+    }
+
+    $lines[$versionLineIndex] = [regex]::Replace(
+        $lines[$versionLineIndex],
+        'FALLBACK_VERSION = "[^"]+"',
+        "FALLBACK_VERSION = `"$NewVersion`""
+    )
+
+    $indentMatch = [regex]::Match($lines[$versionLineIndex], '^(\s*)')
+    $indent = if ($indentMatch.Success) { $indentMatch.Groups[1].Value } else { "    " }
+
+    $removeStart = $versionLineIndex
+    while ($removeStart -gt 0 -and $lines[$removeStart - 1].TrimStart().StartsWith("//")) {
+        $removeStart--
+    }
+
+    if ($removeStart -lt $versionLineIndex -and -not $lines[$removeStart].TrimStart().StartsWith("// Version ")) {
+        $removeStart = $versionLineIndex
+    }
+
+    if ($removeStart -lt $versionLineIndex) {
+        $lines.RemoveRange($removeStart, $versionLineIndex - $removeStart)
+        $versionLineIndex = $removeStart
+    }
+
+    $commentText = "Version ${NewVersion}: $ReleaseNotesText"
+    $commentLines = New-WrappedCommentLines -Indent $indent -Text $commentText
+    for ($i = $commentLines.Count - 1; $i -ge 0; $i--) {
+        $lines.Insert($versionLineIndex, $commentLines[$i])
+    }
+
+    $content = [string]::Join("`r`n", $lines) + "`r`n"
+    Set-FileContentUtf8NoBom -Path $launcherPath -Content $content
 }
 
 function Invoke-Build {
@@ -249,6 +495,7 @@ function Write-UpdateManifest {
     param(
         [string]$ProjectRoot,
         [string]$VersionText,
+        [string]$ReleaseNotesText,
         [string]$Owner,
         [string]$Repo,
         [string]$Branch,
@@ -262,7 +509,7 @@ function Write-UpdateManifest {
         version = $VersionText
         url = $releaseUrl
         sha256 = $Sha256.ToLowerInvariant()
-        notes = "Released via release.ps1 on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        notes = "Released ${VersionText}: $ReleaseNotesText"
     }
 
     $manifestJson = $manifestObject | ConvertTo-Json -Depth 3
@@ -311,8 +558,22 @@ function Ensure-CleanGitRoot {
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $gitRoot = Ensure-CleanGitRoot -ProjectRoot $projectRoot
 
+Write-Step "Resolving release notes"
+$releaseNotesInfo = Get-ReleaseNotesInfo `
+    -VersionText $Version `
+    -ProvidedNotes $ReleaseNotes `
+    -Owner $GitHubOwner `
+    -Repo $GitHubRepo `
+    -GitRoot $gitRoot
+$normalizedReleaseNotes = $releaseNotesInfo.Text
+Write-Host "Release notes source: $($releaseNotesInfo.Source)" -ForegroundColor DarkGray
+Write-Host $normalizedReleaseNotes -ForegroundColor DarkGray
+
 Write-Step "Updating project application version"
 Update-ApplicationVersion -ProjectPropertiesPath (Join-Path $projectRoot "nbproject\project.properties") -NewVersion $Version
+
+Write-Step "Updating launcher version comment"
+Update-LauncherVersionComment -ProjectRoot $projectRoot -NewVersion $Version -ReleaseNotesText $normalizedReleaseNotes
 
 Write-Step "Updating GitHub manifest URL in source"
 $rawManifestUrl = "https://raw.githubusercontent.com/$GitHubOwner/$GitHubRepo/$ManifestBranch/update/version.json"
@@ -342,6 +603,7 @@ Write-Step "Writing update/version.json"
 $manifestInfo = Write-UpdateManifest `
     -ProjectRoot $projectRoot `
     -VersionText $Version `
+    -ReleaseNotesText $normalizedReleaseNotes `
     -Owner $GitHubOwner `
     -Repo $GitHubRepo `
     -Branch $ManifestBranch `
