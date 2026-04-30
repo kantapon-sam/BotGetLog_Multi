@@ -84,7 +84,7 @@ public final class AutoUpdateManager {
     }
 
     static UpdateManifest fetchManifest(String manifestUrl) throws IOException {
-        HttpURLConnection connection = openConnection(manifestUrl);
+        HttpURLConnection connection = openConnection(buildManifestRequestUrl(manifestUrl));
         try (InputStream input = new BufferedInputStream(connection.getInputStream())) {
             String json = readFullyAsUtf8(input);
             UpdateManifest manifest = new UpdateManifest(
@@ -127,6 +127,15 @@ public final class AutoUpdateManager {
         return tempZip;
     }
 
+    private static String buildManifestRequestUrl(String manifestUrl) {
+        if (manifestUrl == null || manifestUrl.trim().isEmpty()) {
+            return manifestUrl;
+        }
+
+        String separator = manifestUrl.contains("?") ? "&" : "?";
+        return manifestUrl + separator + "ts=" + System.currentTimeMillis();
+    }
+
     private static void launchUpdater(File downloadedZip) throws IOException {
         File appDir = AppMetadata.getAppDirectory();
         File updaterJar = new File(appDir, "updater\\BotGetLog_Updater.jar");
@@ -165,7 +174,12 @@ public final class AutoUpdateManager {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
+        connection.setUseCaches(false);
+        connection.setDefaultUseCaches(false);
         connection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        connection.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+        connection.setRequestProperty("Pragma", "no-cache");
+        connection.setRequestProperty("Expires", "0");
         connection.setRequestProperty("User-Agent", AppMetadata.getAppName() + "-auto-updater");
         return connection;
     }

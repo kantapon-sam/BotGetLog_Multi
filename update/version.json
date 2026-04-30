@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.12",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.12/BotGetLog_Multi-dist-1.0.12.zip",
-    "sha256":  "f2946962d5a1aacaf975e5257fd4a3a92f154df72e3b160107ab5ea5cdc06691",
-    "notes":  "Released 1.0.12: automate release notes from GitHub, tag message, or latest commit message."
+    "version":  "1.0.13",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.0.13/BotGetLog_Multi-dist-1.0.13.zip",
+    "sha256":  "bbcd191e68fd253c0a702fd3009a3d64ed91ddf93695f32d65bb46fddbbdafaf",
+    "notes":  "Released 1.0.13: prevent cached update manifests so auto update refreshes the latest release notes and metadata correctly."
 }
