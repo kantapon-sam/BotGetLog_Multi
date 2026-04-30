@@ -58,9 +58,9 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.0.13: prevent cached update manifests so auto update refreshes the latest release
-    // notes and metadata correctly.
-    private static final String FALLBACK_VERSION = "1.0.13";
+    // Version 1.0.14: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.0.14.
+    private static final String FALLBACK_VERSION = "1.0.14";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
     private static final Color WEB_PANEL_BACKGROUND = new Color(231, 239, 253);
@@ -129,6 +129,7 @@ public class BotToolLauncher {
     private JButton linkOpticalButton;
     private JButton arpButton;
     private JButton ptpButton;
+    private JButton connectVpnButton;
     private JButton resetButton;
     private JButton exitButton;
     private JButton refreshLinksButton;
@@ -173,6 +174,7 @@ public class BotToolLauncher {
         linkOpticalButton = new LauncherButton("Link Optical");
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
+        connectVpnButton = new LauncherButton("Open Pulse VPN");
         resetButton = new LauncherButton("Reset");
         exitButton = new LauncherButton("Exit");
         refreshLinksButton = new LauncherButton("Refresh Links");
@@ -181,6 +183,7 @@ public class BotToolLauncher {
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
+        connectVpnButton.addActionListener(e -> connectPulseVpn());
         resetButton.addActionListener(e -> resetGeneratedFiles());
         exitButton.addActionListener(e -> frame.dispose());
         refreshLinksButton.addActionListener(e -> refreshWebLinksAsync());
@@ -188,6 +191,7 @@ public class BotToolLauncher {
         styleToolButton(linkOpticalButton);
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
+        styleToolButton(connectVpnButton);
         styleSecondaryButton(resetButton);
         styleSecondaryButton(exitButton);
         styleSecondaryButton(refreshLinksButton);
@@ -203,6 +207,7 @@ public class BotToolLauncher {
         actionButtonsPanel.add(linkOpticalButton);
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
+        actionButtonsPanel.add(connectVpnButton);
         actionButtonsPanel.add(resetButton);
         actionButtonsPanel.add(exitButton);
 
@@ -254,10 +259,13 @@ public class BotToolLauncher {
         text.append("4. PTP").append(lineBreak);
         text.append("   Open the built-in PTP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("5. Reset").append(lineBreak);
+        text.append("5. Open Pulse VPN").append(lineBreak);
+        text.append("   Open Pulse Secure and bring its window to the front so you can click Connect there.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("6. Reset").append(lineBreak);
         text.append("   Delete generated log/output files in this bot folder.").append(lineBreak);
         text.append(lineBreak);
-        text.append("6. Exit").append(lineBreak);
+        text.append("7. Exit").append(lineBreak);
         text.append("   Close this launcher.").append(lineBreak);
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
@@ -670,15 +678,19 @@ public class BotToolLauncher {
     }
 
     private static String detectPulseConnectedUri() {
-        String uri = readLatestPulseConnectedUriFromLog();
+        PulseConnectionState state = readLatestPulseConnectionState();
+        if (state == null || !state.connected) {
+            return null;
+        }
+
+        String uri = state.uri;
         if (uri == null || uri.trim().isEmpty()) {
-            String connectionId = readLatestPulseConnectedId();
-            if (connectionId == null || connectionId.isEmpty()) {
+            if (state.connectionId == null || state.connectionId.isEmpty()) {
                 return null;
             }
 
             Map<String, String> uriById = readPulseConnectionUris();
-            uri = uriById.get(connectionId);
+            uri = uriById.get(state.connectionId);
             if (uri == null || uri.trim().isEmpty()) {
                 return null;
             }
@@ -694,74 +706,118 @@ public class BotToolLauncher {
         return uri;
     }
 
-    private static String readLatestPulseConnectedId() {
+    private static PulseConnectionState readLatestPulseConnectionState() {
         File logFile = new File("C:\\ProgramData\\Pulse Secure\\Logging\\debuglog.log");
         if (!logFile.isFile()) {
             return null;
         }
 
         String currentId = null;
-        String connectedId = null;
+        String lastConnectedId = null;
+        String lastConnectedUri = null;
+        boolean connected = false;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(logFile)))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.contains("Connected to an SA (Network Connect) uri ")) {
-                    int idStart = line.indexOf("on_ChannelComplete - ");
-                    if (idStart >= 0) {
-                        currentId = line.substring(idStart + "on_ChannelComplete - ".length()).trim();
-                    }
-                }
-
                 int channelIndex = line.indexOf("on_ChannelComplete - ");
                 if (channelIndex >= 0) {
                     currentId = line.substring(channelIndex + "on_ChannelComplete - ".length()).trim();
                 }
 
-                if (line.contains("Connection Status: Connected") && currentId != null && !currentId.isEmpty()) {
-                    connectedId = currentId;
+                String extractedId = extractPulseConnectionId(line);
+                if (extractedId != null && !extractedId.isEmpty()) {
+                    currentId = extractedId;
                 }
 
-                if (line.contains("Connected to an SA (Network Connect) uri ")) {
+                int uriIndex = line.indexOf("Connected to an SA (Network Connect) uri ");
+                if (uriIndex >= 0) {
+                    String suffix = line.substring(uriIndex + "Connected to an SA (Network Connect) uri ".length()).trim();
+                    int viaIndex = suffix.indexOf(" via ");
+                    if (viaIndex >= 0) {
+                        suffix = suffix.substring(0, viaIndex).trim();
+                    }
+                    if (!suffix.isEmpty()) {
+                        lastConnectedUri = suffix;
+                        connected = true;
+                    }
                     if (currentId != null && !currentId.isEmpty()) {
-                        connectedId = currentId;
+                        lastConnectedId = currentId;
                     }
                 }
+
+                if (line.contains("Connection Status: Connected")) {
+                    if (currentId != null && !currentId.isEmpty()) {
+                        lastConnectedId = currentId;
+                    }
+                    connected = true;
+                }
+
+                if (line.contains("Connection Status: Disconnecting")
+                        || line.contains("Connection Status: Disconnected")
+                        || line.contains("Tray state updated - State: No active connections")) {
+                    connected = false;
+                    lastConnectedUri = null;
+                }
             }
         } catch (IOException ex) {
             return null;
         }
-        return connectedId;
+
+        if (!connected) {
+            return new PulseConnectionState(false, null, null);
+        }
+
+        return new PulseConnectionState(true, lastConnectedId, lastConnectedUri);
     }
 
-    private static String readLatestPulseConnectedUriFromLog() {
-        File logFile = new File("C:\\ProgramData\\Pulse Secure\\Logging\\debuglog.log");
-        if (!logFile.isFile()) {
+    private static String extractPulseConnectionId(String line) {
+        if (line == null || line.isEmpty()) {
             return null;
         }
 
-        String lastUri = null;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(logFile)))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                int uriIndex = line.indexOf("Connected to an SA (Network Connect) uri ");
-                if (uriIndex < 0) {
+        String[] prefixes = {
+            "on_ChannelComplete - ",
+            "(ive:",
+            "iveAccessMethod:",
+            "ive:",
+            "userdata:"
+        };
+
+        for (String prefix : prefixes) {
+            int start = line.indexOf(prefix);
+            if (start < 0) {
+                continue;
+            }
+
+            start += prefix.length();
+            int end = start;
+            while (end < line.length()) {
+                char ch = line.charAt(end);
+                if (Character.isLetterOrDigit(ch)) {
+                    end++;
                     continue;
                 }
-
-                String suffix = line.substring(uriIndex + "Connected to an SA (Network Connect) uri ".length()).trim();
-                int viaIndex = suffix.indexOf(" via ");
-                if (viaIndex >= 0) {
-                    suffix = suffix.substring(0, viaIndex).trim();
-                }
-                if (!suffix.isEmpty()) {
-                    lastUri = suffix;
-                }
+                break;
             }
-        } catch (IOException ex) {
-            return null;
+            if (end > start) {
+                return line.substring(start, end).trim();
+            }
         }
 
-        return lastUri;
+        return null;
+    }
+
+    private static final class PulseConnectionState {
+
+        final boolean connected;
+        final String connectionId;
+        final String uri;
+
+        PulseConnectionState(boolean connected, String connectionId, String uri) {
+            this.connected = connected;
+            this.connectionId = connectionId == null ? "" : connectionId.trim();
+            this.uri = uri == null ? "" : uri.trim();
+        }
     }
 
     private static Map<String, String> readPulseConnectionUris() {
@@ -987,6 +1043,42 @@ public class BotToolLauncher {
     private void launchPtpJar() {
         ptpButton.setEnabled(false);
         launchProgram(findPtpJar(), PTP_JAR_NAME, ptpButton);
+    }
+
+    private void connectPulseVpn() {
+        connectVpnButton.setEnabled(false);
+        appendLine("[VPN] Opening Pulse Secure...");
+        new Thread(() -> {
+            PulseSecureAutomation.ConnectResult result = null;
+            try {
+                if (!PulseSecureAutomation.isAvailable()) {
+                    result = PulseSecureAutomation.ConnectResult.error("Pulse Secure client was not found on this machine.");
+                    return;
+                }
+                result = PulseSecureAutomation.openPulse();
+            } catch (Exception ex) {
+                result = PulseSecureAutomation.ConnectResult.error("Open Pulse VPN failed: " + ex.getMessage());
+            } finally {
+                final PulseSecureAutomation.ConnectResult finalResult = result;
+                SwingUtilities.invokeLater(() -> {
+                    connectVpnButton.setEnabled(true);
+                    vpnStatusSummary = getVpnStatusSummary();
+                    textArea.setText(buildLauncherText());
+                    if (finalResult != null) {
+                        appendLine("[VPN] " + finalResult.getMessage());
+                        if (!finalResult.isSuccess()) {
+                            JOptionPane.showMessageDialog(
+                                    frame,
+                                    finalResult.getMessage(),
+                                    "Pulse Secure",
+                                    JOptionPane.WARNING_MESSAGE
+                            );
+                        }
+                    }
+                    refreshWebLinksAsync();
+                });
+            }
+        }, "pulse-vpn-connect").start();
     }
 
     private void launchProgram(File jarFile, String displayName, JButton sourceButton) {

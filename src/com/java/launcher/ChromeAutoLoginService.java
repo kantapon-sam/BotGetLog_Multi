@@ -36,6 +36,7 @@ public final class ChromeAutoLoginService {
     private static final int TARGET_WAIT_INTERVAL_MS = 350;
     private static final int SCRIPT_INTERVAL_MS = 1600;
     private static final int SCRIPT_ATTEMPTS = 18;
+    private static final long PROFILE_SESSION_MAX_AGE_MS = 12L * 60L * 60L * 1000L;
     private static final Pattern JSON_STRING_FIELD = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
 
     private final String siteLabel;
@@ -89,9 +90,19 @@ public final class ChromeAutoLoginService {
                 socket.sendCommand("Page.bringToFront", "{}");
                 socket.sendCommand("Page.navigate", "{\"url\":" + toJsonString(targetUrl) + "}");
                 socket.drainSilently(1000);
+                String privacyBypassScript = buildPrivacyBypassScript();
 
                 for (int attempt = 0; attempt < SCRIPT_ATTEMPTS; attempt++) {
                     sleepQuietly(SCRIPT_INTERVAL_MS);
+                    socket.sendCommand(
+                            "Runtime.evaluate",
+                            "{"
+                            + "\"expression\":" + toJsonString(privacyBypassScript) + ","
+                            + "\"returnByValue\":true,"
+                            + "\"awaitPromise\":false"
+                            + "}"
+                    );
+                    socket.drainSilently(250);
                     socket.sendCommand(
                             "Runtime.evaluate",
                             "{"
@@ -99,7 +110,7 @@ public final class ChromeAutoLoginService {
                             + "\"returnByValue\":true,"
                             + "\"awaitPromise\":false"
                             + "}"
-                    );
+                        );
                     socket.drainSilently(300);
                 }
             }
@@ -108,6 +119,9 @@ public final class ChromeAutoLoginService {
             if (browserStarted) {
                 LauncherActivityLog.warn(siteLabel, "Auto Login continued without popup after browser started: " + safeMessage(ex));
                 System.err.println("[Auto Login] " + siteLabel + " skipped popup: " + safeMessage(ex));
+                showWarning("Opened browser for " + siteLabel
+                        + " but Auto Login could not continue automatically.\n"
+                        + safeMessage(ex));
                 return;
             }
             LauncherActivityLog.error(siteLabel, "Auto Login stopped before browser was ready.", ex);
@@ -128,26 +142,85 @@ public final class ChromeAutoLoginService {
         command.add("--disable-search-engine-choice-screen");
         command.add("--disable-session-crashed-bubble");
         command.add("--new-window");
-        command.add("about:blank");
+        command.add(targetUrl == null || targetUrl.trim().isEmpty() ? "about:blank" : targetUrl.trim());
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(AppMetadata.getAppDirectory());
         builder.start();
     }
 
+    private String buildPrivacyBypassScript() {
+        StringBuilder script = new StringBuilder();
+        script.append("(function(){");
+        script.append("function visible(el){if(!el){return false;}var s=window.getComputedStyle(el);return s&&s.display!=='none'&&s.visibility!=='hidden'&&!el.disabled;}");
+        script.append("function click(el){if(!el||!visible(el)){return false;}try{el.click();return true;}catch(e){}");
+        script.append("try{el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));return true;}catch(ignore){}return false;}");
+        script.append("function typeUnsafeWord(){var word='thisisunsafe';var target=document.body||document.documentElement||document;try{window.focus();if(target.focus){target.focus();}}catch(ignore){}");
+        script.append("for(var i=0;i<word.length;i++){var ch=word.charAt(i);var code=word.toUpperCase().charCodeAt(i);['keydown','keypress','keyup'].forEach(function(name){try{var evt=new KeyboardEvent(name,{key:ch,code:'Key'+ch.toUpperCase(),keyCode:code,which:code,bubbles:true});target.dispatchEvent(evt);document.dispatchEvent(evt);}catch(ignore){}});}return 'TYPE_UNSAFE';}");
+        script.append("function byId(id){try{return document.getElementById(id);}catch(e){return null;}}");
+        script.append("function text(){return ((document.body&&document.body.innerText)||'').toLowerCase();}");
+        script.append("var bodyText=text();");
+        script.append("var privacyLike=bodyText.indexOf('your connection is not private')>=0||bodyText.indexOf('privacy error')>=0||bodyText.indexOf('net::err_cert')>=0;");
+        script.append("if(!privacyLike){return 'SKIP';}");
+        script.append("var proceed=byId('proceed-link');");
+        script.append("if(click(proceed)){return 'PROCEED';}");
+        script.append("var advanced=byId('details-button')||byId('advancedButton');");
+        script.append("if(click(advanced)){return 'ADVANCED';}");
+        script.append("var links=Array.prototype.slice.call(document.querySelectorAll('a,button'));");
+        script.append("for(var i=0;i<links.length;i++){var el=links[i];var t=((el.innerText||el.textContent||'')+'').toLowerCase();");
+        script.append("if(t.indexOf('proceed')>=0||t.indexOf('continue')>=0||t.indexOf('unsafe')>=0){if(click(el)){return 'PROCEED-TEXT';}}}");
+        script.append("for(var j=0;j<links.length;j++){var item=links[j];var textValue=((item.innerText||item.textContent||'')+'').toLowerCase();");
+        script.append("if(textValue.indexOf('advanced')>=0||textValue.indexOf('details')>=0){if(click(item)){return 'ADVANCED-TEXT';}}}");
+        script.append("if(bodyText.indexOf('back to safety')>=0){return typeUnsafeWord();}");
+        script.append("return 'WAIT';");
+        script.append("})()");
+        return script.toString();
+    }
+
     private File resolveChromeProfileDirectory() {
-        File profileDir = AppMetadata.getLauncherChromeProfileDirectory();
-        if (profileDir.exists()) {
-            return profileDir;
+        File sessionsRoot = new File(AppMetadata.getLauncherDataDirectory(), "chrome-profile-sessions");
+        cleanupOldProfileSessions(sessionsRoot);
+        if (!sessionsRoot.exists()) {
+            sessionsRoot.mkdirs();
+        }
+        return new File(sessionsRoot, "session-" + remoteDebugPort);
+    }
+
+    private void cleanupOldProfileSessions(File sessionsRoot) {
+        if (sessionsRoot == null || !sessionsRoot.isDirectory()) {
+            return;
         }
 
-        File legacyProfileDir = new File(AppMetadata.getOutputDirectory(), "launcher-chrome-profile");
-        if (legacyProfileDir.isDirectory()) {
-            if (legacyProfileDir.renameTo(profileDir)) {
-                return profileDir;
+        File[] children = sessionsRoot.listFiles();
+        if (children == null || children.length == 0) {
+            return;
+        }
+
+        long cutoff = System.currentTimeMillis() - PROFILE_SESSION_MAX_AGE_MS;
+        for (File child : children) {
+            if (child == null || !child.exists()) {
+                continue;
+            }
+            if (child.lastModified() >= cutoff) {
+                continue;
+            }
+            deleteRecursively(child);
+        }
+    }
+
+    private void deleteRecursively(File target) {
+        if (target == null || !target.exists()) {
+            return;
+        }
+        if (target.isDirectory()) {
+            File[] children = target.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
             }
         }
-        return profileDir;
+        target.delete();
     }
 
     private void waitForDebugEndpoint() throws IOException {

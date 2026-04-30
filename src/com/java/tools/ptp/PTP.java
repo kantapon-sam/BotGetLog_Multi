@@ -1,5 +1,6 @@
 package com.java.tools.ptp;
 
+import com.java.botgetlog.AppConsole;
 import com.java.launcher.LauncherGate;
 import java.io.BufferedReader;
 import java.io.File;
@@ -16,6 +17,7 @@ public class PTP {
         if (LauncherGate.redirectToLauncherIfNeeded("PTP")) {
             return;
         }
+        AppConsole.install();
         Dialog.setLAF();
         Dialog D = new Dialog();
         // Get the current date and time

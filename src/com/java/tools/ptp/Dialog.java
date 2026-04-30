@@ -1,5 +1,6 @@
 package com.java.tools.ptp;
 
+import com.java.botgetlog.AppConsole;
 import java.io.File;
 import java.awt.GraphicsEnvironment;
 import javax.swing.JOptionPane;
@@ -26,6 +27,7 @@ public class Dialog {
                 "File " + name + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -38,6 +40,7 @@ public class Dialog {
                 "File " + file.getName() + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -55,6 +58,7 @@ public class Dialog {
                 + TotalFile + " node",
                 "PTP",
                 JOptionPane.PLAIN_MESSAGE);
+        AppConsole.close();
     }
 }
 

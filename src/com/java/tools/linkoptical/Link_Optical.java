@@ -1,5 +1,6 @@
 package com.java.tools.linkoptical;
 
+import com.java.botgetlog.AppConsole;
 import com.java.launcher.LauncherGate;
 import java.io.BufferedReader;
 import java.io.File;
@@ -191,6 +192,7 @@ public class Link_Optical {
         if (LauncherGate.redirectToLauncherIfNeeded("Link Optical")) {
             return;
         }
+        AppConsole.install();
         Dialog.setLAF();
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");

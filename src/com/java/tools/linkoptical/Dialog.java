@@ -1,5 +1,6 @@
 package com.java.tools.linkoptical;
 
+import com.java.botgetlog.AppConsole;
 import java.io.File;
 import javax.swing.JOptionPane;
 import javax.swing.UIManager;
@@ -21,6 +22,7 @@ public class Dialog {
                 "File " + name + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -29,6 +31,7 @@ public class Dialog {
                 "File " + file.getName() + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -40,6 +43,7 @@ public class Dialog {
                 + TotalFile + " node",
                 "Link Optical",
                 JOptionPane.PLAIN_MESSAGE);
+        AppConsole.close();
     }
 }
 

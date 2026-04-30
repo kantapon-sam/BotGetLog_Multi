@@ -1,5 +1,6 @@
 package com.java.tools.arp;
 
+import com.java.botgetlog.AppConsole;
 import java.awt.GraphicsEnvironment;
 import java.io.File;
 import javax.swing.JOptionPane;
@@ -30,6 +31,7 @@ public class Dialog {
                 "File " + name + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -43,6 +45,7 @@ public class Dialog {
                 "File " + file.getName() + "\nError !!!",
                 "Error!",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -61,6 +64,7 @@ public class Dialog {
                 + TotalFile + " node",
                 "ARP",
                 JOptionPane.PLAIN_MESSAGE);
+        AppConsole.close();
     }
 }
 

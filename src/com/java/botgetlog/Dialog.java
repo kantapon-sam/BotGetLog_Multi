@@ -24,6 +24,7 @@ public class Dialog {
                 "Invalid file " + Str,
                 "Warning",
                 JOptionPane.WARNING_MESSAGE);
+        AppConsole.close();
     }
 
     public void Success() {
@@ -38,6 +39,7 @@ public class Dialog {
                 message,
                 "Error",
                 JOptionPane.ERROR_MESSAGE);
+        AppConsole.close();
         System.exit(0);
     }
 
@@ -47,8 +49,7 @@ public class Dialog {
                 node+"\n",
                 "Success",
                 JOptionPane.PLAIN_MESSAGE);
-    
-        
+        AppConsole.close();
     }
 
     public void Duplicates(String LoopbackIP) {
