@@ -29,6 +29,8 @@ public final class AutoUpdateManager {
     private static final String UPDATE_LOG_NAME = "update.log";
     private static final Pattern JSON_TEXT_PATTERN =
             Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
+    private static final Pattern GITHUB_RELEASE_DOWNLOAD_PATTERN =
+            Pattern.compile("https?://github\\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/.+");
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
     private static final DateTimeFormatter LOG_TIME_FORMAT =
@@ -57,6 +59,7 @@ public final class AutoUpdateManager {
                 return false;
             }
 
+            manifest = enrichManifestWithReleaseNotes(manifest);
             boolean confirmed = UpdatePromptDialog.showUpdatePrompt(currentVersion, manifest);
             if (!confirmed) {
                 logUpdate("User postponed the update.");
@@ -87,12 +90,11 @@ public final class AutoUpdateManager {
         HttpURLConnection connection = openConnection(buildManifestRequestUrl(manifestUrl));
         try (InputStream input = new BufferedInputStream(connection.getInputStream())) {
             String json = readFullyAsUtf8(input);
-            UpdateManifest manifest = new UpdateManifest(
-                    unescapeJson(extractJsonString(json, "version")),
-                    unescapeJson(extractJsonString(json, "url")),
-                    unescapeJson(extractJsonString(json, "sha256")),
-                    unescapeJson(extractJsonString(json, "notes"))
-            );
+            String version = unescapeJson(extractJsonString(json, "version"));
+            String downloadUrl = unescapeJson(extractJsonString(json, "url"));
+            String sha256 = unescapeJson(extractJsonString(json, "sha256"));
+            String fallbackNotes = unescapeJson(extractJsonString(json, "notes"));
+            UpdateManifest manifest = new UpdateManifest(version, downloadUrl, sha256, fallbackNotes);
             return manifest.isValid() ? manifest : null;
         }
     }
@@ -170,13 +172,17 @@ public final class AutoUpdateManager {
     }
 
     private static HttpURLConnection openConnection(String urlValue) throws IOException {
+        return openConnection(urlValue, "application/json, text/plain, */*");
+    }
+
+    private static HttpURLConnection openConnection(String urlValue, String acceptHeader) throws IOException {
         URL url = new URL(urlValue);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setUseCaches(false);
         connection.setDefaultUseCaches(false);
-        connection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        connection.setRequestProperty("Accept", acceptHeader);
         connection.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
         connection.setRequestProperty("Pragma", "no-cache");
         connection.setRequestProperty("Expires", "0");
@@ -198,6 +204,67 @@ public final class AutoUpdateManager {
         Pattern pattern = Pattern.compile(String.format(JSON_TEXT_PATTERN.pattern(), Pattern.quote(key)));
         Matcher matcher = pattern.matcher(json);
         return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static UpdateManifest enrichManifestWithReleaseNotes(UpdateManifest manifest) {
+        if (manifest == null || !manifest.isValid()) {
+            return manifest;
+        }
+
+        String resolvedNotes = resolveReleaseNotes(manifest, manifest.getNotes());
+        return new UpdateManifest(
+                manifest.getVersion(),
+                manifest.getDownloadUrl(),
+                manifest.getSha256(),
+                resolvedNotes
+        );
+    }
+
+    private static String resolveReleaseNotes(UpdateManifest manifest, String fallbackNotes) {
+        String githubReleaseNotes = tryFetchGitHubReleaseNotes(manifest);
+        if (githubReleaseNotes != null && !githubReleaseNotes.trim().isEmpty()) {
+            return githubReleaseNotes.trim();
+        }
+        return fallbackNotes == null ? "" : fallbackNotes.trim();
+    }
+
+    private static String tryFetchGitHubReleaseNotes(UpdateManifest manifest) {
+        if (manifest == null || manifest.getDownloadUrl().isEmpty()) {
+            return "";
+        }
+
+        String apiUrl = buildGitHubReleaseApiUrl(manifest.getDownloadUrl());
+        if (apiUrl.isEmpty()) {
+            return "";
+        }
+
+        try {
+            HttpURLConnection connection = openConnection(apiUrl, "application/vnd.github+json");
+            try (InputStream input = new BufferedInputStream(connection.getInputStream())) {
+                String json = readFullyAsUtf8(input);
+                String body = unescapeJson(extractJsonString(json, "body"));
+                if (!body.trim().isEmpty()) {
+                    logUpdate("Loaded release notes from GitHub release API.");
+                }
+                return body;
+            }
+        } catch (IOException ex) {
+            logUpdate("Unable to load release notes from GitHub release API. Falling back to manifest notes: "
+                    + ex.getMessage());
+            return "";
+        }
+    }
+
+    private static String buildGitHubReleaseApiUrl(String downloadUrl) {
+        Matcher matcher = GITHUB_RELEASE_DOWNLOAD_PATTERN.matcher(downloadUrl == null ? "" : downloadUrl.trim());
+        if (!matcher.matches()) {
+            return "";
+        }
+
+        String owner = matcher.group(1);
+        String repo = matcher.group(2);
+        String tag = matcher.group(3);
+        return "https://api.github.com/repos/" + owner + "/" + repo + "/releases/tags/" + tag;
     }
 
     private static String unescapeJson(String value) {

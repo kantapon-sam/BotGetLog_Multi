@@ -1,6 +1,6 @@
 Manifest-Version: 1.0
 Implementation-Title: BotGetLog_Multi
-Implementation-Version: 1.0.14
+Implementation-Version: 1.0.15
 X-COMMENT: Main-Class will be added automatically by build
 
 
