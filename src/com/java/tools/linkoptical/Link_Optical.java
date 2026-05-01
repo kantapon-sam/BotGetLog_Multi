@@ -194,6 +194,7 @@ public class Link_Optical {
         }
         AppConsole.install();
         Dialog.setLAF();
+        System.out.println("[INFO] Link Optical started");
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
 
@@ -235,9 +236,16 @@ public class Link_Optical {
             });
 
             for (int i = 0; i < files.length; i++) {
-                if (files[i].getName().contains("LLDP")) {
+                if (files[i].getName().contains("LLDP") && files[i].getName().toLowerCase().endsWith(".txt")) {
                     TotalFile++;
                 }
+            }
+            System.out.println("[INFO] Found " + TotalFile + " LLDP file(s) to process");
+            if (TotalFile == 0) {
+                String message = "No LLDP input files found in _output\\Total_Log";
+                System.out.println("[WARN] " + message);
+                Dialog.Info(message);
+                return;
             }
 
             // =========================
@@ -255,10 +263,11 @@ public class Link_Optical {
             fwAll.write(header);
 
             for (int i = 0; i < files.length; i++) {
-                if (files[i].getName().contains(".txt")) {
+                if (files[i].getName().contains("LLDP") && files[i].getName().toLowerCase().endsWith(".txt")) {
                     if (files.length > 1) {
                         file_fail = files[i].getName();
                     }
+                    System.out.println("[PROCESS] Reading " + files[i].getName());
 
                     BufferedReader br = new BufferedReader(new FileReader(files[i]));
                     String pathOutput = files[i].getName().split(".txt")[0];
@@ -269,6 +278,7 @@ public class Link_Optical {
                 }
             }
             fwAll.close();
+            System.out.println("[INFO] Generated " + output_LLDP);
 
             // =========================
             // 2) à¹€à¸‚à¸µà¸¢à¸™à¹„à¸Ÿà¸¥à¹Œ 2
@@ -324,6 +334,7 @@ public class Link_Optical {
 
             csvReader.close();
             fw2.close();
+            System.out.println("[INFO] Generated " + output_LLDP_2);
 
             // =========================
             // 3) à¹€à¸‚à¸µà¸¢à¸™à¹„à¸Ÿà¸¥à¹Œ 3 : DataPort_xxx.csv
@@ -463,12 +474,19 @@ public class Link_Optical {
             }
 
             fw3.close();
+            System.out.println("[INFO] Generated " + output_PORT);
 
             System.out.println(output_PORT);
             System.out.println(output_LLDP_2);
             System.out.println(output_LLDP);
             System.out.println(TotalFile + " Node");
-            Dialog.Success(output_LLDP, TotalFile);
+            Dialog.Success(
+                    "Generated 3 Link Optical file(s)\n"
+                    + output_PORT + "\n"
+                    + output_LLDP_2 + "\n"
+                    + output_LLDP,
+                    TotalFile
+            );
 
         } catch (Exception ex) {
             System.out.println(ex.toString() + file_fail);

@@ -38,7 +38,6 @@ public class CheckPTP_Port_Nokia {
                     // à¹à¸¢à¸à¹à¸¥à¸°à¸žà¸´à¸¡à¸žà¹Œà¸”à¹‰à¸§à¸¢ comma
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 6) {
-                        System.out.println(String.join(",", parts));
                         parts[0] = "'" + parts[0];
                         Str_PTP += "\n" + hostname[0] + "," + String.join(",", parts);
                     }
@@ -47,9 +46,6 @@ public class CheckPTP_Port_Nokia {
 
         }
 
-        if (path.contains("PTP")) {
-            System.out.println("Done " + path);
-        }
         br.close();
 
         return Str_PTP;

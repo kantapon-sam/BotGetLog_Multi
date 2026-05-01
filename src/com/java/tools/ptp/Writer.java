@@ -9,7 +9,6 @@ public class Writer {
         try {
             Str_Sum.write(str2);
             Str_Sum.close();
-            System.out.println("Write Success");
         } catch (IOException ex) {
             ex.printStackTrace();
         }
@@ -19,7 +18,6 @@ public class Writer {
         try {
             A.write(str1);
             A.close();
-            System.out.println("Write Success");
         } catch (IOException ex) {
             ex.printStackTrace();
         }

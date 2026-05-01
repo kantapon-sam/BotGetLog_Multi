@@ -44,9 +44,6 @@ public class CheckPTP_ZTE {
 
         } 
 
-        if (path.contains("PTP")) {
-            System.out.println("Done " + path);
-        }
         br.close();
 
         return Str_PTP;

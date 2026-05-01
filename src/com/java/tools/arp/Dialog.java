@@ -1,70 +1,28 @@
 package com.java.tools.arp;
 
-import com.java.botgetlog.AppConsole;
-import java.awt.GraphicsEnvironment;
+import com.java.shared.ToolDialogHelper;
 import java.io.File;
-import javax.swing.JOptionPane;
-import javax.swing.UIManager;
 
 public class Dialog {
 
     public static void setLAF() {
-        if (GraphicsEnvironment.isHeadless()) {
-            return;
-        }
-
-        try {
-            UIManager.setLookAndFeel("com.sun.java.swing.plaf.windows.WindowsLookAndFeel");
-        } catch (Exception ex) {
-            System.err.println("Failed to set LookAndFeel");
-
-        }
+        ToolDialogHelper.setWindowsLookAndFeel();
     }
 
     public static void FileError(String name) {
-        if (GraphicsEnvironment.isHeadless()) {
-            System.err.println("File " + name + " Error !!!");
-            System.exit(0);
-        }
-
-        JOptionPane.showMessageDialog(null,
-                "File " + name + "\nError !!!",
-                "Error!",
-                JOptionPane.ERROR_MESSAGE);
-        AppConsole.close();
-        System.exit(0);
+        ToolDialogHelper.showFileError(name);
     }
 
     public static void FileError(File file) {
-        if (GraphicsEnvironment.isHeadless()) {
-            System.err.println("File " + file.getName() + " Error !!!");
-            System.exit(0);
-        }
-
-        JOptionPane.showMessageDialog(null,
-                "File " + file.getName() + "\nError !!!",
-                "Error!",
-                JOptionPane.ERROR_MESSAGE);
-        AppConsole.close();
-        System.exit(0);
+        ToolDialogHelper.showFileError(file);
     }
 
     public static void Success(String output_Optical, int TotalFile) {
-        if (GraphicsEnvironment.isHeadless()) {
-            System.out.println("Write Success");
-            System.out.println(output_Optical);
-            System.out.println(TotalFile + " node");
-            return;
-        }
+        ToolDialogHelper.showSuccess("ARP", output_Optical, TotalFile);
+    }
 
-        java.awt.Toolkit.getDefaultToolkit().beep();
-        JOptionPane.showMessageDialog(null,
-                "Write Success" + "\n"
-                + output_Optical + "\n"
-                + TotalFile + " node",
-                "ARP",
-                JOptionPane.PLAIN_MESSAGE);
-        AppConsole.close();
+    public static void Info(String message) {
+        ToolDialogHelper.showInfo("ARP", message);
     }
 }
 

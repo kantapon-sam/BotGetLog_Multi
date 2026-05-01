@@ -46,9 +46,6 @@ public class CheckPTP_Port_Huawei {
 
         }
 
-        if (path.contains("PTP")) {
-            System.out.println("Done " + path);
-        }
         br.close();
 
         return Str_PTP;

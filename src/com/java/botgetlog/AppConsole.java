@@ -3,9 +3,11 @@ package com.java.botgetlog;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.InvocationTargetException;
 import javax.swing.BorderFactory;
 import javax.swing.JFrame;
 import javax.swing.JScrollPane;
@@ -18,14 +20,19 @@ public final class AppConsole {
 
     private static final int MAX_CHARS = 250000;
     private static final Object LOCK = new Object();
+    private static final long MIN_VISIBLE_MS = 1200L;
     private static JFrame frame;
     private static JTextArea textArea;
     private static boolean installed;
+    private static long shownAtMs;
 
     private AppConsole() {
     }
 
     public static void install() {
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
         synchronized (LOCK) {
             if (installed) {
                 show();
@@ -46,22 +53,57 @@ public final class AppConsole {
     }
 
     public static void show() {
-        SwingUtilities.invokeLater(() -> {
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
+        runOnEdtAndWait(() -> {
             ensureFrame();
-            frame.setVisible(true);
+            if (!frame.isVisible()) {
+                frame.setVisible(true);
+                shownAtMs = System.currentTimeMillis();
+            }
             frame.toFront();
         });
     }
 
     public static void close() {
-        SwingUtilities.invokeLater(() -> {
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
+        long delayMs = 0L;
+        synchronized (LOCK) {
+            if (shownAtMs > 0L) {
+                long elapsed = System.currentTimeMillis() - shownAtMs;
+                delayMs = Math.max(0L, MIN_VISIBLE_MS - elapsed);
+            }
+        }
+
+        Runnable closeTask = () -> {
             if (frame != null) {
                 frame.setVisible(false);
                 frame.dispose();
                 frame = null;
                 textArea = null;
             }
-        });
+            synchronized (LOCK) {
+                shownAtMs = 0L;
+            }
+        };
+
+        if (delayMs <= 0L) {
+            SwingUtilities.invokeLater(closeTask);
+            return;
+        }
+
+        final long closeDelayMs = delayMs;
+        new Thread(() -> {
+            try {
+                Thread.sleep(closeDelayMs);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            SwingUtilities.invokeLater(closeTask);
+        }, "app-console-close").start();
     }
 
     private static void ensureFrame() {
@@ -96,6 +138,9 @@ public final class AppConsole {
         if (value == null || value.isEmpty()) {
             return;
         }
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
 
         SwingUtilities.invokeLater(() -> {
             ensureFrame();
@@ -108,6 +153,21 @@ public final class AppConsole {
                 }
             }
         });
+    }
+
+    private static void runOnEdtAndWait(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+            return;
+        }
+
+        try {
+            SwingUtilities.invokeAndWait(task);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        } catch (InvocationTargetException ex) {
+            throw new IllegalStateException("Unable to show app console", ex.getCause());
+        }
     }
 
     private static final class ConsoleOutputStream extends OutputStream {

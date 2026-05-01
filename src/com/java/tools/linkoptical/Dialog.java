@@ -1,49 +1,28 @@
 package com.java.tools.linkoptical;
 
-import com.java.botgetlog.AppConsole;
+import com.java.shared.ToolDialogHelper;
 import java.io.File;
-import javax.swing.JOptionPane;
-import javax.swing.UIManager;
 
 public class Dialog {
 
     public static void setLAF() {
-
-        try {
-            UIManager.setLookAndFeel("com.sun.java.swing.plaf.windows.WindowsLookAndFeel");
-        } catch (Exception ex) {
-            System.err.println("Failed to set LookAndFeel");
-
-        }
+        ToolDialogHelper.setWindowsLookAndFeel();
     }
 
     public static void FileError(String name) {
-        JOptionPane.showMessageDialog(null,
-                "File " + name + "\nError !!!",
-                "Error!",
-                JOptionPane.ERROR_MESSAGE);
-        AppConsole.close();
-        System.exit(0);
+        ToolDialogHelper.showFileError(name);
     }
 
     public static void FileError(File file) {
-        JOptionPane.showMessageDialog(null,
-                "File " + file.getName() + "\nError !!!",
-                "Error!",
-                JOptionPane.ERROR_MESSAGE);
-        AppConsole.close();
-        System.exit(0);
+        ToolDialogHelper.showFileError(file);
     }
 
     public static void Success(String output_Optical, int TotalFile) {
-        java.awt.Toolkit.getDefaultToolkit().beep();
-        JOptionPane.showMessageDialog(null,
-                "Write Success" + "\n"
-                + output_Optical + "\n"
-                + TotalFile + " node",
-                "Link Optical",
-                JOptionPane.PLAIN_MESSAGE);
-        AppConsole.close();
+        ToolDialogHelper.showSuccess("Link Optical", output_Optical, TotalFile);
+    }
+
+    public static void Info(String message) {
+        ToolDialogHelper.showInfo("Link Optical", message);
     }
 }
 

@@ -33,7 +33,7 @@ public class ARP {
         }
         AppConsole.install();
         Dialog.setLAF();
-        Dialog D = new Dialog();
+        System.out.println("[INFO] ARP started");
 
         LocalDateTime now = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
@@ -44,6 +44,9 @@ public class ARP {
 
             PathFile f = new PathFile();
             File[] files = f.getFile().listFiles();
+            if (files == null) {
+                throw new Exception("Input folder not found or empty");
+            }
 
             Arrays.sort(files, new Comparator<File>() {
                 public int compare(File f1, File f2) {
@@ -56,6 +59,13 @@ public class ARP {
                     TotalFile++;
                 }
             }
+            System.out.println("[INFO] Found " + TotalFile + " ARP file(s) to process");
+            if (TotalFile == 0) {
+                String message = "No ARP input files found in _output\\Total_Log";
+                System.out.println("[WARN] " + message);
+                Dialog.Info(message);
+                return;
+            }
 
             StringBuilder csvBody = new StringBuilder();
             int currentLineCount = 0;
@@ -63,6 +73,7 @@ public class ARP {
 
             for (int i = 0; i < files.length; i++) {
                 if (files[i].getName().contains("ARP_")) {
+                    System.out.println("[PROCESS] Reading " + files[i].getName());
                     BufferedReader br_PTP = new BufferedReader(new FileReader(files[i]));
                     String pathOutput = files[i].getName().replaceFirst("\\.txt$", "");
                     String parsedRows = CheckARP.Sub(br_PTP, pathOutput);
@@ -96,6 +107,7 @@ public class ARP {
                 outputFileCount++;
                 writeCsvPart(f, formattedDateTime, outputFileCount, csvBody);
             }
+            System.out.println("[INFO] Generated " + outputFileCount + " ARP output file(s)");
 
             String outputSummary;
             if (outputFileCount == 1) {
@@ -106,6 +118,8 @@ public class ARP {
                         + buildOutputFileName(formattedDateTime, outputFileCount)
                         + " (" + outputFileCount + " files)";
             }
+
+            outputSummary = "Generated " + outputFileCount + " ARP file(s)\n" + outputSummary;
 
             System.out.println(TotalFile + " Node");
             Dialog.Success(outputSummary, TotalFile);

@@ -109,6 +109,7 @@
                 <include name="com/java/botgetlog/AppConsole$ConsoleOutputStream.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
                 <include name="com/java/tools/linkoptical/**/*.class"/>
             </fileset>
         </jar>
@@ -124,6 +125,7 @@
                 <include name="com/java/botgetlog/AppConsole$ConsoleOutputStream.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
                 <include name="com/java/tools/arp/**/*.class"/>
             </fileset>
         </jar>
@@ -139,6 +141,7 @@
                 <include name="com/java/botgetlog/AppConsole$ConsoleOutputStream.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
                 <include name="com/java/tools/ptp/**/*.class"/>
             </fileset>
         </jar>

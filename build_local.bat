@@ -15,13 +15,13 @@ if exist "%ANT_PATH%" (
 )
 
 if defined USED_ANT (
-    echo [build] Running Ant clean compile...
-    call "%USED_ANT%" -noinput -buildfile "%~dp0build.xml" clean compile
+    echo [build] Running Ant clean jar...
+    call "%USED_ANT%" -noinput -buildfile "%~dp0build.xml" clean jar
     if errorlevel 1 (
-        echo [build] Ant compile failed.
+        echo [build] Ant jar build failed.
         exit /b 1
     )
-    echo [build] Ant clean compile completed successfully.
+    echo [build] Ant clean jar completed successfully.
     exit /b 0
 )
 
