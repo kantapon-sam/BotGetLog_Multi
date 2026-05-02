@@ -59,10 +59,13 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.0: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.1.0.
-    private static final String FALLBACK_VERSION = "1.1.0";
+    // Version 1.1.1: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.1.
+    private static final String FALLBACK_VERSION = "1.1.1";
     private static final int WEB_PING_TIMEOUT_MS = 800;
+    private static final String JAVA_INITIAL_HEAP = "-Xms256m";
+    private static final String JAVA_MAX_HEAP = "-Xmx2048m";
+    private static final String JAVA_GC_OPTION = "-XX:+UseG1GC";
     private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
     private static final Color WEB_PANEL_BACKGROUND = new Color(231, 239, 253);
     private static final Color CARD_BORDER = new Color(205, 214, 225);
@@ -1119,6 +1122,9 @@ public class BotToolLauncher {
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(
                     getJavaLauncher(),
+                    JAVA_INITIAL_HEAP,
+                    JAVA_MAX_HEAP,
+                    JAVA_GC_OPTION,
                     "-D" + LauncherGate.INVOKED_BY_LAUNCHER_PROPERTY + "=true",
                     "-jar",
                     jarFile.getAbsolutePath()

@@ -6,6 +6,7 @@ import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -42,17 +43,22 @@ private static final int MAX_RETRY = 2;                       // retry ต่อ
 private static final int RETRY_BACKOFF_MS = 2500;             // หน่วงก่อน retry (คูณด้วย attempt)
 private static final int FIRST_PROMPT_TIMEOUT_MS = 4000;      // รอ prompt แรกหลังเข้า shell
 private static final int FIRST_PROMPT_IDLE_BREAK_MS = 350;    // ไม่มีข้อมูลใหม่กี่ ms ให้ตัดอ่าน prompt แรก
-private static final int COMMAND_PROMPT_TIMEOUT_MS = 30000;   // รอ prompt กลับหลังยิง command
+private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
+private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
+private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
 private static final int PROMPT_WINDOW_CHARS = 600;           // buffer ท้ายไว้ใช้ detect prompt
 private static final int EXCEL_CACHE_OPEN_MAX_RETRY = 3;
 private static final long EXCEL_CACHE_OPEN_RETRY_DELAY_MS = 1500L;
 private static final String CMDSET_SHEET = "cmdSet";
 private static final Object CONSOLE_LOG_LOCK = new Object();
+private static final DateTimeFormatter LOG_DATE_TAG_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 private static final Map<String, List<String>> CMDSET_CACHE = new ConcurrentHashMap<>();
 private static final Object CMDSET_CACHE_LOCK = new Object();
 private static volatile boolean CMDSET_CACHE_READY = false;
     private final PathFile fileInput = new PathFile();
     private Session session;
+    private String activeLogSessionIdentity;
+    private String activeLogDateTag;
 
     public static final class CredentialValidationResult {
         public final boolean success;
@@ -180,11 +186,64 @@ static {
         }
     }
 
+    private static long getPositiveLongProperty(String propertyName, long defaultValue, long minValue) {
+        String configured = System.getProperty(propertyName, "");
+        if (configured != null) {
+            configured = configured.trim();
+        }
+        if (configured != null && !configured.isEmpty()) {
+            try {
+                long value = Long.parseLong(configured);
+                if (value >= minValue) {
+                    return value;
+                }
+            } catch (NumberFormatException ignore) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private static long getCommandMaxWaitMs() {
+        long minutes = getPositiveLongProperty("botgetlog.dtac.command.maxWait.minutes",
+                DEFAULT_COMMAND_MAX_WAIT_MS / (60L * 1000L), 1L);
+        return minutes * 60L * 1000L;
+    }
+
+    private static long getCommandIdleTimeoutMs() {
+        long seconds = getPositiveLongProperty("botgetlog.dtac.command.idleTimeout.seconds",
+                DEFAULT_COMMAND_IDLE_TIMEOUT_MS / 1000L, 30L);
+        return seconds * 1000L;
+    }
+
+    private static String formatDurationSeconds(long milliseconds) {
+        long seconds = Math.max(1L, milliseconds / 1000L);
+        if (seconds < 60L) {
+            return seconds + "s";
+        }
+        long minutes = seconds / 60L;
+        long remainingSeconds = seconds % 60L;
+        if (remainingSeconds == 0L) {
+            return minutes + "m";
+        }
+        return minutes + "m " + remainingSeconds + "s";
+    }
+
+    private static boolean isSessionClosingCommand(String cmd) {
+        if (cmd == null) {
+            return false;
+        }
+        String normalized = cmd.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("quit")
+                || normalized.equals("exit")
+                || normalized.equals("logout");
+    }
+
     public SSH_Multi(String server, String userServer, String pwServer,
                      String loopback, String userCLLS, String pwCLLS,
                      String cmdSet, String device, int rowNum,
                      String userL2, String pwL2) {
 
+        lockActiveLogSessionDate(rowNum, loopback, device, cmdSet);
         String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
         logwork("[START] " + loopback + " (" + device + ", " + cmdSet + ") at " + startTime + "\n");
 
@@ -212,13 +271,17 @@ static {
             //     - ถ้า prompt ลงท้ายด้วย '#' => ZTE
             //     - ถ้า prompt ลงท้ายด้วย '>' => HW
             //     (กันปัญหา session is down ที่เกิดจากการเปิด shell 2 รอบ)
-            RunResult rr = runCommandsInShellAutoVendor(cmdSet, device, loopback);
+            RunResult rr = runCommandsInShellAutoVendor(cmdSet, device, loopback, rowNum);
             String cmdSetUsed = rr.cmdSetUsed;
             String allOutput = rr.output;
 
 
             // 5) เขียนไฟล์ต่อโหนด
-            writeNodeLogFile(rowNum, loopback, device, cmdSetUsed, allOutput);
+            if (rr.logFile != null) {
+                logwork("[INFO] Node log streamed: " + rr.logFile.getAbsolutePath() + "\n");
+            } else {
+                writeNodeLogFile(rowNum, loopback, device, cmdSetUsed, allOutput);
+            }
 
             String endTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
             logwork("[DONE] " + loopback + " (" + device + ", " + cmdSetUsed + ") at " + endTime + "\n");
@@ -420,11 +483,17 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         final String vendor;
         final String cmdSetUsed;
         final String output;
+        final File logFile;
 
         RunResult(String vendor, String cmdSetUsed, String output) {
+            this(vendor, cmdSetUsed, output, null);
+        }
+
+        RunResult(String vendor, String cmdSetUsed, String output, File logFile) {
             this.vendor = vendor;
             this.cmdSetUsed = cmdSetUsed;
             this.output = output;
+            this.logFile = logFile;
         }
     }
 
@@ -436,7 +505,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
      *
      * เหตุผล: บางโหนดปิดทั้ง session เมื่อเราปิด shell channel แรก (เลยเกิด "session is down" ถ้าเปิด shell รอบสอง)
      */
-    private RunResult runCommandsInShellAutoVendor(String baseCmdSet, String promptHint, String host)
+    private RunResult runCommandsInShellAutoVendor(String baseCmdSet, String promptHint, String host, int rowNum)
             throws JSchException, IOException, InvalidFormatException {
 
         if (session == null || !session.isConnected()) {
@@ -514,7 +583,17 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 return new RunResult(vendor, cmdSetUsed, all.toString());
             }
 
+            File logFile = prepareNodeLogFile(rowNum, host, promptHint, cmdSetUsed);
+            try (BufferedWriter streamLog = new BufferedWriter(new OutputStreamWriter(
+                    new FileOutputStream(logFile, false), StandardCharsets.UTF_8))) {
+                streamLog.write(all.toString());
+                streamLog.flush();
+                all.setLength(0);
+
             // --- รันคำสั่งทั้งหมดใน channel เดิม ---
+            long commandMaxWaitMs = getCommandMaxWaitMs();
+            long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
+            boolean stopCommandLoop = false;
             for (String cmd : commands) {
                 if (cmd == null || cmd.trim().isEmpty()) continue;
                 logwork("[SEND CMD] " + host + " (" + cmdSetUsed + ") -> " + cmd + "\n");
@@ -524,10 +603,12 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 out.flush();
 
                 window.setLength(0);
-                long last = System.currentTimeMillis();
+                long commandStart = System.currentTimeMillis();
+                long last = commandStart;
+                long lastNotice = commandStart;
 
                 while (true) {
-                    boolean got = readAvailable(in, all, window, buf);
+                    boolean got = readAvailable(in, null, window, buf, streamLog);
                     if (got) last = System.currentTimeMillis();
 
                     if (isPrompt(window.toString(), promptHint)) {
@@ -535,21 +616,45 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                     }
 
                     long now = System.currentTimeMillis();
-                    if (now - last > COMMAND_PROMPT_TIMEOUT_MS) {
-                        all.append("\n[WARN] timeout waiting prompt for CMD: ").append(cmd).append("\n");
+                    if (now - lastNotice >= COMMAND_WAIT_LOG_INTERVAL_MS) {
+                        logwork("[WAITING] DTAC " + host + " prompt for CMD: " + cmd
+                                + " elapsed=" + formatDurationSeconds(now - commandStart)
+                                + " idle=" + formatDurationSeconds(now - last) + "\n");
+                        lastNotice = now;
+                    }
+                    if (now - last > commandIdleTimeoutMs) {
+                        writeStreamLog(streamLog, "\n[WARN] no output for "
+                                + formatDurationSeconds(commandIdleTimeoutMs)
+                                + " while waiting prompt for CMD: "
+                                + cmd + "\n");
+                        stopCommandLoop = true;
+                        break;
+                    }
+                    if (now - commandStart > commandMaxWaitMs) {
+                        writeStreamLog(streamLog, "\n[WARN] prompt wait exceeded "
+                                + formatDurationSeconds(commandMaxWaitMs)
+                                + " for CMD: "
+                                + cmd + "\n");
+                        stopCommandLoop = true;
                         break;
                     }
                     if (channel.isClosed()) {
-                        all.append("\n[INFO] Channel closed while waiting for CMD: ").append(cmd).append("\n");
+                        writeStreamLog(streamLog, "\n[INFO] Channel closed while waiting for CMD: " + cmd + "\n");
+                        stopCommandLoop = !isSessionClosingCommand(cmd);
                         break;
                     }
 
                     try { Thread.sleep(100); } catch (InterruptedException ignored) { }
                 }
 
+                if (stopCommandLoop) {
+                    break;
+                }
+
             }
 
-            return new RunResult(vendor, cmdSetUsed, all.toString());
+                return new RunResult(vendor, cmdSetUsed, "", logFile);
+            }
 
         } finally {
             try { if (channel != null) channel.disconnect(); } catch (Exception ignore) { }
@@ -582,6 +687,9 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         readAvailable(in, all, window, buf);
 
         // 2) ยิงคำสั่งทีละคำสั่ง
+        long commandMaxWaitMs = getCommandMaxWaitMs();
+        long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
+        boolean stopCommandLoop = false;
         for (String cmd : commands) {
             if (cmd == null || cmd.trim().isEmpty()) continue;
 
@@ -592,7 +700,9 @@ private String runCommandsInShell(List<String> commands, String promptHint)
           //  all.append("\n\n>>>> CMD: ").append(cmd).append("\n");
 
             window.setLength(0);
-            long lastData = System.currentTimeMillis();
+            long commandStart = System.currentTimeMillis();
+            long lastData = commandStart;
+            long lastNotice = commandStart;
 
             while (true) {
                 boolean gotData = readAvailable(in, all, window, buf);
@@ -607,19 +717,42 @@ private String runCommandsInShell(List<String> commands, String promptHint)
                 }
 
                 long now = System.currentTimeMillis();
-                if (now - lastData > COMMAND_PROMPT_TIMEOUT_MS) {
-                    all.append("\n[WARN] timeout waiting prompt for CMD: ").append(cmd).append("\n");
+                if (now - lastNotice >= COMMAND_WAIT_LOG_INTERVAL_MS) {
+                    logwork("[WAITING] DTAC prompt for CMD: " + cmd
+                            + " elapsed=" + formatDurationSeconds(now - commandStart)
+                            + " idle=" + formatDurationSeconds(now - lastData) + "\n");
+                    lastNotice = now;
+                }
+                if (now - lastData > commandIdleTimeoutMs) {
+                    all.append("\n[WARN] no output for ")
+                            .append(formatDurationSeconds(commandIdleTimeoutMs))
+                            .append(" while waiting prompt for CMD: ")
+                            .append(cmd).append("\n");
+                    stopCommandLoop = true;
+                    break;
+                }
+                if (now - commandStart > commandMaxWaitMs) {
+                    all.append("\n[WARN] prompt wait exceeded ")
+                            .append(formatDurationSeconds(commandMaxWaitMs))
+                            .append(" for CMD: ")
+                            .append(cmd).append("\n");
+                    stopCommandLoop = true;
                     break;
                 }
 
                 if (channel.isClosed()) {
                     all.append("\n[INFO] Channel closed while waiting for CMD: ").append(cmd).append("\n");
+                    stopCommandLoop = !isSessionClosingCommand(cmd);
                     break;
                 }
 
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException ignored) { }
+            }
+
+            if (stopCommandLoop) {
+                break;
             }
         }
 
@@ -635,21 +768,45 @@ private String runCommandsInShell(List<String> commands, String promptHint)
                                   StringBuilder all,
                                   StringBuilder window,
                                   byte[] buf) throws IOException {
+        return readAvailable(in, all, window, buf, null);
+    }
+
+    private boolean readAvailable(InputStream in,
+                                  StringBuilder all,
+                                  StringBuilder window,
+                                  byte[] buf,
+                                  Writer streamLog) throws IOException {
         boolean gotData = false;
 
         while (in.available() > 0) {
             int len = in.read(buf);
             if (len < 0) break;
-            String s = new String(buf, 0, len, "UTF-8");
-            all.append(s);
-            window.append(s);
-            if (window.length() > PROMPT_WINDOW_CHARS) {
+            String s = new String(buf, 0, len, StandardCharsets.UTF_8);
+            if (all != null) {
+                all.append(s);
+            }
+            if (streamLog != null) {
+                streamLog.write(s);
+                streamLog.flush();
+            }
+            if (window != null) {
+                window.append(s);
+            }
+            if (window != null && window.length() > PROMPT_WINDOW_CHARS) {
                 window.delete(0, window.length() - PROMPT_WINDOW_CHARS);
             }
             gotData = true;
         }
 
         return gotData;
+    }
+
+    private void writeStreamLog(Writer streamLog, String text) throws IOException {
+        if (streamLog == null || text == null || text.isEmpty()) {
+            return;
+        }
+        streamLog.write(text);
+        streamLog.flush();
     }
 
     /**
@@ -713,6 +870,8 @@ private String runCommandsInShell(List<String> commands, String promptHint)
             logwork("[INFO] Disconnected SSH session\n");
         } catch (Exception e) {
             logwork("[WARN] Disconnect error: " + e + "\n");
+        } finally {
+            clearActiveLogSessionDate();
         }
     }
 
@@ -829,32 +988,75 @@ private String runCommandsInShell(List<String> commands, String promptHint)
 
     // ========= เขียน log per node =========
 
+    private synchronized void lockActiveLogSessionDate(int rowNum, String loopback, String device, String cmdSetName) {
+        activeLogSessionIdentity = buildActiveLogSessionIdentity(rowNum, loopback, device);
+        activeLogDateTag = LocalDateTime.now().format(LOG_DATE_TAG_FORMATTER);
+    }
+
+    private synchronized String resolveActiveLogDateTag(int rowNum, String loopback, String device, String cmdSetName) {
+        String requestedIdentity = buildActiveLogSessionIdentity(rowNum, loopback, device);
+        if (activeLogDateTag == null
+                || activeLogDateTag.trim().isEmpty()
+                || activeLogSessionIdentity == null
+                || !activeLogSessionIdentity.equals(requestedIdentity)) {
+            lockActiveLogSessionDate(rowNum, loopback, device, cmdSetName);
+        }
+        return activeLogDateTag;
+    }
+
+    private synchronized void clearActiveLogSessionDate() {
+        activeLogSessionIdentity = null;
+        activeLogDateTag = null;
+    }
+
+    private String buildActiveLogSessionIdentity(int rowNum, String loopback, String device) {
+        return rowNum + "|"
+                + sanitizeLogFilePart(loopback, "0.0.0.0") + "|"
+                + sanitizeLogFilePart(device, "UNKNOWN");
+    }
+
+    private String sanitizeLogFilePart(String value, String fallback) {
+        String normalized = value;
+        if (normalized == null || normalized.trim().isEmpty()) {
+            normalized = fallback;
+        }
+        if (normalized == null || normalized.trim().isEmpty()) {
+            normalized = "UNKNOWN";
+        }
+        return normalized.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    private File prepareNodeLogFile(int rowNum, String loopback, String device, String cmdSetName) throws IOException {
+        Path path = buildNodeLogPath(rowNum, loopback, device, cmdSetName);
+        Files.createDirectories(path.getParent());
+        Files.deleteIfExists(path);
+        Files.createFile(path);
+        logwork("[INFO] Node log streaming started: " + path.toString() + "\n");
+        return path.toFile();
+    }
+
+    private Path buildNodeLogPath(int rowNum, String loopback, String device, String cmdSetName) {
+        String dateStr = resolveActiveLogDateTag(rowNum, loopback, device, cmdSetName);
+        String ip = sanitizeLogFilePart(loopback, "0.0.0.0");
+        String devName = sanitizeLogFilePart(device, "UNKNOWN");
+        String jobName = sanitizeLogFilePart(cmdSetName, "UNKNOWN_TASK");
+
+        String fileName = "[" + rowNum + "]"
+                + ip + "_"
+                + devName + "_"
+                + jobName + "_"
+                + dateStr + ".txt";
+
+        return Paths.get(fileInput.getLog(), fileName);
+    }
+
     private void writeNodeLogFile(int rowNum, String loopback,
                                   String device, String cmdSetName,
                                   String content) {
 
         try {
-            String dateStr = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-
-            String ip = (loopback != null) ? loopback : "0.0.0.0";
-            String devName = (device != null) ? device : "UNKNOWN";
-            String jobName = (cmdSetName != null) ? cmdSetName : "UNKNOWN_TASK";
-
-            ip = ip.replaceAll("[\\\\/:*?\"<>|]", "_");
-            devName = devName.replaceAll("[\\\\/:*?\"<>|]", "_");
-            jobName = jobName.replaceAll("[\\\\/:*?\"<>|]", "_");
-
-            String logFolder = fileInput.getLog();
-            Files.createDirectories(Paths.get(logFolder));
-
-            String fileName = "[" + rowNum + "]"
-                    + ip + "_"
-                    + devName + "_"
-                    + jobName + "_"
-                    + dateStr + ".txt";
-
-            Path path = Paths.get(logFolder, fileName);
+            Path path = buildNodeLogPath(rowNum, loopback, device, cmdSetName);
+            Files.createDirectories(path.getParent());
 
             Files.write(path, content.getBytes("UTF-8"),
                     StandardOpenOption.CREATE,

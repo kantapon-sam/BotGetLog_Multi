@@ -461,7 +461,7 @@ if not exist "%~dp0Bot Tool Launcher.jar" (
     exit /b 1
 )
 
-"%~dp0jre\bin\java.exe" -jar "%~dp0Bot Tool Launcher.jar"
+"%~dp0jre\bin\java.exe" -Xms256m -Xmx2048m -XX:+UseG1GC -jar "%~dp0Bot Tool Launcher.jar"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if not "%EXIT_CODE%"=="0" (

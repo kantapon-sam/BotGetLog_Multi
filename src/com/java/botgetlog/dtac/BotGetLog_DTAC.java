@@ -887,6 +887,11 @@ public class BotGetLog_DTAC {
                     deviceSelectMode == null || deviceSelectMode.trim().isEmpty() ? "Y column" : deviceSelectMode,
                     deviceRowStart,
                     deviceRowEnd);
+        } catch (OutOfMemoryError oom) {
+            dialog.showError("Cannot read Excel file: Java heap space.\n"
+                    + "Please run Bot Tool Launcher with -Xmx2048m or close other programs and try again.");
+            closeStartupWindows();
+            return;
         } catch (Exception e) {
             dialog.showError("Cannot read Excel file: " + e.getMessage());
             closeStartupWindows();

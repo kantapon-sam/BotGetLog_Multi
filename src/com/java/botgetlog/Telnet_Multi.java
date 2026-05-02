@@ -255,6 +255,9 @@ public class Telnet_Multi {
     private static final int DEFAULT_SSH_PORT = 22;
     private static final int CONNECT_TIMEOUT_MS = 20000;
     private static final int SOCKET_TIMEOUT_MS = 30000;
+    private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
+    private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
+    private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
     private static final SshAuthMode[] SSH_AUTH_MODES = new SshAuthMode[]{
         new SshAuthMode("password-only", "password"),
         new SshAuthMode("keyboard-interactive", "keyboard-interactive"),
@@ -364,6 +367,8 @@ public class Telnet_Multi {
     //   log 
     private String preparedLogSessionKey = null;
     private String activeLogSessionPath = null;
+    private String activeLogSessionIdentity = null;
+    private String activeLogDateTag = null;
     private static final int READ_MATCH_WINDOW_CHARS = 4096;
     private static final int READ_CHECK_INTERVAL_CHARS = 8;
     private static final String[] READ_PAGINATION_MARKERS = new String[]{
@@ -773,6 +778,45 @@ public class Telnet_Multi {
 
     private static String safeTrim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static long getPositiveLongProperty(String propertyName, long defaultValue, long minValue) {
+        String configured = safeTrim(System.getProperty(propertyName));
+        if (!configured.isEmpty()) {
+            try {
+                long value = Long.parseLong(configured);
+                if (value >= minValue) {
+                    return value;
+                }
+            } catch (NumberFormatException ignore) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private static long getCommandMaxWaitMs() {
+        long minutes = getPositiveLongProperty("botgetlog.command.maxWait.minutes",
+                DEFAULT_COMMAND_MAX_WAIT_MS / (60L * 1000L), 1L);
+        return minutes * 60L * 1000L;
+    }
+
+    private static long getCommandIdleTimeoutMs() {
+        long seconds = getPositiveLongProperty("botgetlog.command.idleTimeout.seconds",
+                DEFAULT_COMMAND_IDLE_TIMEOUT_MS / 1000L, 30L);
+        return seconds * 1000L;
+    }
+
+    private static String formatDurationSeconds(long milliseconds) {
+        long seconds = Math.max(1L, milliseconds / 1000L);
+        if (seconds < 60L) {
+            return seconds + "s";
+        }
+        long minutes = seconds / 60L;
+        long remainingSeconds = seconds % 60L;
+        if (remainingSeconds == 0L) {
+            return minutes + "m";
+        }
+        return minutes + "m " + remainingSeconds + "s";
     }
 
     private static String describeValidationTarget(String loopback, String device, String cmdSet) {
@@ -3137,10 +3181,11 @@ public class Telnet_Multi {
     }
 
     private CommandReadResult readStreamToFileSsh(BufferedOutputStream outFile, List<String> promptCandidates,
-            long startTime, long maxWaitMs) throws IOException {
+            long startTime, long maxWaitMs, long idleTimeoutMs, String consolePrefix) throws IOException {
         StringBuilder response = new StringBuilder(4096);
         StringBuilder lowerTail = new StringBuilder(256);
-        long lastData = startTime;
+        long lastDataAt = startTime;
+        long lastNoticeAt = startTime;
         boolean tailAtPrompt = false;
         String[] safePatterns = promptCandidates == null ? new String[0] : promptCandidates.toArray(new String[0]);
         String[] normalizedPatterns = normalizePatterns(safePatterns);
@@ -3154,16 +3199,25 @@ public class Telnet_Multi {
 
             if (in.available() <= 0) {
                 long now = System.currentTimeMillis();
-                if (tailAtPrompt && now - lastData >= PROMPT_SETTLE_MS) {
+                if (tailAtPrompt && now - lastDataAt >= PROMPT_SETTLE_MS) {
                     return CommandReadResult.prompt();
                 }
-                if (now - lastData > 10000) {
-                    System.out.println("[WAITING] Still waiting for prompt (" + ((now - startTime) / 1000) + "s)");
-                    lastData = now;
+                if (now - lastNoticeAt >= COMMAND_WAIT_LOG_INTERVAL_MS) {
+                    System.out.println("[WAITING]" + consolePrefix + " prompt elapsed="
+                            + formatDurationSeconds(now - startTime)
+                            + " idle=" + formatDurationSeconds(now - lastDataAt));
+                    lastNoticeAt = now;
+                }
+                if (now - lastDataAt > idleTimeoutMs) {
+                    String detail = "no output for " + formatDurationSeconds(idleTimeoutMs)
+                            + " while waiting for prompt";
+                    System.out.println("[END STREAM]" + consolePrefix + " " + detail);
+                    return CommandReadResult.timeout(detail);
                 }
                 if (now - startTime > maxWaitMs) {
-                    System.out.println("[END STREAM] Force stop after 10 min (no prompt)");
-                    return CommandReadResult.timeout("prompt wait exceeded 10 minutes");
+                    String detail = "prompt wait exceeded " + formatDurationSeconds(maxWaitMs);
+                    System.out.println("[END STREAM]" + consolePrefix + " " + detail);
+                    return CommandReadResult.timeout(detail);
                 }
                 sleepQuietly(pollDelayMs);
                 continue;
@@ -3183,7 +3237,7 @@ public class Telnet_Multi {
             char ch = (char) next;
             response.append(ch);
             appendLowerTail(lowerTail, ch, READ_MATCH_WINDOW_CHARS);
-            lastData = System.currentTimeMillis();
+            lastDataAt = System.currentTimeMillis();
 
             if (response.length() > 4096) {
                 response.delete(0, response.length() - 4096);
@@ -4561,14 +4615,33 @@ public class Telnet_Multi {
     }
 
     private String buildDailyLogFileName(String Loopback, String Device, String cmdSet, int Num_row) {
+        String dateTag = resolveActiveLogDateTag(Loopback, Device, cmdSet, Num_row);
+        return buildDailyLogFileName(Loopback, Device, cmdSet, Num_row, dateTag);
+    }
+
+    private String resolveActiveLogDateTag(String Loopback, String Device, String cmdSet, int Num_row) {
+        String identity = Num_row + "|"
+                + sanitizeFileNameComponent(Loopback) + "|"
+                + resolveLogDeviceName(Device) + "|"
+                + sanitizeFileNameComponent(cmdSet);
+        if (!identity.equals(activeLogSessionIdentity) || activeLogDateTag == null || activeLogDateTag.isEmpty()) {
+            activeLogSessionIdentity = identity;
+            activeLogDateTag = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        }
+        return activeLogDateTag;
+    }
+
+    private String buildDailyLogFileName(String Loopback, String Device, String cmdSet, int Num_row, String dateTag) {
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        String dateTag = LocalDateTime.now().format(dtf);
+        String safeDateTag = dateTag == null || dateTag.trim().isEmpty()
+                ? LocalDateTime.now().format(dtf)
+                : dateTag.trim();
         return String.format("[%d]%s_%s_%s_%s.txt",
                 Num_row,
                 sanitizeFileNameComponent(Loopback),
                 resolveLogDeviceName(Device),
                 sanitizeFileNameComponent(cmdSet),
-                dateTag);
+                safeDateTag);
     }
 
     private static String normalizeCmdSetFamily(String cmdSet) {
@@ -5054,7 +5127,8 @@ public class Telnet_Multi {
         try ( BufferedOutputStream outFile = new BufferedOutputStream(new FileOutputStream(logFile, true))) {
             long startTime = System.currentTimeMillis();
             long lastData = startTime;
-            final long MAX_WAIT_MS = 10 * 60 * 1000; // 10 - safety stop
+            final long maxWaitMs = getCommandMaxWaitMs();
+            final long idleTimeoutMs = getCommandIdleTimeoutMs();
 
             List<String> promptCandidates = expandStreamPromptCandidates(
                     buildPromptCandidates(logFile, Device, cmdSet, s),
@@ -5077,7 +5151,7 @@ public class Telnet_Multi {
             boolean waitForPrompt = !promptCandidates.isEmpty();
 
             if (sshGatewayConnection) {
-                result = readStreamToFileSsh(outFile, promptCandidates, startTime, MAX_WAIT_MS);
+                result = readStreamToFileSsh(outFile, promptCandidates, startTime, maxWaitMs, idleTimeoutMs, consolePrefix);
                 if (result.promptDetected) {
                     System.out.println("[PROMPT-OK]" + consolePrefix + " SSH prompt/menu");
                 }
@@ -5128,16 +5202,16 @@ public class Telnet_Multi {
 
                     //  prompt   
                     long now = System.currentTimeMillis();
-                    if (now - lastData > 10000) { // -  10 -
+                    if (now - lastData > COMMAND_WAIT_LOG_INTERVAL_MS) {
                         System.out.println("[WAITING]" + consolePrefix + " prompt "
-                                + ((now - startTime) / 1000) + "s");
+                                + formatDurationSeconds(now - startTime));
                         lastData = now;
                     }
 
-                    //  10 -
-                    if (now - startTime > MAX_WAIT_MS) {
-                        System.out.println("[END STREAM]" + consolePrefix + " force stop after 10 min (no prompt)");
-                        result = CommandReadResult.timeout("prompt wait exceeded 10 minutes");
+                    if (now - startTime > maxWaitMs) {
+                        String detail = "prompt wait exceeded " + formatDurationSeconds(maxWaitMs);
+                        System.out.println("[END STREAM]" + consolePrefix + " " + detail);
+                        result = CommandReadResult.timeout(detail);
                         break;
                     }
                 }
@@ -5414,6 +5488,8 @@ public class Telnet_Multi {
             activeLogSessions.remove(activeLogSessionPath);
             activeLogSessionPath = null;
         }
+        activeLogSessionIdentity = null;
+        activeLogDateTag = null;
     }
 
     private static boolean isActiveLogSession(File file) {

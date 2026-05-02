@@ -1927,7 +1927,24 @@ public class BotGetLog_TrueCorp {
         return fallback;
     }
 
+    private static boolean hasValidDuplicateLogHead(File file) {
+        if (file == null || !file.exists()) {
+            return false;
+        }
+        return isValidLogHead(file, extractDeviceFromLogName(file.getName()), extractCmdSetFromLogName(file.getName()));
+    }
+
     private static int compareLogPriority(File f1, File f2) {
+        int validCmp = Boolean.compare(hasValidDuplicateLogHead(f2), hasValidDuplicateLogHead(f1));
+        if (validCmp != 0) {
+            return validCmp;
+        }
+
+        int sizeCmp = Long.compare(f2.length(), f1.length());
+        if (sizeCmp != 0) {
+            return sizeCmp;
+        }
+
         long s1 = extractLogDateScore(f1);
         long s2 = extractLogDateScore(f2);
         int cmp = Long.compare(s2, s1);
