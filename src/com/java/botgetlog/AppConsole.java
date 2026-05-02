@@ -10,6 +10,8 @@ import java.io.PrintStream;
 import java.lang.reflect.InvocationTargetException;
 import javax.swing.BorderFactory;
 import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -25,15 +27,34 @@ public final class AppConsole {
     private static JTextArea textArea;
     private static boolean installed;
     private static long shownAtMs;
+    private static String headerTitle = "BotGetLog [TRUE] Console";
+    private static String frameTitle = "BotGetLog [TRUE] - Console";
 
     private AppConsole() {
     }
 
     public static void install() {
+        install("BotGetLog [TRUE] Console", "BotGetLog [TRUE] - Console");
+    }
+
+    public static void install(String consoleTitle) {
+        String safeTitle = consoleTitle == null || consoleTitle.trim().isEmpty()
+                ? "Console"
+                : consoleTitle.trim();
+        install(safeTitle, safeTitle);
+    }
+
+    public static void install(String consoleTitle, String windowTitle) {
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
         synchronized (LOCK) {
+            if (consoleTitle != null && !consoleTitle.trim().isEmpty()) {
+                headerTitle = consoleTitle.trim();
+            }
+            if (windowTitle != null && !windowTitle.trim().isEmpty()) {
+                frameTitle = windowTitle.trim();
+            }
             if (installed) {
                 show();
                 return;
@@ -126,9 +147,20 @@ public final class AppConsole {
         JScrollPane scrollPane = new JScrollPane(textArea);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
 
-        frame = new JFrame("BotGetLog Multi - Console");
+        JPanel toolbar = new JPanel(new BorderLayout());
+        toolbar.setBackground(new Color(18, 31, 49));
+        toolbar.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+
+        JLabel title = new JLabel(headerTitle);
+        title.setForeground(new Color(110, 231, 255));
+        title.setFont(new Font("Segoe UI", Font.BOLD, 13));
+
+        toolbar.add(title, BorderLayout.WEST);
+
+        frame = new JFrame(frameTitle);
         frame.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
         frame.setLayout(new BorderLayout());
+        frame.add(toolbar, BorderLayout.NORTH);
         frame.add(scrollPane, BorderLayout.CENTER);
         frame.pack();
         frame.setLocationRelativeTo(null);

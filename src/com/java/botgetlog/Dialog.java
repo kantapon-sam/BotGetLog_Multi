@@ -33,7 +33,7 @@ public class Dialog {
 
     public void Error(String message) {
         if ("".equals(message)) {
-            message = "Please Fill In Your Information.\nSheet _setting";
+            message = "Please Fill In Your Information.\nSheet _setting_TRUE";
         }
         JOptionPane.showMessageDialog(null,
                 message,
@@ -59,7 +59,7 @@ public class Dialog {
                 "IP Loopback Duplicates", JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE, null, dup, dup[1]);
         if (choice != 0) {
-            BotGetLog_Multi.requestShutdown("Duplicate loopback prompt canceled", 0);
+            BotGetLog_TrueCorp.requestShutdown("Duplicate loopback prompt canceled", 0);
         }
     }
 }

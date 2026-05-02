@@ -357,6 +357,10 @@ public class Telnet_Multi {
     private boolean vendorMismatch = false;
     private boolean sessionFailureRecorded = false;
 
+    public boolean hasSessionFailureRecorded() {
+        return sessionFailureRecorded;
+    }
+
     //   log 
     private String preparedLogSessionKey = null;
     private String activeLogSessionPath = null;
@@ -1703,7 +1707,7 @@ public class Telnet_Multi {
             int r = reloadCommandsFromExcel(FileInput, cmdSet, command);
             if (r == 0) {
                 logwork("[ERROR] No commands found for cmdSet: " + cmdSet + "\n");
-                Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+                Connection_failed(Num_row, Loopback, Device, cmdSet, "_[CmdSet missing]");
                 return;
             }
 
@@ -1806,7 +1810,7 @@ public class Telnet_Multi {
                         System.out.println("\n[ERROR] Username or password rejected at " + Loopback);
                         logwork("\n[ERROR] Username or password rejected at " + Loopback
                                 + " | response: " + summarizeResponseForLog(resp, User_CLLS, PW_CLLS) + "\n");
-                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed after password]");
+                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Auth failed - username or password rejected]");
                         failedAfterPassword = true;
                         disconnect();
                         return;
@@ -1937,7 +1941,10 @@ public class Telnet_Multi {
                                 System.out.println("\n[ERROR] Login prompt detected but no response after password at " + Loopback);
                                 logwork("\n[ERROR] Login prompt detected but no response after password at " + Loopback + "\n");
                             }
-                            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed after password]");
+                            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                    invalidCredentials
+                                            ? "_[Auth failed - username or password rejected]"
+                                            : "_[Connection failed after password]");
                             failedAfterPassword = true;
                             disconnect();
                             return; //   constructor --  save log,  END
@@ -2529,12 +2536,17 @@ public class Telnet_Multi {
             //    Node offline   log  return
             System.out.println("[WARN] Connection failed: " + ex);
             logwork("[WARN] Connection failed: " + ex + "\n");
+            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed - connect exception]");
             return;
 
         } catch (JSchException ex) {
             String detail = summarizeGatewayAttemptError(ex);
             System.out.println("[WARN] SSH gateway failed: " + detail);
             logwork("[WARN] SSH gateway failed: " + detail + "\n");
+            String reason = detail.toLowerCase(Locale.ROOT).contains("auth")
+                    ? "_[Auth failed - SSH gateway]"
+                    : "_[Connection failed - SSH gateway]";
+            Connection_failed(Num_row, Loopback, Device, cmdSet, reason);
             return;
 
         } catch (Exception ex) {
@@ -2549,10 +2561,12 @@ public class Telnet_Multi {
             //   Excel lock  restart -
             if (ex instanceof org.apache.poi.ooxml.POIXMLException || ex instanceof java.util.zip.ZipException) {
                 logwork("[ZIP_ERROR] Excel corrupted or locked: " + ex + "\n");
-                System.out.println("[RESTART] Restarting BotGetLog_Multi due to Excel lock...");
-                BotGetLog_Multi.RunBatch(FileInput.getCurrentFolder());
+                System.out.println("[RESTART] Restarting BotGetLog_TrueCorp due to Excel lock...");
+                BotGetLog_TrueCorp.RunBatch(FileInput.getCurrentFolder());
                 return;
             }
+
+            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed - " + ex.getClass().getSimpleName() + "]");
 
         } finally {
             clearActiveLogSession();
@@ -4138,10 +4152,21 @@ public class Telnet_Multi {
             }
 
             logwork("[FAIL] " + message + "\n");
-            if (reason.contains("Wrong vendor")) {
-                BotGetLog_Multi.vendorFailCount.incrementAndGet();
+            String reasonLower = cleanReason.toLowerCase(Locale.ROOT);
+            if (reasonLower.contains("wrong vendor")) {
+                BotGetLog_TrueCorp.recordVendorFailure();
+            } else if (reasonLower.contains("auth") || reasonLower.contains("password rejected")
+                    || reasonLower.contains("login failed")) {
+                BotGetLog_TrueCorp.recordAuthFailure();
+            } else if (reasonLower.contains("cmdset") || reasonLower.contains("cmd set")) {
+                BotGetLog_TrueCorp.recordCmdSetFailure();
+            } else if (reasonLower.contains("log missing") || reasonLower.contains("missing log")) {
+                BotGetLog_TrueCorp.recordLogMissingFailure();
+            } else if (reasonLower.contains("incomplete") || reasonLower.contains("missing last command")
+                    || reasonLower.contains("missing session end")) {
+                BotGetLog_TrueCorp.recordIncompleteFailure();
             } else {
-                BotGetLog_Multi.failCount.incrementAndGet();
+                BotGetLog_TrueCorp.recordNetworkFailure();
             }
 
         } catch (IOException ex) {
@@ -4701,7 +4726,7 @@ public class Telnet_Multi {
     }
 
     private int reloadCommandsFromExcel(PathFile fileInput, String cmdSet, String[] targetCommand) {
-        int newR = BotGetLog_Multi.copyCachedCommands(cmdSet, targetCommand);
+        int newR = BotGetLog_TrueCorp.copyCachedCommands(cmdSet, targetCommand);
         if (newR > 0) {
             return newR;
         }
@@ -4713,13 +4738,13 @@ public class Telnet_Multi {
                     if (sheet.getRow(0).getCell(j) == null) {
                         continue;
                     }
-                    String header = BotGetLog_Multi.getCellValue(sheet.getRow(0).getCell(j));
+                    String header = BotGetLog_TrueCorp.getCellValue(sheet.getRow(0).getCell(j));
                     if (header != null && cmdSet.equalsIgnoreCase(header.trim())) {
                         Arrays.fill(targetCommand, null);
                         for (int rowIdx = 0; rowIdx <= sheet.getLastRowNum(); rowIdx++) {
                             Row currentRow = sheet.getRow(rowIdx);
                             if (currentRow != null && currentRow.getCell(j) != null) {
-                                String cellValue = BotGetLog_Multi.getCellValue(currentRow.getCell(j));
+                                String cellValue = BotGetLog_TrueCorp.getCellValue(currentRow.getCell(j));
                                 if (cellValue != null && !cellValue.trim().isEmpty() && newR < targetCommand.length) {
                                     targetCommand[newR] = cellValue;
                                     newR++;
@@ -5471,7 +5496,7 @@ public class Telnet_Multi {
     }
 
     private static boolean shouldBackgroundMonitorsRun() {
-        return backgroundMonitorsActive && BotGetLog_Multi.shouldBackgroundWorkersRun();
+        return backgroundMonitorsActive && BotGetLog_TrueCorp.shouldBackgroundWorkersRun();
     }
 
     public static synchronized void stopBackgroundMonitors() {
@@ -5550,6 +5575,7 @@ public class Telnet_Multi {
 
                         if (isWrongVendor) {
                             deleted++;
+                            BotGetLog_TrueCorp.recordVendorFailure();
                             String timestamp = LocalDateTime.now().format(timeFmt);
                             Matcher matcher = DAILY_LOG_FILE_PATTERN.matcher(f.getName());
                             boolean parsed = matcher.find();
@@ -5583,7 +5609,7 @@ public class Telnet_Multi {
                                 System.out.printf("[MONITOR]  Skip wrong-vendor re-run because Group != Y: %s%n", f.getName());
                             } else {
                                 rerunTriggered++;
-                                BotGetLog_Multi.RerunNode(numRow, loopback, device, rerunCmdSet);
+                                BotGetLog_TrueCorp.RerunNode(numRow, loopback, device, rerunCmdSet);
                                 System.out.printf("[MONITOR]  Wrong-vendor recheck triggered for %s (%s, %s -> %s)%n",
                                         loopback, device, cmdSet, rerunCmdSet);
                             }
@@ -5723,7 +5749,7 @@ public class Telnet_Multi {
                             }
                             clearMonitorScan(commandMonitorScanCache, f);
                             if (shouldRerun) {
-                                BotGetLog_Multi.RerunNode(numRow, loopback, device, cmdSet);
+                                BotGetLog_TrueCorp.RerunNode(numRow, loopback, device, cmdSet);
                             }
                             Thread.sleep(1000);
                             continue;
@@ -5739,6 +5765,7 @@ public class Telnet_Multi {
 
                         String lastCmd = getLastCommandFromExcelStatic(fileInput, cmdSet);
                         if (lastCmd == null || lastCmd.isEmpty()) {
+                            BotGetLog_TrueCorp.recordCmdSetFailure();
                             rememberMonitorScan(commandMonitorScanCache, f, Long.MAX_VALUE);
                             continue;
                         }
@@ -5774,6 +5801,9 @@ public class Telnet_Multi {
                             }
                             System.out.printf("[MONITOR]  Incomplete log for %s (%s) - %s - last line='%s'%n",
                                     device, loopback, incompleteReason, lastLine);
+                            if (!connectionFailureLog) {
+                                BotGetLog_TrueCorp.recordIncompleteFailure();
+                            }
 
                             if (f.delete()) {
                                 System.out.println("[MONITOR] - Deleted incomplete file: " + f.getName());
@@ -5799,7 +5829,7 @@ public class Telnet_Multi {
                                             timestamp, f.getName(), incompleteReason));
                                 }
 
-                                BotGetLog_Multi.RerunNode(numRow, loopback, device, cmdSet);
+                                BotGetLog_TrueCorp.RerunNode(numRow, loopback, device, cmdSet);
                                 System.out.printf("[MONITOR]  Recheck triggered for %s (%s, %s)%n", loopback, device, cmdSet);
 
                                 try ( FileWriter fw = new FileWriter(fileInput.getLogWork() + "\\MonitorLog.txt", true)) {
@@ -5810,7 +5840,7 @@ public class Telnet_Multi {
                                 //  Re-run node now
                                 System.out.printf("[MONITOR]  Immediate re-run node %s (%s, %s)%n", loopback, device, cmdSet);
                                 try {
-                                    BotGetLog_Multi.RerunNode(numRow, loopback, device, cmdSet);
+                                    BotGetLog_TrueCorp.RerunNode(numRow, loopback, device, cmdSet);
                                 } catch (Exception e) {
                                     System.out.println("[MONITOR]  Immediate re-run error: " + e.getMessage());
                                 }
@@ -5855,7 +5885,7 @@ public class Telnet_Multi {
 
 //  - sheet cmdSet
     private static String getLastCommandFromExcelStatic(PathFile fileInput, String cmdSet) {
-        String cached = BotGetLog_Multi.getCachedLastCommand(cmdSet);
+        String cached = BotGetLog_TrueCorp.getCachedLastCommand(cmdSet);
         if (cached != null && !cached.isEmpty()) {
             return cached;
         }
@@ -5864,14 +5894,14 @@ public class Telnet_Multi {
             try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
                 Sheet sheet = workbook.getSheet("cmdSet");
                 for (int j = 0; j < sheet.getRow(0).getLastCellNum(); j++) {
-                    String name = BotGetLog_Multi.getCellValue(sheet.getRow(0).getCell(j));
+                    String name = BotGetLog_TrueCorp.getCellValue(sheet.getRow(0).getCell(j));
                     if (cmdSet.equalsIgnoreCase(name)) {
                         String lastCmd = "";
                         Iterator<Row> rows = sheet.rowIterator();
                         while (rows.hasNext()) {
                             Row r = rows.next();
                             if (r.getCell(j) != null) {
-                                String val = BotGetLog_Multi.getCellValue(r.getCell(j));
+                                String val = BotGetLog_TrueCorp.getCellValue(r.getCell(j));
                                 if (val != null && !val.trim().isEmpty()) {
                                     lastCmd = val.trim();
                                 }
@@ -5889,20 +5919,23 @@ public class Telnet_Multi {
 
 //   Group = Y  sheet deviceList
     private static boolean getRetryFlagFromExcelStatic(PathFile fileInput, int rowNum) {
-        if (BotGetLog_Multi.isRetryEnabledForRow(rowNum)) {
+        if (BotGetLog_TrueCorp.isRetryEnabledForRow(rowNum)) {
             return true;
         }
         try {
             File excelFile = new File(fileInput.getUserInterface_Input());
             try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
-                Sheet sheet = workbook.getSheet("deviceList"); //   deviceList
+                Sheet sheet = BotGetLog_TrueCorp.getSheetAny(workbook, "deviceList_TRUE", "deviceList");
+                if (sheet == null) {
+                    return false;
+                }
                 Row row = sheet.getRow(rowNum);
                 if (row == null) {
                     return false;
                 }
 
                 if (row.getCell(0) != null) { //   Group
-                    String retry = BotGetLog_Multi.getCellValue(row.getCell(0));
+                    String retry = BotGetLog_TrueCorp.getCellValue(row.getCell(0));
                     return retry != null && retry.trim().equalsIgnoreCase("Y");
                 }
             }
@@ -6016,7 +6049,7 @@ public class Telnet_Multi {
                             cmdSet = matcher.group(4);
                         }
 
-                        int cachedCommandCount = BotGetLog_Multi.getCachedCommandCount(cmdSet);
+                        int cachedCommandCount = BotGetLog_TrueCorp.getCachedCommandCount(cmdSet);
                         if (cachedCommandCount > 0) {
                             commandCount = cachedCommandCount;
                         } else {
@@ -6025,14 +6058,14 @@ public class Telnet_Multi {
                                 try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
                                     Sheet sheet = workbook.getSheet("cmdSet");
                                     for (int j = 0; j < sheet.getRow(0).getLastCellNum(); j++) {
-                                        String header = BotGetLog_Multi.getCellValue(sheet.getRow(0).getCell(j));
+                                        String header = BotGetLog_TrueCorp.getCellValue(sheet.getRow(0).getCell(j));
                                         if (cmdSet.equalsIgnoreCase(header)) {
                                             int count = 0;
                                             Iterator<Row> rows = sheet.rowIterator();
                                             while (rows.hasNext()) {
                                                 Row r = rows.next();
                                                 if (r.getCell(j) != null) {
-                                                    String val = BotGetLog_Multi.getCellValue(r.getCell(j));
+                                                    String val = BotGetLog_TrueCorp.getCellValue(r.getCell(j));
                                                     if (val != null && !val.trim().isEmpty()) {
                                                         count++;
                                                     }

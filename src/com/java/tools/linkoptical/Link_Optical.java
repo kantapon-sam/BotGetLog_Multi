@@ -192,7 +192,7 @@ public class Link_Optical {
         if (LauncherGate.redirectToLauncherIfNeeded("Link Optical")) {
             return;
         }
-        AppConsole.install();
+        AppConsole.install("Link Optical Console", "Link Optical - Console");
         Dialog.setLAF();
         System.out.println("[INFO] Link Optical started");
 

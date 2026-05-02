@@ -30,7 +30,7 @@ public class PTP {
         if (LauncherGate.redirectToLauncherIfNeeded("PTP")) {
             return;
         }
-        AppConsole.install();
+        AppConsole.install("PTP Console", "PTP - Console");
         Dialog.setLAF();
         System.out.println("[INFO] PTP started");
 

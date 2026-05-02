@@ -73,6 +73,8 @@ public class StopProgram extends JFrame implements ActionListener {
     private static JLabel progressLabel;
     private static JLabel lblThreadInfo;
     private static JLabel lblNetworkStatus;
+    private static JLabel lblResultSummary;
+    private static JLabel lblFailTypeSummary;
     private static JLabel lblStartValue;
     private static JLabel lblEtaValue;
     private static JLabel lblRemainingValue;
@@ -120,7 +122,7 @@ public class StopProgram extends JFrame implements ActionListener {
 
         setContentPane(mainPanel);
         pack();
-        setSize(560, 410);
+        setSize(660, 455);
         setLocation(10, 10);
         setVisible(true);
 
@@ -192,8 +194,8 @@ public class StopProgram extends JFrame implements ActionListener {
             toggleAlarm.putClientProperty("hoverColor",
                     muteOn ? new Color(120, 24, 24) : new Color(4, 120, 87));
             toggleAlarm.repaint();
-            BotGetLog_Multi.setAlarmEnabled(!muteOn);
-            if (BotGetLog_Multi.isAlarmEnabled()) {
+            BotGetLog_TrueCorp.setAlarmEnabled(!muteOn);
+            if (BotGetLog_TrueCorp.isAlarmEnabled()) {
                 Toolkit.getDefaultToolkit().beep();
             }
         });
@@ -258,11 +260,17 @@ public class StopProgram extends JFrame implements ActionListener {
         progressBody.add(progressBar);
         progressBody.add(Box.createVerticalStrut(6));
 
+        lblResultSummary = createMetricValueLabel(new Color(134, 239, 172));
+        lblFailTypeSummary = createMetricValueLabel(new Color(250, 204, 21));
         lblStartValue = createMetricValueLabel(new Color(103, 232, 249));
         lblEtaValue = createMetricValueLabel(new Color(250, 204, 21));
         lblRemainingValue = createMetricValueLabel(new Color(134, 239, 172));
         lblAccuracyValue = createMetricValueLabel(new Color(251, 191, 36));
 
+        progressBody.add(lblResultSummary);
+        progressBody.add(Box.createVerticalStrut(2));
+        progressBody.add(lblFailTypeSummary);
+        progressBody.add(Box.createVerticalStrut(2));
         progressBody.add(lblStartValue);
         progressBody.add(Box.createVerticalStrut(2));
         progressBody.add(lblEtaValue);
@@ -299,7 +307,7 @@ public class StopProgram extends JFrame implements ActionListener {
             toggleTurbo.repaint();
 
             progressBar.setForeground(focusOn ? new Color(251, 146, 60) : new Color(14, 165, 233));
-            BotGetLog_Multi.setFocusMode(focusOn);
+            BotGetLog_TrueCorp.setFocusMode(focusOn);
             Toolkit.getDefaultToolkit().beep();
         });
 
@@ -387,13 +395,13 @@ public class StopProgram extends JFrame implements ActionListener {
                         (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
                 CpuSmooth uiCpuSmooth = new CpuSmooth(0.18, 25);
 
-                while (BotGetLog_Multi.shouldBackgroundWorkersRun()) {
-                    ThreadPoolExecutor exec = BotGetLog_Multi.getExecutor();
+                while (BotGetLog_TrueCorp.shouldBackgroundWorkersRun()) {
+                    ThreadPoolExecutor exec = BotGetLog_TrueCorp.getExecutor();
                     if (exec != null && !exec.isShutdown()) {
                         int active = exec.getActiveCount();
                         double avgCpu = uiCpuSmooth.updateFromOs(os, true);
 
-                        boolean turbo = BotGetLog_Multi.isFocusModeActive();
+                        boolean turbo = BotGetLog_TrueCorp.isFocusModeActive();
                         int baseThreads = turbo
                                 ? Telnet_Multi.getTurboTelnetLimit()
                                 : Telnet_Multi.NORMAL_TELNET_LIMIT;
@@ -429,7 +437,7 @@ public class StopProgram extends JFrame implements ActionListener {
             try {
                 Robot robot = new Robot();
                 boolean toggle = false;
-                while (BotGetLog_Multi.shouldBackgroundWorkersRun()) {
+                while (BotGetLog_TrueCorp.shouldBackgroundWorkersRun()) {
                     Point mouse = MouseInfo.getPointerInfo().getLocation();
                     int moveX = toggle ? 1 : -1;
                     robot.mouseMove(mouse.x + moveX, mouse.y);
@@ -446,6 +454,7 @@ public class StopProgram extends JFrame implements ActionListener {
     }
 
     private static synchronized void setTimelineDefaults() {
+        updateRunSummaryLabels();
         if (lblStartValue != null) {
             lblStartValue.setText("Start Time: -");
         }
@@ -687,11 +696,59 @@ public class StopProgram extends JFrame implements ActionListener {
                 JOptionPane.WARNING_MESSAGE);
         if (confirm == JOptionPane.YES_OPTION) {
             if (btnClose != null) {
-                btnClose.setText("Stopping...");
+                btnClose.setText("Stopping now...");
                 btnClose.setEnabled(false);
             }
-            BotGetLog_Multi.requestShutdown("User requested graceful stop", 0);
+            startForceHaltWatchdog();
+            new Thread(() -> BotGetLog_TrueCorp.requestImmediateShutdown("User pressed Stop Program", 0),
+                    "manual-stop-shutdown").start();
         }
+    }
+
+    private static void updateRunSummaryLabels() {
+        Runnable task = StopProgram::refreshRunSummaryLabelsOnEdt;
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    private static void refreshRunSummaryLabelsOnEdt() {
+        if (lblResultSummary != null) {
+            lblResultSummary.setText(String.format("Success: %d | Failed: %d | Stopped: %d",
+                    BotGetLog_TrueCorp.getSuccessCount(),
+                    BotGetLog_TrueCorp.getFailCount(),
+                    BotGetLog_TrueCorp.getStoppedCount()));
+        }
+        if (lblFailTypeSummary != null) {
+            lblFailTypeSummary.setText(String.format(
+                    "Fail type: Auth %d | Network %d | Incomplete %d | Vendor %d | LogMissing %d | CmdSet %d",
+                    BotGetLog_TrueCorp.getAuthFailCount(),
+                    BotGetLog_TrueCorp.getNetworkFailCount(),
+                    BotGetLog_TrueCorp.getIncompleteFailCount(),
+                    BotGetLog_TrueCorp.getVendorFailCount(),
+                    BotGetLog_TrueCorp.getLogMissingFailCount(),
+                    BotGetLog_TrueCorp.getCmdSetFailCount()));
+        }
+    }
+
+    private static void startForceHaltWatchdog() {
+        Thread forceHalt = new Thread(() -> {
+            try {
+                Thread.sleep(5000L);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            try {
+                System.err.println("[STOP] JVM did not exit within 5 seconds; forcing halt now.");
+            } catch (Throwable ignored) {
+            }
+            Runtime.getRuntime().halt(0);
+        }, "manual-stop-force-halt");
+        forceHalt.setDaemon(false);
+        forceHalt.start();
     }
 
     public static void attachExecutor(ThreadPoolExecutor exec) {
@@ -710,6 +767,7 @@ public class StopProgram extends JFrame implements ActionListener {
             progressBar.setValue((int) Math.max(0, Math.min(100, Math.round(percent))));
             progressBar.setString(String.format("%.1f%%", percent));
             progressLabel.setText(String.format("%d / %d nodes completed", done, total));
+            refreshRunSummaryLabelsOnEdt();
         });
     }
 
@@ -717,9 +775,12 @@ public class StopProgram extends JFrame implements ActionListener {
         if (lblThreadInfo == null) {
             return;
         }
-        SwingUtilities.invokeLater(() -> lblThreadInfo.setText(
-                String.format("Mode: %s | Threads: %d active / %d total | CPU: %.1f%%",
-                        mode, active, total, cpu)));
+        SwingUtilities.invokeLater(() -> {
+            lblThreadInfo.setText(
+                    String.format("Mode: %s | Threads: %d active / %d total | CPU: %.1f%%",
+                            mode, active, total, cpu));
+            refreshRunSummaryLabelsOnEdt();
+        });
     }
 
     public static void updateNetworkStatus(String text, Color color) {

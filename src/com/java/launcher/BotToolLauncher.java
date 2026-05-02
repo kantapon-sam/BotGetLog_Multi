@@ -53,20 +53,23 @@ import javax.swing.WindowConstants;
 
 public class BotToolLauncher {
 
-    private static final String BOT_JAR_NAME = "BotGetLog_Multi.jar";
+    private static final String BOT_JAR_NAME = "BotGetLog_TrueCorp.jar";
+    private static final String BOT_DTAC_JAR_NAME = "BotGetLog_DTAC.jar";
     private static final String LINK_OPTICAL_JAR_NAME = "Link_Optical.jar";
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.0.16: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.0.16.
-    private static final String FALLBACK_VERSION = "1.0.16";
+    // Version 1.1.0: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.0.
+    private static final String FALLBACK_VERSION = "1.1.0";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final Color PANEL_BACKGROUND = new Color(245, 247, 250);
     private static final Color WEB_PANEL_BACKGROUND = new Color(231, 239, 253);
     private static final Color CARD_BORDER = new Color(205, 214, 225);
     private static final Color TOOL_BUTTON_BACKGROUND = new Color(44, 62, 80);
     private static final Color TOOL_BUTTON_FOREGROUND = Color.WHITE;
+    private static final Color TRUE_BUTTON_BACKGROUND = new Color(190, 48, 48);
+    private static final Color DTAC_BUTTON_BACKGROUND = new Color(56, 189, 248);
     private static final Color WEB_BUTTON_BACKGROUND = new Color(21, 101, 192);
     private static final Color WEB_BUTTON_FOREGROUND = Color.WHITE;
     private static final Color LOGIN_BUTTON_BACKGROUND = new Color(30, 64, 110);
@@ -126,6 +129,7 @@ public class BotToolLauncher {
     private JFrame frame;
     private JTextArea textArea;
     private JButton launchBotButton;
+    private JButton launchDtacButton;
     private JButton linkOpticalButton;
     private JButton arpButton;
     private JButton ptpButton;
@@ -170,7 +174,8 @@ public class BotToolLauncher {
         textArea.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
         textArea.setText(buildLauncherText());
 
-        launchBotButton = new LauncherButton("BotGetLog");
+        launchBotButton = new LauncherButton("BotGetLog [TRUE]");
+        launchDtacButton = new LauncherButton("BotGetLog [DTAC]");
         linkOpticalButton = new LauncherButton("Link Optical");
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
@@ -180,6 +185,7 @@ public class BotToolLauncher {
         refreshLinksButton = new LauncherButton("Refresh Links");
 
         launchBotButton.addActionListener(e -> launchBotJar());
+        launchDtacButton.addActionListener(e -> launchDtacJar());
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
@@ -187,7 +193,8 @@ public class BotToolLauncher {
         resetButton.addActionListener(e -> resetGeneratedFiles());
         exitButton.addActionListener(e -> frame.dispose());
         refreshLinksButton.addActionListener(e -> refreshWebLinksAsync());
-        styleToolButton(launchBotButton);
+        styleToolButton(launchBotButton, TRUE_BUTTON_BACKGROUND);
+        styleToolButton(launchDtacButton, DTAC_BUTTON_BACKGROUND);
         styleToolButton(linkOpticalButton);
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
@@ -204,6 +211,7 @@ public class BotToolLauncher {
         JPanel actionButtonsPanel = new JPanel(new GridLayout(0, 1, 0, 8));
         actionButtonsPanel.setOpaque(false);
         actionButtonsPanel.add(launchBotButton);
+        actionButtonsPanel.add(launchDtacButton);
         actionButtonsPanel.add(linkOpticalButton);
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
@@ -247,25 +255,28 @@ public class BotToolLauncher {
         text.append("[VPN] ").append(vpnStatusSummary == null ? "Not detected" : vpnStatusSummary).append(lineBreak);
         text.append("[INFO] Select a menu from the buttons below.").append(lineBreak);
         text.append(lineBreak);
-        text.append("1. BotGetLog").append(lineBreak);
-        text.append("   Run the main bot directly without extra menu.").append(lineBreak);
+        text.append("1. BotGetLog [TRUE]").append(lineBreak);
+        text.append("   Run the TRUE bot directly without extra menu.").append(lineBreak);
         text.append(lineBreak);
-        text.append("2. Link Optical").append(lineBreak);
+        text.append("2. BotGetLog [DTAC]").append(lineBreak);
+        text.append("   Run the DTAC SSH bot directly without extra menu.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("3. Link Optical").append(lineBreak);
         text.append("   Open the built-in Link_Optical tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("3. ARP").append(lineBreak);
+        text.append("4. ARP").append(lineBreak);
         text.append("   Open the built-in ARP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("4. PTP").append(lineBreak);
+        text.append("5. PTP").append(lineBreak);
         text.append("   Open the built-in PTP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("5. Open Pulse VPN").append(lineBreak);
+        text.append("6. Open Pulse VPN").append(lineBreak);
         text.append("   Open Pulse Secure and bring its window to the front so you can click Connect there.").append(lineBreak);
         text.append(lineBreak);
-        text.append("6. Reset").append(lineBreak);
+        text.append("7. Reset").append(lineBreak);
         text.append("   Delete generated log/output files in this bot folder.").append(lineBreak);
         text.append(lineBreak);
-        text.append("7. Exit").append(lineBreak);
+        text.append("8. Exit").append(lineBreak);
         text.append("   Close this launcher.").append(lineBreak);
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
@@ -600,6 +611,10 @@ public class BotToolLauncher {
 
     private static void styleToolButton(JButton button) {
         styleButton(button, TOOL_BUTTON_BACKGROUND, TOOL_BUTTON_FOREGROUND, 42, new Font("Segoe UI", Font.BOLD, 13));
+    }
+
+    private static void styleToolButton(JButton button, Color background) {
+        styleButton(button, background, TOOL_BUTTON_FOREGROUND, 42, new Font("Segoe UI", Font.BOLD, 13));
     }
 
     private static void styleSecondaryButton(JButton button) {
@@ -1030,6 +1045,11 @@ public class BotToolLauncher {
         launchProgram(findBotJar(), BOT_JAR_NAME, launchBotButton);
     }
 
+    private void launchDtacJar() {
+        launchDtacButton.setEnabled(false);
+        launchProgram(findDtacJar(), BOT_DTAC_JAR_NAME, launchDtacButton);
+    }
+
     private void launchLinkOpticalJar() {
         linkOpticalButton.setEnabled(false);
         launchProgram(findLinkOpticalJar(), LINK_OPTICAL_JAR_NAME, linkOpticalButton);
@@ -1230,6 +1250,21 @@ public class BotToolLauncher {
         File[] candidates = new File[]{
             new File(appDir, BOT_JAR_NAME),
             new File(appDir, "dist\\" + BOT_JAR_NAME)
+        };
+
+        for (File candidate : candidates) {
+            if (candidate.isFile()) {
+                return candidate;
+            }
+        }
+        return candidates[0];
+    }
+
+    private static File findDtacJar() {
+        File appDir = getAppDirectory();
+        File[] candidates = new File[]{
+            new File(appDir, BOT_DTAC_JAR_NAME),
+            new File(appDir, "dist\\" + BOT_DTAC_JAR_NAME)
         };
 
         for (File candidate : candidates) {

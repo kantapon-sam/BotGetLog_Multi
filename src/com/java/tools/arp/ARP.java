@@ -31,7 +31,7 @@ public class ARP {
         if (LauncherGate.redirectToLauncherIfNeeded("ARP")) {
             return;
         }
-        AppConsole.install();
+        AppConsole.install("ARP Console", "ARP - Console");
         Dialog.setLAF();
         System.out.println("[INFO] ARP started");
 

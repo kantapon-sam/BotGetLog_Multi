@@ -349,7 +349,8 @@ function Assert-RequiredReleaseArtifacts {
     }
 
     $requiredArtifacts = @(
-        "BotGetLog_Multi.jar",
+        "BotGetLog_TrueCorp.jar",
+        "BotGetLog_DTAC.jar",
         "Bot Tool Launcher.jar",
         "Link_Optical.jar",
         "ARP.jar",
@@ -454,13 +455,13 @@ if not exist "%~dp0jre\bin\java.exe" (
     exit /b 1
 )
 
-if not exist "%~dp0BotGetLog_Multi.jar" (
+if not exist "%~dp0Bot Tool Launcher.jar" (
     echo Application JAR not found in "%~dp0".
     pause
     exit /b 1
 )
 
-"%~dp0jre\bin\java.exe" -jar "%~dp0BotGetLog_Multi.jar"
+"%~dp0jre\bin\java.exe" -jar "%~dp0Bot Tool Launcher.jar"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if not "%EXIT_CODE%"=="0" (

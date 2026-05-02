@@ -16,7 +16,7 @@ public final class AppMetadata {
 
     private static final String APP_NAME = "BotGetLog_Multi";
     private static final String FALLBACK_VERSION = "0.0.0";
-    private static final String DEFAULT_MAIN_CLASS = "com.java.botgetlog.BotGetLog_Multi";
+    private static final String DEFAULT_MAIN_CLASS = "com.java.botgetlog.BotGetLog_TrueCorp";
     private static final String OUTPUT_DIR_NAME = "_output";
     private static final String LAUNCHER_DATA_DIR_NAME = "launcher-data";
     private static final String LAUNCHER_CREDENTIALS_FILE_NAME = "credentials.properties";
