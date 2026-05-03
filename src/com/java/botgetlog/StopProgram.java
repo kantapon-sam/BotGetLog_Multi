@@ -98,7 +98,7 @@ public class StopProgram extends JFrame implements ActionListener {
     public StopProgram() {
         instance = this;
 
-        setTitle("BotGetLog Multithread v" + BOT_VERSION);
+        setTitle("BotGetLog [TRUE] v" + BOT_VERSION + " - Automation Node Executor");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setResizable(false);
         addWindowListener(new WindowAdapter() {
@@ -138,12 +138,12 @@ public class StopProgram extends JFrame implements ActionListener {
         JPanel titlePanel = transparentPanel();
         titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
 
-        JLabel title = new JLabel("BotGetLog V" + BOT_VERSION);
+        JLabel title = new JLabel("BotGetLog [TRUE] V" + BOT_VERSION);
         title.setFont(new Font("Segoe UI", Font.BOLD, 18));
         title.setForeground(new Color(110, 231, 255));
         title.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel subtitle = new JLabel("Automation Node Executor - Updated to " + BOT_VERSION);
+        JLabel subtitle = new JLabel("TRUE automation with validation, retry, cleanup, and live summary");
         subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         subtitle.setForeground(new Color(183, 201, 226));
         subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -690,7 +690,7 @@ public class StopProgram extends JFrame implements ActionListener {
         }
 
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Do you really want to stop BotGetLog?",
+                "Do you really want to stop BotGetLog [TRUE]?",
                 "Confirm Stop",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);

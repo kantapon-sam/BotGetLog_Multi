@@ -1609,6 +1609,7 @@ public class BotGetLog_TrueCorp {
                                 String lastCommand = getLastCommandFromCmdSheet(workbook, cmdSet);
 
                                 boolean alreadyDone = false;
+                                boolean alreadyDoneAsSuccess = false;
                                 try {
                                     File folder = new File(FileInput.getLog());
                                     if (folder.exists() && folder.isDirectory()) {
@@ -1659,6 +1660,7 @@ public class BotGetLog_TrueCorp {
                                                 if (logComplete) {
                                                     System.out.println("[OK] Log complete: " + latestLog.getName());
                                                     alreadyDone = true;
+                                                    alreadyDoneAsSuccess = true;
                                                 } else {
                                                     boolean incompleteConnectionFailure = hasConnectionFailureSignalInLog(latestLog);
                                                     if (Telnet_Multi.isProtectedLogFile(latestLog)) {
@@ -1684,6 +1686,9 @@ public class BotGetLog_TrueCorp {
                                 if (alreadyDone) {
                                     System.out.printf("[SKIP] Skipped Row %d (%s) [%s] - already exists%n",
                                             rowNum, Device, cmdSet);
+                                    if (alreadyDoneAsSuccess) {
+                                        BotGetLog_TrueCorp.successCount.incrementAndGet();
+                                    }
 
                                     //   Progress  Skipped Row
                                     synchronized (progress) {
