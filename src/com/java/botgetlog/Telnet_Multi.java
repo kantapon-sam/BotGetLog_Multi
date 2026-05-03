@@ -21,6 +21,8 @@ import java.io.PrintStream;
 import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -258,12 +260,14 @@ public class Telnet_Multi {
     private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
     private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
     private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
+    private static final long DEFAULT_COMMAND_PROMPT_SETTLE_MS = 2500L;
     private static final SshAuthMode[] SSH_AUTH_MODES = new SshAuthMode[]{
         new SshAuthMode("password-only", "password"),
         new SshAuthMode("keyboard-interactive", "keyboard-interactive"),
         new SshAuthMode("password-then-keyboard-interactive", "password,keyboard-interactive")
     };
     private static final ThreadLocal<SshTraceCollector> SSH_TRACE_COLLECTOR = new ThreadLocal<>();
+    private static volatile int configuredNormalTelnetLimit = NORMAL_TELNET_LIMIT;
     private static volatile int currentTelnetLimit = NORMAL_TELNET_LIMIT;
     public static final AdjustableSemaphore TELNET_LIMIT
             = new AdjustableSemaphore(NORMAL_TELNET_LIMIT);
@@ -275,11 +279,24 @@ public class Telnet_Multi {
     }
 
     public static int getTurboTelnetLimit() {
-        return Math.max(NORMAL_TELNET_LIMIT, Runtime.getRuntime().availableProcessors() / 2);
+        return Math.max(getNormalTelnetLimit(), Runtime.getRuntime().availableProcessors() / 2);
+    }
+
+    public static int getNormalTelnetLimit() {
+        return configuredNormalTelnetLimit;
     }
 
     public static int getCurrentTelnetLimit() {
         return currentTelnetLimit;
+    }
+
+    public static synchronized void configureNormalTelnetLimit(int normalLimit) {
+        int safeLimit = Math.max(1, normalLimit);
+        int previousNormal = configuredNormalTelnetLimit;
+        configuredNormalTelnetLimit = safeLimit;
+        if (currentTelnetLimit == previousNormal) {
+            applyTelnetLimit(safeLimit);
+        }
     }
 
     private static void appendJschConfigValue(String key, String value) {
@@ -403,7 +420,10 @@ public class Telnet_Multi {
     };
     private static final String[] CHECKLOGIN_PROMPT_TOKENS = new String[]{"username", "user name", "login", "ogin"};
     private static final String[] CHECKLOGIN_FAIL_TOKENS = new String[]{"unreachable", "connection timed out"};
-    private static final long WRONG_VENDOR_INACTIVE_THRESHOLD_MS = 60 * 1000L;
+    private static final long DEFAULT_MONITOR_SAFETY_IDLE_MS = 10L * 60L * 1000L;
+    private static final long LOG_SAFE_DELETE_RECENT_THRESHOLD_MS = 10L * 60L * 1000L;
+    private static final DateTimeFormatter DELETED_LOG_TIMESTAMP_FORMATTER
+            = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmssSSS");
     private static final Pattern DAILY_LOG_FILE_PATTERN
             = Pattern.compile("\\[(\\d+)](.*?)_(.*?)_(.*?)_(\\d{4}-\\d{2}-\\d{2})\\.txt");
     private static final Pattern WRONG_VENDOR_SIGNAL_PATTERN
@@ -804,6 +824,15 @@ public class Telnet_Multi {
         long seconds = getPositiveLongProperty("botgetlog.command.idleTimeout.seconds",
                 DEFAULT_COMMAND_IDLE_TIMEOUT_MS / 1000L, 30L);
         return seconds * 1000L;
+    }
+
+    private static long getCommandPromptSettleMs() {
+        return getPositiveLongProperty("botgetlog.command.promptSettle.ms",
+                DEFAULT_COMMAND_PROMPT_SETTLE_MS, 100L);
+    }
+
+    private static long getMonitorSafetyIdleMs() {
+        return DEFAULT_MONITOR_SAFETY_IDLE_MS;
     }
 
     private static String formatDurationSeconds(long milliseconds) {
@@ -3189,7 +3218,7 @@ public class Telnet_Multi {
         boolean tailAtPrompt = false;
         String[] safePatterns = promptCandidates == null ? new String[0] : promptCandidates.toArray(new String[0]);
         String[] normalizedPatterns = normalizePatterns(safePatterns);
-        final long PROMPT_SETTLE_MS = 90L;
+        final long PROMPT_SETTLE_MS = getCommandPromptSettleMs();
         final int pollDelayMs = 10;
 
         while (true) {
@@ -3235,6 +3264,7 @@ public class Telnet_Multi {
             outFile.write(next);
 
             char ch = (char) next;
+            tailAtPrompt = false;
             response.append(ch);
             appendLowerTail(lowerTail, ch, READ_MATCH_WINDOW_CHARS);
             lastDataAt = System.currentTimeMillis();
@@ -4589,16 +4619,8 @@ public class Telnet_Multi {
     public static synchronized void updateTelnetLimit(boolean turboMode) {
         int cpu = Runtime.getRuntime().availableProcessors();
         int previousLimit = currentTelnetLimit;
-        int newLimit = turboMode ? getTurboTelnetLimit() : NORMAL_TELNET_LIMIT;
-        int diff = newLimit - previousLimit;
-
-        if (diff > 0) {
-            TELNET_LIMIT.release(diff);
-        } else if (diff < 0) {
-            TELNET_LIMIT.shrinkPermits(-diff);
-        }
-
-        currentTelnetLimit = newLimit;
+        int newLimit = turboMode ? getTurboTelnetLimit() : getNormalTelnetLimit();
+        applyTelnetLimit(newLimit);
         int active = getActivePermits();
 
         //  log -
@@ -4608,6 +4630,19 @@ public class Telnet_Multi {
                 turboMode ? "TURBO" : "NORMAL",
                 cpu,
                 active);
+    }
+
+    private static void applyTelnetLimit(int newLimit) {
+        int safeLimit = Math.max(1, newLimit);
+        int diff = safeLimit - currentTelnetLimit;
+
+        if (diff > 0) {
+            TELNET_LIMIT.release(diff);
+        } else if (diff < 0) {
+            TELNET_LIMIT.shrinkPermits(-diff);
+        }
+
+        currentTelnetLimit = safeLimit;
     }
 
     private static int getActivePermits() {
@@ -4977,23 +5012,8 @@ public class Telnet_Multi {
         if (logFile == null || !logFile.exists()) {
             return false;
         }
-        if (hasWrongVendorSignal(logFile)) {
-            return false;
-        }
-
-        try ( java.io.RandomAccessFile raf = new java.io.RandomAccessFile(logFile, "r")) {
-            long fileLength = raf.length();
-            long seekPos = Math.max(0, fileLength - 8192);
-            raf.seek(seekPos);
-            byte[] buf = new byte[(int) (fileLength - seekPos)];
-            raf.readFully(buf);
-            String tail = new String(buf, java.nio.charset.StandardCharsets.UTF_8).toLowerCase();
-
-            return hasStrongSessionEnd(tail);
-        } catch (Exception e) {
-            System.out.println("[PRE-CHECK-FAIL] Cannot inspect existing log: " + logFile.getName() + " -> " + e.getMessage());
-            return false;
-        }
+        String cmdSet = extractCmdSetFromLogName(logFile.getName());
+        return BotGetLog_TrueCorp.isLogCompleteForCmdSet(logFile, cmdSet);
     }
 
     private static String readLogHead(File logFile, int maxLines) {
@@ -5055,32 +5075,18 @@ public class Telnet_Multi {
         File logFile = new File(logDir, fileName);
         String sessionKey = logFile.getAbsolutePath();
 
-        if (activeLogSessionPath != null && !activeLogSessionPath.equals(sessionKey)) {
-            activeLogSessions.remove(activeLogSessionPath);
-        }
-        activeLogSessionPath = sessionKey;
-        activeLogSessions.add(sessionKey);
-
         //  
         if (!sessionKey.equals(preparedLogSessionKey)) {
             if (logFile.exists() && !isValidLogHead(logFile, resolveLogDeviceName(Device), cmdSet)) {
                 System.out.println("[PRE-HEAD-INVALID] Invalid log head, delete before new session: " + logFile.getName());
-                if (!logFile.delete()) {
-                    System.out.println("[PRE-HEAD-INVALID] Cannot delete invalid-head log: " + logFile.getAbsolutePath());
-                }
+                deleteLogIfSafe(logFile, "invalid-head before new session");
             }
 
             if (logFile.exists()) {
                 if (isCompleteExistingLog(logFile)) {
                     System.out.println("[PRE-SKIP] Keep completed log file: " + logFile.getName());
-                    preparedLogSessionKey = sessionKey;
-                    return logFile;
-                }
-
-                if (logFile.delete()) {
+                } else if (deleteLogIfSafe(logFile, "existing incomplete before new run")) {
                     System.out.println("[PRE-CLEAR] Removed existing incomplete log before new run: " + logFile.getName());
-                } else {
-                    System.out.println("[PRE-CLEAR-FAIL] Cannot remove existing log before new run: " + logFile.getAbsolutePath());
                 }
             }
 
@@ -5097,11 +5103,9 @@ public class Telnet_Multi {
                             continue;
                         }
 
-                        boolean deleted = oldFile.delete();
+                        boolean deleted = deleteLogIfSafe(oldFile, "old incomplete duplicate before new run");
                         if (deleted) {
                             System.out.println("[PRE-DELETE] Removed old incomplete duplicate: " + oldFile.getName());
-                        } else {
-                            System.out.println("[PRE-DELETE-FAIL] Cannot delete old duplicate: " + oldFile.getAbsolutePath());
                         }
                     }
                 }
@@ -5109,6 +5113,12 @@ public class Telnet_Multi {
 
             preparedLogSessionKey = sessionKey;
         }
+
+        if (activeLogSessionPath != null && !activeLogSessionPath.equals(sessionKey)) {
+            activeLogSessions.remove(activeLogSessionPath);
+        }
+        activeLogSessionPath = sessionKey;
+        activeLogSessions.add(sessionKey);
 
         return logFile;
     }
@@ -5129,6 +5139,7 @@ public class Telnet_Multi {
             long lastData = startTime;
             final long maxWaitMs = getCommandMaxWaitMs();
             final long idleTimeoutMs = getCommandIdleTimeoutMs();
+            final long promptSettleMs = getCommandPromptSettleMs();
 
             List<String> promptCandidates = expandStreamPromptCandidates(
                     buildPromptCandidates(logFile, Device, cmdSet, s),
@@ -5189,13 +5200,18 @@ public class Telnet_Multi {
                             if (matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
                                     || isInteractivePromptToken(promptToken)
                                     || containsGatewayMenuPrompt(lowerSnapshot)) {
-                                System.out.println("[PROMPT-OK]" + consolePrefix + " "
-                                        + summarizePromptForConsole(promptToken, response.toString(), Device, cmdSet));
-                                waitForPrompt = false;
-                                result = CommandReadResult.prompt();
-                            }
-                            if (!waitForPrompt) {
-                                break;
+                                outFile.flush();
+                                if (waitForStablePromptAndDrain(outFile, buffer, lowerTail, response,
+                                        safePatterns, normalizedPatterns, promptSettleMs)) {
+                                    System.out.println("[PROMPT-OK]" + consolePrefix + " "
+                                            + summarizePromptForConsole(promptToken, response.toString(), Device, cmdSet));
+                                    waitForPrompt = false;
+                                    result = CommandReadResult.prompt();
+                                    break;
+                                }
+                                lastData = System.currentTimeMillis();
+                                System.out.println("[PROMPT-WAIT]" + consolePrefix
+                                        + " extra output arrived after prompt candidate; continue reading");
                             }
                         }
                     }
@@ -5240,6 +5256,54 @@ public class Telnet_Multi {
                     : result;
         }
         return result;
+    }
+
+    private boolean waitForStablePromptAndDrain(BufferedOutputStream outFile,
+            byte[] buffer,
+            StringBuilder lowerTail,
+            StringBuilder response,
+            String[] safePatterns,
+            String[] normalizedPatterns,
+            long promptSettleMs) throws IOException {
+        long stableStart = System.currentTimeMillis();
+        long settleMs = Math.max(100L, promptSettleMs);
+
+        while (System.currentTimeMillis() - stableStart < settleMs) {
+            boolean gotMore = false;
+            while (in != null && in.available() > 0) {
+                int bytesRead = in.read(buffer);
+                if (bytesRead <= 0) {
+                    break;
+                }
+
+                outFile.write(buffer, 0, bytesRead);
+                String chunk = new String(buffer, 0, bytesRead, StandardCharsets.UTF_8);
+                appendLowerTail(lowerTail, chunk, READ_MATCH_WINDOW_CHARS);
+                if (response != null) {
+                    response.append(chunk);
+                    if (response.length() > 4096) {
+                        response.delete(0, response.length() - 4096);
+                    }
+                }
+                if (containsPaginationMarker(lowerTail)) {
+                    sendPaginationSpace(out, lowerTail);
+                }
+                gotMore = true;
+            }
+
+            if (gotMore) {
+                outFile.flush();
+                stableStart = System.currentTimeMillis();
+            } else {
+                sleepQuietly(25);
+            }
+        }
+
+        String promptToken = extractPromptToken(lowerTail);
+        String lowerSnapshot = lowerTail == null ? "" : lowerTail.toString();
+        return matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
+                || isInteractivePromptToken(promptToken)
+                || containsGatewayMenuPrompt(lowerSnapshot);
     }
 
     private boolean executeCommandWithReconnect(String Loopback, String Device, String cmdSet, int Num_row, String command) {
@@ -5492,8 +5556,107 @@ public class Telnet_Multi {
         activeLogDateTag = null;
     }
 
-    private static boolean isActiveLogSession(File file) {
+    public static boolean isActiveLogSession(File file) {
         return file != null && activeLogSessions.contains(file.getAbsolutePath());
+    }
+
+    public static boolean hasActiveLogSessionFor(int rowNum, String loopback, String cmdSet) {
+        for (String path : activeLogSessions) {
+            if (path == null) {
+                continue;
+            }
+            File file = new File(path);
+            if (matchesDailyLogTarget(file.getName(), rowNum, loopback, cmdSet)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isRecentlyWrittenLog(File file) {
+        return file != null
+                && file.exists()
+                && System.currentTimeMillis() - file.lastModified() < LOG_SAFE_DELETE_RECENT_THRESHOLD_MS;
+    }
+
+    public static boolean isProtectedLogFile(File file) {
+        return isActiveLogSession(file) || isRecentlyWrittenLog(file);
+    }
+
+    public static boolean moveLogToArchiveIfSafe(File file, String reason) {
+        if (file == null || !file.exists()) {
+            return false;
+        }
+        if (isActiveLogSession(file)) {
+            System.out.println("[DELETE-SKIP] Active log is still running (" + reason + "): " + file.getName());
+            return false;
+        }
+        if (isRecentlyWrittenLog(file)) {
+            System.out.println("[DELETE-SKIP] Recently written log is protected (" + reason + "): " + file.getName());
+            return false;
+        }
+        return moveLogToArchive(file, reason);
+    }
+
+    public static boolean moveLogToArchiveIfInactive(File file, String reason) {
+        if (file == null || !file.exists()) {
+            return false;
+        }
+        if (isActiveLogSession(file)) {
+            System.out.println("[DELETE-SKIP] Active log is still running (" + reason + "): " + file.getName());
+            return false;
+        }
+        return moveLogToArchive(file, reason);
+    }
+
+    private static boolean deleteLogIfSafe(File file, String reason) {
+        return moveLogToArchiveIfSafe(file, reason);
+    }
+
+    private static boolean moveLogToArchive(File file, String reason) {
+        try {
+            File archiveDir = resolveDeletedLogDir(file);
+            if (!archiveDir.exists()) {
+                archiveDir.mkdirs();
+            }
+
+            String archiveName = buildArchivedLogName(file.getName(), reason);
+            Path target = new File(archiveDir, archiveName).toPath();
+            Files.move(file.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("[DELETE-MOVE] Moved log to Deleted_Log (" + reason + "): " + target.toString());
+            return true;
+        } catch (Exception e) {
+            System.out.println("[DELETE-FAIL] Cannot move log to Deleted_Log (" + reason + "): "
+                    + file.getAbsolutePath() + " -> " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static File resolveDeletedLogDir(File file) {
+        File parent = file == null ? null : file.getParentFile();
+        File outputDir = parent == null ? null : parent.getParentFile();
+        if (outputDir == null) {
+            outputDir = new File("_output");
+        }
+        return new File(outputDir, "Deleted_Log");
+    }
+
+    private static String buildArchivedLogName(String originalName, String reason) {
+        String safeReason = reason == null ? "unknown" : reason.trim();
+        if (safeReason.isEmpty()) {
+            safeReason = "unknown";
+        }
+        safeReason = safeReason.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
+        if (safeReason.length() > 60) {
+            safeReason = safeReason.substring(0, 60);
+        }
+
+        String ts = LocalDateTime.now().format(DELETED_LOG_TIMESTAMP_FORMATTER);
+        if (originalName != null && originalName.toLowerCase(Locale.ROOT).endsWith(".txt")) {
+            return originalName.substring(0, originalName.length() - 4)
+                    + "_deleted_" + ts + "_" + safeReason + ".txt";
+        }
+        return String.valueOf(originalName) + "_deleted_" + ts + "_" + safeReason;
     }
 
     private static boolean isCachedCompletedLog(File file) {
@@ -5598,7 +5761,8 @@ public class Telnet_Multi {
         }
 
         wrongVendorMonitorThread = new Thread(() -> {
-            System.out.println("[MONITOR]  Wrong Vendor Monitor started (every 60 sec)");
+            System.out.println("[MONITOR]  Wrong Vendor Monitor started (every 60 sec, safety idle "
+                    + formatDurationSeconds(getMonitorSafetyIdleMs()) + ")");
             DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -5619,6 +5783,7 @@ public class Telnet_Multi {
                     pruneMonitorScanCache(wrongVendorScanCache, logs);
 
                     long now = System.currentTimeMillis();
+                    long safetyIdleMs = getMonitorSafetyIdleMs();
                     String today = LocalDateTime.now().format(dateFmt);
                     File wrongVendorLog = new File(fileInput.getLogWork(), "Node_WrongVendor_" + today + ".txt");
 
@@ -5637,9 +5802,9 @@ public class Telnet_Multi {
                             continue;
                         }
                         long idleTime = now - f.lastModified();
-                        if (idleTime < WRONG_VENDOR_INACTIVE_THRESHOLD_MS) {
-                            rememberMonitorScan(wrongVendorScanCache, f, f.lastModified() + WRONG_VENDOR_INACTIVE_THRESHOLD_MS);
-                            continue; //  1 -
+                        if (idleTime < safetyIdleMs) {
+                            rememberMonitorScan(wrongVendorScanCache, f, f.lastModified() + safetyIdleMs);
+                            continue;
                         }
                         checked++;
                         boolean isWrongVendor = hasWrongVendorSignal(f);
@@ -5672,14 +5837,17 @@ public class Telnet_Multi {
                             }
 
                             // - 
-                            if (f.delete()) {
+                            boolean removedWrongVendor = deleteLogIfSafe(f, "wrong vendor monitor");
+                            if (removedWrongVendor) {
                                 System.out.println("[MONITOR] - Deleted wrong vendor file: " + f.getName());
+                                clearMonitorScan(wrongVendorScanCache, f);
                             } else {
-                                System.out.println("[MONITOR]  Failed to delete: " + f.getAbsolutePath());
+                                rememberMonitorScan(wrongVendorScanCache, f, f.lastModified() + LOG_SAFE_DELETE_RECENT_THRESHOLD_MS);
                             }
-                            clearMonitorScan(wrongVendorScanCache, f);
 
-                            if (!parsed) {
+                            if (!removedWrongVendor) {
+                                System.out.printf("[MONITOR]  Skip wrong-vendor re-run because log is protected: %s%n", f.getName());
+                            } else if (!parsed) {
                                 System.out.printf("[MONITOR]  Skip wrong-vendor re-run because filename cannot be parsed: %s%n", f.getName());
                             } else if (!groupEligible) {
                                 System.out.printf("[MONITOR]  Skip wrong-vendor re-run because Group != Y: %s%n", f.getName());
@@ -5727,21 +5895,8 @@ public class Telnet_Multi {
         if (file == null || !file.exists()) {
             return false;
         }
-        if (hasWrongVendorSignal(file)) {
-            return false;
-        }
-        try ( java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r")) {
-            long fileLength = raf.length();
-            long seekPos = Math.max(0, fileLength - 8192);
-            raf.seek(seekPos);
-            byte[] buf = new byte[(int) (fileLength - seekPos)];
-            raf.readFully(buf);
-            String tail = new String(buf, java.nio.charset.StandardCharsets.UTF_8);
-            return hasStrongSessionEnd(tail);
-        } catch (Exception e) {
-            System.out.println("[MONITOR]  Failed to inspect tail: " + e.getMessage());
-            return false;
-        }
+        String cmdSet = extractCmdSetFromLogName(file.getName());
+        return BotGetLog_TrueCorp.isLogCompleteForCmdSet(file, cmdSet);
     }
 
     private static Thread commandMonitorThread = null;
@@ -5753,7 +5908,8 @@ public class Telnet_Multi {
         }
 
         commandMonitorThread = new Thread(() -> {
-            System.out.println("[MONITOR]  Command Completion Monitor started (every 60 sec)");
+            System.out.println("[MONITOR]  Command Completion Monitor started (every 60 sec, safety idle "
+                    + formatDurationSeconds(getMonitorSafetyIdleMs()) + ")");
             DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -5776,6 +5932,7 @@ public class Telnet_Multi {
                     String today = LocalDateTime.now().format(dateFmt);
                     File recheckFile = new File(fileInput.getLogWork(), "Node_Recheck_" + today + ".txt");
                     long now = System.currentTimeMillis();
+                    long safetyIdleMs = getMonitorSafetyIdleMs();
 
                     int checked = 0, rechecked = 0;
 
@@ -5791,10 +5948,9 @@ public class Telnet_Multi {
                         }
                         checked++;
 
-                        //  - ( 5 -)
                         long idleTime = now - f.lastModified();
-                        if (idleTime < 2 * 60 * 1000) {
-                            rememberMonitorScan(commandMonitorScanCache, f, f.lastModified() + (2 * 60 * 1000L));
+                        if (idleTime < safetyIdleMs) {
+                            rememberMonitorScan(commandMonitorScanCache, f, f.lastModified() + safetyIdleMs);
                             continue;
                         }
 
@@ -5820,12 +5976,15 @@ public class Telnet_Multi {
                             }
                             System.out.printf("[MONITOR]  Invalid log head for %s%n", f.getName());
                             boolean shouldRerun = !hasConnectionFailureLog(f);
-                            if (f.delete()) {
+                            boolean removedInvalidHead = deleteLogIfSafe(f, "invalid-head monitor");
+                            if (removedInvalidHead) {
                                 System.out.println("[MONITOR] - Deleted invalid-head file: " + f.getName());
                             }
                             clearMonitorScan(commandMonitorScanCache, f);
-                            if (shouldRerun) {
+                            if (removedInvalidHead && shouldRerun) {
                                 BotGetLog_TrueCorp.RerunNode(numRow, loopback, device, cmdSet);
+                            } else if (!removedInvalidHead) {
+                                rememberMonitorScan(commandMonitorScanCache, f, f.lastModified() + LOG_SAFE_DELETE_RECENT_THRESHOLD_MS);
                             }
                             Thread.sleep(1000);
                             continue;
@@ -5881,10 +6040,13 @@ public class Telnet_Multi {
                                 BotGetLog_TrueCorp.recordIncompleteFailure();
                             }
 
-                            if (f.delete()) {
+                            boolean removedIncomplete = deleteLogIfSafe(f, "incomplete command monitor");
+                            if (removedIncomplete) {
                                 System.out.println("[MONITOR] - Deleted incomplete file: " + f.getName());
                             } else {
-                                System.out.println("[MONITOR]  Failed to delete: " + f.getAbsolutePath());
+                                rememberMonitorScan(commandMonitorScanCache, f, f.lastModified() + LOG_SAFE_DELETE_RECENT_THRESHOLD_MS);
+                                System.out.println("[MONITOR]  Skip incomplete re-run because log is protected: " + f.getName());
+                                continue;
                             }
                             clearMonitorScan(commandMonitorScanCache, f);
 
@@ -6085,6 +6247,7 @@ public class Telnet_Multi {
                     String today = LocalDateTime.now().format(dateFmt);
                     File connFailLog = new File(fileInput.getLogWork(), "Node_ConnectionFailed_" + today + ".txt");
                     long now = System.currentTimeMillis();
+                    long safetyIdleMs = getMonitorSafetyIdleMs();
 
                     int checked = 0;
                     int deleted = 0;
@@ -6101,10 +6264,9 @@ public class Telnet_Multi {
                         }
                         checked++;
 
-                        //  - ( 3 -)
                         long idleTime = now - f.lastModified();
-                        if (idleTime < 3 * 60 * 1000) {
-                            rememberMonitorScan(connFailMonitorScanCache, f, f.lastModified() + (3 * 60 * 1000L));
+                        if (idleTime < safetyIdleMs) {
+                            rememberMonitorScan(connFailMonitorScanCache, f, f.lastModified() + safetyIdleMs);
                             continue;
                         }
                         if (hasCompletedSessionTail(f)) {
@@ -6167,20 +6329,20 @@ public class Telnet_Multi {
                         }
 
                         if (fileSize < sizeLimitKB * 1024) {
-                            deleted++;
                             String timestamp = LocalDateTime.now().format(timeFmt);
                             try ( FileWriter fw = new FileWriter(connFailLog, true)) {
                                 fw.write(String.format("[AUTO]%s,%s,[File too small (%.2f KB < %.2f KB; %d cmds) - auto deleted as connection fail]\n",
                                         timestamp, f.getName(), fileSize / 1024.0, sizeLimitKB, commandCount));
                             }
 
-                            if (f.delete()) {
+                            if (deleteLogIfSafe(f, "small connection-fail monitor")) {
+                                deleted++;
                                 System.out.printf("[MONITOR]  Deleted small log: %s (%.2f KB < %.2f KB; %d cmds)%n",
                                         f.getName(), fileSize / 1024.0, sizeLimitKB, commandCount);
+                                clearMonitorScan(connFailMonitorScanCache, f);
                             } else {
-                                System.out.println("[MONITOR]  Failed to delete: " + f.getAbsolutePath());
+                                rememberMonitorScan(connFailMonitorScanCache, f, f.lastModified() + LOG_SAFE_DELETE_RECENT_THRESHOLD_MS);
                             }
-                            clearMonitorScan(connFailMonitorScanCache, f);
                         } else {
                             rememberMonitorScan(connFailMonitorScanCache, f, Long.MAX_VALUE);
                         }

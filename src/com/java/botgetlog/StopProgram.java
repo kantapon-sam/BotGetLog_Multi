@@ -90,7 +90,7 @@ public class StopProgram extends JFrame implements ActionListener {
     private static double smoothedThroughputPerSecond = 0.0;
     private static final Deque<Double> throughputSamples = new ArrayDeque<Double>();
 
-    private static int fixedBaseThreads = Telnet_Multi.NORMAL_TELNET_LIMIT;
+    private static int fixedBaseThreads = Telnet_Multi.getNormalTelnetLimit();
 
     private JButton btnClose;
     private final JToggleButton toggleTurbo = new JToggleButton("Turbo Mode OFF");
@@ -404,7 +404,7 @@ public class StopProgram extends JFrame implements ActionListener {
                         boolean turbo = BotGetLog_TrueCorp.isFocusModeActive();
                         int baseThreads = turbo
                                 ? Telnet_Multi.getTurboTelnetLimit()
-                                : Telnet_Multi.NORMAL_TELNET_LIMIT;
+                                : Telnet_Multi.getNormalTelnetLimit();
 
                         if (fixedBaseThreads != baseThreads) {
                             fixedBaseThreads = baseThreads;

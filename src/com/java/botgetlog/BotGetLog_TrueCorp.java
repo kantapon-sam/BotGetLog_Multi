@@ -44,10 +44,11 @@ public class BotGetLog_TrueCorp {
     //  [Thread Configuration Section]
     boolean isFocusMode = false; //  (Work Mode)
 
-    private static final int MAX_THREADS = Telnet_Multi.getTurboTelnetLimit();
-    private static final int MIN_THREADS = 2;
+    private static final int DEFAULT_THREAD_POOL_SIZE = Telnet_Multi.NORMAL_TELNET_LIMIT;
+    private static final int MAX_THREAD_POOL_SIZE = 30;
     private static final long RETRY_DELAY_MS = 3000;
     private static final int MAX_RETRY = 3;
+    private static final int MAX_RERUN_IF_LOG_INCOMPLETE = 1;
     private static final long DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 120000L;
     private static final AtomicInteger ACTIVE_TASKS = new AtomicInteger(0);
 //  Summary counters
@@ -212,9 +213,14 @@ public class BotGetLog_TrueCorp {
     private static final java.util.Map<String, BufferedWriter> BOT_LOG_WRITERS = new java.util.HashMap<>();
     private static final ConcurrentMap<String, Long> BOT_LOG_LAST_FLUSH_MS = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, List<String>> CMDSET_COMMAND_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, String> CMDSET_FIRST_COMMAND_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, String> CMDSET_LAST_COMMAND_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, Integer> CMDSET_COMMAND_COUNT_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Integer, CachedDeviceRow> DEVICE_ROW_CACHE = new ConcurrentHashMap<>();
+    private static final int FIRST_COMMAND_HEAD_BYTES_TO_SCAN = 64 * 1024;
+    private static final int FIRST_COMMAND_HEAD_LINES_TO_SCAN = 160;
+    private static final int LAST_COMMAND_TAIL_BYTES_TO_SCAN = 128 * 1024;
+    private static final int LAST_COMMAND_TAIL_LINES_TO_SCAN = 240;
     private static final List<String> PREFERRED_CLLS_VALIDATION_IPS = Collections.unmodifiableList(Arrays.asList(
             "10.163.0.113",
             "10.165.0.173",
@@ -434,6 +440,7 @@ public class BotGetLog_TrueCorp {
     private static void rebuildExcelCacheForSelection(Workbook workbook, String deviceSelectMode,
             int deviceRowStart, int deviceRowEnd, String... deviceSheetNames) {
         CMDSET_COMMAND_CACHE.clear();
+        CMDSET_FIRST_COMMAND_CACHE.clear();
         CMDSET_LAST_COMMAND_CACHE.clear();
         CMDSET_COMMAND_COUNT_CACHE.clear();
         DEVICE_ROW_CACHE.clear();
@@ -470,6 +477,7 @@ public class BotGetLog_TrueCorp {
                     String key = cacheKey(cmdSet);
                     CMDSET_COMMAND_CACHE.put(key, Collections.unmodifiableList(commands));
                     CMDSET_COMMAND_COUNT_CACHE.put(key, Math.max(0, commands.size() - 1));
+                    CMDSET_FIRST_COMMAND_CACHE.put(key, commands.size() > 1 ? commands.get(1) : "");
                     CMDSET_LAST_COMMAND_CACHE.put(key, commands.size() > 1 ? commands.get(commands.size() - 1) : "");
                 }
             }
@@ -583,6 +591,15 @@ public class BotGetLog_TrueCorp {
         } catch (NumberFormatException ex) {
             return defaultValue;
         }
+    }
+
+    private static int clampThreadPoolSize(int configuredThreadPoolSize, int taskCount) {
+        if (taskCount <= 0) {
+            return 1;
+        }
+        int configured = configuredThreadPoolSize <= 0 ? DEFAULT_THREAD_POOL_SIZE : configuredThreadPoolSize;
+        int capped = Math.min(configured, MAX_THREAD_POOL_SIZE);
+        return Math.max(1, Math.min(capped, taskCount));
     }
 
     private static boolean shouldRunDeviceRow(Row row, String deviceSelectMode, int deviceRowStart, int deviceRowEnd) {
@@ -726,6 +743,10 @@ public class BotGetLog_TrueCorp {
 
     public static String getCachedLastCommand(String cmdSet) {
         return CMDSET_LAST_COMMAND_CACHE.getOrDefault(cacheKey(cmdSet), "");
+    }
+
+    public static String getCachedFirstCommand(String cmdSet) {
+        return CMDSET_FIRST_COMMAND_CACHE.getOrDefault(cacheKey(cmdSet), "");
     }
 
     public static int getCachedCommandCount(String cmdSet) {
@@ -917,6 +938,31 @@ public class BotGetLog_TrueCorp {
         );
     }
 
+    private static CredentialInput promptForRequiredCllsCredentials(String initialUsername, String initialPassword) {
+        String currentUsername = safeValue(initialUsername);
+        String currentPassword = safeValue(initialPassword);
+        while (true) {
+            CredentialInput entered = showCllsCredentialDialog(currentUsername, currentPassword);
+            if (entered == null) {
+                return null;
+            }
+
+            currentUsername = safeValue(entered.username);
+            currentPassword = safeValue(entered.password);
+            if (currentUsername.isEmpty() || currentPassword.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        StopProgram.getInstance(),
+                        "Username and Password are required before continuing.",
+                        "CLLS Login",
+                        JOptionPane.ERROR_MESSAGE
+                );
+                continue;
+            }
+
+            return new CredentialInput(currentUsername, currentPassword);
+        }
+    }
+
     private static CredentialInput promptForValidatedCllsCredentials(
             String server,
             String userServer,
@@ -927,15 +973,18 @@ public class BotGetLog_TrueCorp {
 
         String currentUsername = safeValue(initialUsername);
         String currentPassword = safeValue(initialPassword);
+        boolean promptBeforeValidation = currentUsername.isEmpty() || currentPassword.isEmpty();
 
         while (true) {
-            CredentialInput entered = showCllsCredentialDialog(currentUsername, currentPassword);
-            if (entered == null) {
-                return null;
-            }
+            if (promptBeforeValidation) {
+                CredentialInput entered = showCllsCredentialDialog(currentUsername, currentPassword);
+                if (entered == null) {
+                    return null;
+                }
 
-            currentUsername = safeValue(entered.username);
-            currentPassword = safeValue(entered.password);
+                currentUsername = safeValue(entered.username);
+                currentPassword = safeValue(entered.password);
+            }
 
             if (currentUsername.isEmpty()) {
                 JOptionPane.showMessageDialog(
@@ -944,6 +993,7 @@ public class BotGetLog_TrueCorp {
                         "CLLS Login",
                         JOptionPane.ERROR_MESSAGE
                 );
+                promptBeforeValidation = true;
                 continue;
             }
             if (currentPassword.isEmpty()) {
@@ -953,6 +1003,7 @@ public class BotGetLog_TrueCorp {
                         "CLLS Login",
                         JOptionPane.ERROR_MESSAGE
                 );
+                promptBeforeValidation = true;
                 continue;
             }
 
@@ -1006,6 +1057,7 @@ public class BotGetLog_TrueCorp {
                         JOptionPane.ERROR_MESSAGE
                 );
                 currentPassword = "";
+                promptBeforeValidation = true;
                 continue;
             }
 
@@ -1016,6 +1068,7 @@ public class BotGetLog_TrueCorp {
 
             int choice = showValidationRecoveryDialog(retryableMessages);
             if (choice == 0) {
+                promptBeforeValidation = false;
                 continue;
             }
             if (choice == 1) {
@@ -1143,6 +1196,13 @@ public class BotGetLog_TrueCorp {
             new File(FileInput.getLog()).mkdirs();
             new File(FileInput.getLogWork()).mkdirs();
 
+            CredentialInput startupCllsCredentials = promptForRequiredCllsCredentials("", "");
+            if (startupCllsCredentials == null) {
+                realOut.println("[INFO] TRUE startup cancelled before Excel check.");
+                requestImmediateShutdown("CLLS login dialog cancelled", 0);
+                return;
+            }
+
             int Num_row = 2; //  -- 2  ( header)
 
             Workbook workbook = null;
@@ -1178,23 +1238,19 @@ public class BotGetLog_TrueCorp {
                     D.Error("Missing '" + TRUE_SETTING_SHEET + "' sheet.");
                     return;
                 }
-                if (trueDeviceSheet == null) {
-                    D.Error("Missing '" + TRUE_DEVICE_SHEET + "' sheet.");
-                    return;
-                }
 
                 String server = "", User_server = "", PW_server = "";
                 String User_CLLS = "", PW_CLLS = "";
                 String User_L2 = "", PW_L2 = "";
 
                 String trueSettingSheetName = trueSettingSheet.getSheetName();
-                String trueDeviceSheetName = trueDeviceSheet.getSheetName();
+                String trueDeviceSheetName = trueDeviceSheet != null ? trueDeviceSheet.getSheetName() : TRUE_DEVICE_SHEET;
                 Map<String, String> trueSettings = readSettingValues(trueSettingSheet);
                 String deviceSelectMode = firstSettingValue(trueSettings, "deviceSelectMode");
                 int deviceRowStart = firstSettingInt(trueSettings, 0, "deviceRowStart");
                 int deviceRowEnd = firstSettingInt(trueSettings, 0, "deviceRowEnd");
-                rebuildExcelCacheForSelection(workbook, deviceSelectMode, deviceRowStart, deviceRowEnd,
-                        trueDeviceSheet.getSheetName());
+                int configuredThreadPoolSize = firstSettingInt(trueSettings, DEFAULT_THREAD_POOL_SIZE,
+                        "threadPoolSize", "thread", "threads", "maxThreads");
 
                 for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
                     Sheet sheet = workbook.getSheetAt(i);
@@ -1215,24 +1271,23 @@ public class BotGetLog_TrueCorp {
                         PW_CLLS = loadedSettings.pwCLLS;
                         User_L2 = loadedSettings.userL2;
                         PW_L2 = loadedSettings.pwL2;
+                        User_CLLS = startupCllsCredentials.username;
+                        PW_CLLS = startupCllsCredentials.password;
 
 //  CLLS credentials
-                        if (User_CLLS == null || User_CLLS.trim().isEmpty()
-                                || PW_CLLS == null || PW_CLLS.trim().isEmpty()) {
-                            List<ValidationTarget> validationTargets = collectValidationTargets(trueDeviceSheet);
-                            CredentialInput enteredCredentials = promptForValidatedCllsCredentials(
-                                    server, User_server, PW_server,
-                                    User_CLLS, PW_CLLS,
-                                    validationTargets
-                            );
-                            if (enteredCredentials == null) {
-                                realOut.println("[INFO] TRUE startup cancelled before CLLS login.");
-                                requestImmediateShutdown("CLLS login dialog cancelled", 0);
-                                return;
-                            }
-                            User_CLLS = enteredCredentials.username;
-                            PW_CLLS = enteredCredentials.password;
+                        List<ValidationTarget> validationTargets = collectValidationTargets(null);
+                        CredentialInput enteredCredentials = promptForValidatedCllsCredentials(
+                                server, User_server, PW_server,
+                                User_CLLS, PW_CLLS,
+                                validationTargets
+                        );
+                        if (enteredCredentials == null) {
+                            realOut.println("[INFO] TRUE startup cancelled before CLLS validation.");
+                            requestImmediateShutdown("CLLS login validation cancelled", 0);
+                            return;
                         }
+                        User_CLLS = enteredCredentials.username;
+                        PW_CLLS = enteredCredentials.password;
 
 //   L2:   ()
                         if (User_L2 == null) {
@@ -1243,6 +1298,14 @@ public class BotGetLog_TrueCorp {
                         }
                         updateCachedSettings(server, User_server, PW_server, User_CLLS, PW_CLLS, User_L2, PW_L2);
                         System.out.println("[INFO] Fast Mode removed: all safety monitors are always active.");
+
+                        if (trueDeviceSheet == null) {
+                            D.Error("Missing '" + TRUE_DEVICE_SHEET + "' sheet.");
+                            return;
+                        }
+                        trueDeviceSheetName = trueDeviceSheet.getSheetName();
+                        rebuildExcelCacheForSelection(workbook, deviceSelectMode, deviceRowStart, deviceRowEnd,
+                                trueDeviceSheetName);
 
                         try {
                                 final String pingTarget = Telnet_Multi.extractGatewayHost(server);
@@ -1444,12 +1507,6 @@ public class BotGetLog_TrueCorp {
                         int totalNodes = totalCmdSets; //   cmdSet 
                         resetRunCounters();
                         realOut.printf("[INFO] Total commands to process: %d%n", totalNodes);
-//  Reset Semaphore 
-                        int available = Telnet_Multi.TELNET_LIMIT.availablePermits();
-                        if (available < Telnet_Multi.NORMAL_TELNET_LIMIT) {
-                            System.out.println("[RESET] TELNET_LIMIT permits restored: " + available + " -> " + Telnet_Multi.NORMAL_TELNET_LIMIT);
-                            Telnet_Multi.TELNET_LIMIT.release(Telnet_Multi.NORMAL_TELNET_LIMIT - available);
-                        }
 
                         if (totalNodes == 0) {
                             realOut.println(" No command marked as Y in Excel.");
@@ -1465,12 +1522,11 @@ public class BotGetLog_TrueCorp {
                         Telnet_Multi.startCommandCompletionMonitor(new PathFile());
                         Telnet_Multi.startConnectionFailMonitor(new PathFile());
 
-                        int THREAD_LIMIT = Math.max(MIN_THREADS,
-                                Math.min(MAX_THREADS, Runtime.getRuntime().availableProcessors()));
-                        realOut.printf("[INFO] Initial THREAD_LIMIT = %d%n", THREAD_LIMIT);
-
 //   ThreadPool - TELNET_LIMIT - Telnet_Multi
-                        int initialThreads = Telnet_Multi.getCurrentTelnetLimit();
+                        int initialThreads = clampThreadPoolSize(configuredThreadPoolSize, totalNodes);
+                        Telnet_Multi.configureNormalTelnetLimit(initialThreads);
+                        realOut.printf("[INFO] Thread pool size: %d (configured=%d, max=%d)%n",
+                                initialThreads, configuredThreadPoolSize, MAX_THREAD_POOL_SIZE);
 
                         ThreadPoolExecutor exec = new ThreadPoolExecutor(
                                 initialThreads, //  Core - permit 
@@ -1496,7 +1552,9 @@ public class BotGetLog_TrueCorp {
                                     double cpu = cpuSmooth.updateFromOs(os, true);
                                     int active = exec.getActiveCount();
                                     final int cpuMax = Telnet_Multi.getTurboTelnetLimit();
-                                    int total = BotGetLog_TrueCorp.isFocusModeActive() ? cpuMax : Telnet_Multi.NORMAL_TELNET_LIMIT;
+                                    int total = BotGetLog_TrueCorp.isFocusModeActive()
+                                            ? cpuMax
+                                            : Telnet_Multi.getNormalTelnetLimit();
                                     int queue = exec.getQueue().size();
                                     String mode = BotGetLog_TrueCorp.isFocusModeActive() ? "TURBO" : "NORMAL";
 
@@ -1551,6 +1609,8 @@ public class BotGetLog_TrueCorp {
                                 String cmdSet = task.cmdSet;
                                 int rowNum = task.rowNum;
                                 int rowIdx = rowNum - 1;
+                                String firstCommand = getFirstCommandFromCmdSheet(workbook, cmdSet);
+                                String lastCommand = getLastCommandFromCmdSheet(workbook, cmdSet);
 
                                 boolean alreadyDone = false;
                                 try {
@@ -1566,8 +1626,7 @@ public class BotGetLog_TrueCorp {
                                                 //  -  Device/Loopback
                                                 //  [row] + cmdSet
                                                 if (fileName.startsWith("[" + rowNum + "]")
-                                                        && (fileName.contains("_" + cmdSet + "_")
-                                                        || fileName.endsWith("_" + cmdSet + ".txt"))) {
+                                                        && isEquivalentCmdSet(cmdSet, extractCmdSetFromLogName(fileName))) {
                                                     matchedLogList.add(f);
                                                 }
                                             }
@@ -1584,60 +1643,21 @@ public class BotGetLog_TrueCorp {
                                                 int dupIndex = 1;
                                                 while (dupIndex < matchedLogList.size()) {
                                                     File oldLog = matchedLogList.get(dupIndex);
+                                                    if (Telnet_Multi.isProtectedLogFile(oldLog)) {
+                                                        System.out.println("[DELETE-SKIP] Duplicate log is active/recent, keep for safety: " + oldLog.getName());
+                                                        dupIndex++;
+                                                        continue;
+                                                    }
                                                     System.out.println("[DELETE] Duplicate old log deleted: " + oldLog.getName());
-                                                    if (oldLog.delete()) {
-                                                        System.out.println("[OK] Deleted duplicate old file successfully.");
+                                                    if (Telnet_Multi.moveLogToArchiveIfSafe(oldLog, "duplicate old log before batch")) {
+                                                        System.out.println("[OK] Moved duplicate old file to Deleted_Log.");
                                                     } else {
-                                                        System.out.println("[WARN] Failed to delete duplicate old file: " + oldLog.getAbsolutePath());
+                                                        System.out.println("[WARN] Failed to move duplicate old file: " + oldLog.getAbsolutePath());
                                                     }
                                                     dupIndex++;
                                                 }
 
-                                                boolean logComplete = false;
-                                                String lastCommand = "";
-
-                                                //  - Excel (sheet - cmdSet)
-                                                try {
-                                                    Sheet cmdSheet = workbook.getSheet(cmdSet);
-                                                    if (cmdSheet != null) {
-                                                        int lastRowNum = cmdSheet.getLastRowNum();
-                                                        for (int r = lastRowNum; r >= 0; r--) {
-                                                            Row cmdRow = cmdSheet.getRow(r);
-                                                            if (cmdRow != null && cmdRow.getCell(0) != null) {
-                                                                lastCommand = getCellValue(cmdRow.getCell(0));
-                                                                if (!lastCommand.isEmpty()) {
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                } catch (Exception e) {
-                                                    System.out.println("[WARN] Cannot read last command for " + cmdSet + ": " + e.getMessage());
-                                                }
-
-                                                //  - 2KB - (-)
-                                                try ( RandomAccessFile raf = new RandomAccessFile(latestLog, "r")) {
-                                                    long fileLength = raf.length();
-                                                    long seekPos = Math.max(0, fileLength - 2048); // - 2KB
-                                                    raf.seek(seekPos);
-
-                                                    byte[] buf = new byte[(int) (fileLength - seekPos)];
-                                                    raf.readFully(buf);
-                                                    String tail = new String(buf, "UTF-8").toLowerCase();
-
-                                                    //  - session
-                                                    if (tail.contains(lastCommand.toLowerCase())
-                                                            && (tail.contains("connection closed")
-                                                            || tail.contains("script done")
-                                                            || tail.contains("enter ip address")
-                                                            || tail.contains("foreign host")
-                                                            || tail.contains("logout")
-                                                            || tail.contains("quit"))) {
-                                                        logComplete = true;
-                                                    }
-                                                } catch (Exception e) {
-                                                    System.out.println("[WARN] Error checking tail of log: " + latestLog.getName() + " -> " + e.getMessage());
-                                                }
+                                                boolean logComplete = isLogComplete(latestLog, firstCommand, lastCommand, cmdSet);
 
                                                 //  -
                                                 if (logComplete) {
@@ -1645,13 +1665,18 @@ public class BotGetLog_TrueCorp {
                                                     alreadyDone = true;
                                                 } else {
                                                     boolean incompleteConnectionFailure = hasConnectionFailureSignalInLog(latestLog);
-                                                    System.out.println("[DELETE] Incomplete log (missing last command or session end): " + latestLog.getName());
-                                                    if (latestLog.delete()) {
-                                                        System.out.println("[OK] Deleted incomplete log.");
+                                                    if (Telnet_Multi.isProtectedLogFile(latestLog)) {
+                                                        System.out.println("[DELETE-SKIP] Incomplete log is active/recent, do not delete or start duplicate task: " + latestLog.getName());
+                                                        alreadyDone = true;
                                                     } else {
-                                                        System.out.println("[WARN] Failed to delete: " + latestLog.getAbsolutePath());
+                                                        System.out.println("[DELETE] Incomplete log (missing last command or session end): " + latestLog.getName());
+                                                        if (Telnet_Multi.moveLogToArchiveIfSafe(latestLog, "incomplete log before batch")) {
+                                                            System.out.println("[OK] Moved incomplete log to Deleted_Log.");
+                                                        } else {
+                                                            System.out.println("[WARN] Failed to move: " + latestLog.getAbsolutePath());
+                                                        }
+                                                        alreadyDone = incompleteConnectionFailure;
                                                     }
-                                                    alreadyDone = incompleteConnectionFailure;
                                                 }
                                             }
                                         }
@@ -1682,6 +1707,8 @@ public class BotGetLog_TrueCorp {
                                 final String fServer = server, fUsrS = User_server, fPwdS = PW_server;
                                 final String fUsrC = User_CLLS, fPwdC = PW_CLLS;
                                 final String fUsrL2 = User_L2, fPwdL2 = PW_L2;
+                                final String fFirstCommand = firstCommand;
+                                final String fLastCommand = lastCommand;
 
                                 try {
                                     batchFutures.add(exec.submit(() -> {
@@ -1715,18 +1742,64 @@ public class BotGetLog_TrueCorp {
                                         logwork("[START] " + fRowNum + " " + fDev + " [" + fLoop + "] " + now + "\n",
                                                 fFile.getLogWork());
 
-                                        //  -
-                                        Telnet_Multi telnetObj = new Telnet_Multi(
-                                                fServer, fUsrS, fPwdS,
-                                                fLoop, fUsrC, fPwdC,
-                                                fCmd, fDev, fRowNum,
-                                                fUsrL2, fPwdL2
-                                        );
-                                        telnetObj.disconnect();
+                                        boolean taskSucceeded = false;
+                                        boolean terminalFailureRecorded = false;
+                                        int maxAttempts = (fFirstCommand.isEmpty() || fLastCommand.isEmpty())
+                                                ? 1
+                                                : (1 + MAX_RERUN_IF_LOG_INCOMPLETE);
 
-                                        if (!telnetObj.hasSessionFailureRecorded()) {
-                                            logwork("[OK] " + fDev + " " + fLoop + "\n", fFile.getLogWork());
-                                            BotGetLog_TrueCorp.successCount.incrementAndGet();
+                                        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                                            if (isShutdownRequested()) {
+                                                BotGetLog_TrueCorp.recordStoppedTask();
+                                                return;
+                                            }
+
+                                            Telnet_Multi telnetObj = new Telnet_Multi(
+                                                    fServer, fUsrS, fPwdS,
+                                                    fLoop, fUsrC, fPwdC,
+                                                    fCmd, fDev, fRowNum,
+                                                    fUsrL2, fPwdL2
+                                            );
+                                            telnetObj.disconnect();
+
+                                            File completedLog = findLatestCompletedLog(fFile, fRowNum, fLoop, fDev, fCmd, fLastCommand);
+                                            if (!telnetObj.hasSessionFailureRecorded() && completedLog != null) {
+                                                logwork("[OK] " + fDev + " " + fLoop + "\n", fFile.getLogWork());
+                                                BotGetLog_TrueCorp.successCount.incrementAndGet();
+                                                taskSucceeded = true;
+                                                break;
+                                            }
+
+                                            if (telnetObj.hasSessionFailureRecorded()) {
+                                                terminalFailureRecorded = true;
+                                                break;
+                                            }
+
+                                            if (fFirstCommand.isEmpty() || fLastCommand.isEmpty()) {
+                                                BotGetLog_TrueCorp.recordCmdSetFailure();
+                                                terminalFailureRecorded = true;
+                                                realOut.printf("[WARN] Row %d %s [%s] cannot validate TRUE cmdSet boundary%n",
+                                                        fRowNum, fDev, fCmd);
+                                                break;
+                                            }
+
+                                            File latestLog = findLatestMatchingLog(fFile, fRowNum, fLoop, fCmd);
+                                            if (latestLog != null && hasConnectionFailureSignalInLog(latestLog)) {
+                                                BotGetLog_TrueCorp.recordNetworkFailure();
+                                                terminalFailureRecorded = true;
+                                                break;
+                                            }
+
+                                            if (attempt < maxAttempts) {
+                                                realOut.printf("[RETRY] Row %d %s (%s) [%s] because TRUE command boundary was not complete (attempt %d/%d)%n",
+                                                        fRowNum, fDev, fLoop, fCmd, attempt + 1, maxAttempts);
+                                                archiveIncompleteMatchingLogs(fFile, fRowNum, fLoop, fDev, fCmd,
+                                                        fFirstCommand, fLastCommand, "true command boundary incomplete before retry");
+                                            }
+                                        }
+
+                                        if (!taskSucceeded && !terminalFailureRecorded && !isShutdownRequested()) {
+                                            BotGetLog_TrueCorp.recordIncompleteFailure();
                                         }
 
                                     } catch (InterruptedException e) {
@@ -1783,7 +1856,19 @@ public class BotGetLog_TrueCorp {
                             exec.shutdown(); // -
                         }
 
-                        cleanDuplicateLogs(new File(FileInput.getLog()));
+                        boolean executorDrained = true;
+                        try {
+                            executorDrained = exec.awaitTermination(2, TimeUnit.HOURS);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            executorDrained = false;
+                        }
+
+                        if (executorDrained) {
+                            cleanDuplicateLogs(new File(FileInput.getLog()));
+                        } else {
+                            realOut.println("[WARN] Skip duplicate cleanup because some re-run/log tasks are still active.");
+                        }
                         realOut.println("===================================================");
                         if (stoppedByRequest) {
                             realOut.printf("[STOP] Graceful stop completed at %s%n",
@@ -2002,10 +2087,14 @@ public class BotGetLog_TrueCorp {
 
             for (int i = 1; i < sameGroup.size(); i++) {
                 File old = sameGroup.get(i);
-                if (old.delete()) {
-                    realOut.printf("- Deleted duplicate old file: %s%n", old.getName());
+                if (Telnet_Multi.isProtectedLogFile(old)) {
+                    realOut.printf("[DELETE-SKIP] Duplicate log is active/recent, keep for safety: %s%n", old.getName());
+                    continue;
+                }
+                if (Telnet_Multi.moveLogToArchiveIfSafe(old, "final duplicate cleanup")) {
+                    realOut.printf("- Moved duplicate old file to Deleted_Log: %s%n", old.getName());
                 } else {
-                    realOut.printf("[WARN] Failed to delete duplicate old file: %s%n", old.getAbsolutePath());
+                    realOut.printf("[WARN] Failed to move duplicate old file: %s%n", old.getAbsolutePath());
                 }
             }
         }
@@ -2390,6 +2479,283 @@ public class BotGetLog_TrueCorp {
         return "";
     }
 
+    private static String getFirstCommandFromCmdSheet(Workbook workbook, String cmdSet) {
+        String cached = getCachedFirstCommand(cmdSet);
+        if (!cached.isEmpty()) {
+            return cached;
+        }
+        try {
+            Sheet cmdSheet = workbook.getSheet(CMDSET_SHEET);
+            if (cmdSheet == null || cmdSheet.getRow(0) == null) {
+                return "";
+            }
+
+            for (int j = 0; j < cmdSheet.getRow(0).getLastCellNum(); j++) {
+                if (cmdSheet.getRow(0).getCell(j) == null) {
+                    continue;
+                }
+
+                String header = getCellValue(cmdSheet.getRow(0).getCell(j));
+                if (!cmdSet.equalsIgnoreCase(header)) {
+                    continue;
+                }
+
+                for (int r = 1; r <= cmdSheet.getLastRowNum(); r++) {
+                    Row cmdRow = cmdSheet.getRow(r);
+                    if (cmdRow != null && cmdRow.getCell(j) != null) {
+                        String value = getCellValue(cmdRow.getCell(j));
+                        if (!value.isEmpty()) {
+                            return value;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[WARN] Cannot read first command for " + cmdSet + ": " + e.getMessage());
+        }
+        return "";
+    }
+
+    public static boolean isLogCompleteForCmdSet(File logFile, String cmdSet) {
+        String safeCmdSet = cmdSet == null || cmdSet.trim().isEmpty()
+                ? extractCmdSetFromLogName(logFile == null ? "" : logFile.getName())
+                : cmdSet.trim();
+        String firstCommand = getCachedFirstCommand(safeCmdSet);
+        String lastCommand = getCachedLastCommand(safeCmdSet);
+        if (firstCommand.isEmpty() || lastCommand.isEmpty()) {
+            try {
+                PathFile fileInput = new PathFile();
+                File excelFile = new File(fileInput.getUserInterface_Input());
+                if (excelFile.exists()) {
+                    try (Workbook workbook = WorkbookFactory.create(excelFile)) {
+                        if (firstCommand.isEmpty()) {
+                            firstCommand = getFirstCommandFromCmdSheet(workbook, safeCmdSet);
+                        }
+                        if (lastCommand.isEmpty()) {
+                            lastCommand = getLastCommandFromCmdSheet(workbook, safeCmdSet);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("[WARN] Cannot load cmdSet boundary for " + safeCmdSet + ": " + e.getMessage());
+            }
+        }
+        return isLogComplete(logFile, firstCommand, lastCommand, safeCmdSet);
+    }
+
+    private static boolean isLogComplete(File logFile, String firstCommand, String lastCommand, String cmdSet) {
+        if (logFile == null || !logFile.exists()) {
+            return false;
+        }
+        if (Telnet_Multi.hasWrongVendorSignal(logFile)) {
+            return false;
+        }
+
+        String safeCmdSet = cmdSet == null || cmdSet.trim().isEmpty()
+                ? extractCmdSetFromLogName(logFile.getName())
+                : cmdSet.trim();
+        String safeFirstCommand = firstCommand == null ? "" : firstCommand.trim();
+        String safeLastCommand = lastCommand == null ? "" : lastCommand.trim();
+
+        if (safeFirstCommand.isEmpty() || safeLastCommand.isEmpty()) {
+            return false;
+        }
+
+        if (!isValidLogHead(logFile, extractDeviceFromLogName(logFile.getName()), safeCmdSet)) {
+            return false;
+        }
+
+        return containsPromptPlusFirstCommand(logFile, safeFirstCommand)
+                && containsPromptPlusLastCommand(logFile, safeLastCommand);
+    }
+
+    private static boolean containsPromptPlusFirstCommand(File logFile, String firstCommand) {
+        if (logFile == null || firstCommand == null || firstCommand.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            String headContent = readUtf8Head(logFile, FIRST_COMMAND_HEAD_BYTES_TO_SCAN);
+            if (headContent.isEmpty()) {
+                return false;
+            }
+
+            String[] rawLines = headContent.split("\r?\n");
+            int endIndex = Math.min(rawLines.length, FIRST_COMMAND_HEAD_LINES_TO_SCAN);
+            for (int i = 0; i < endIndex; i++) {
+                String line = sanitizeLogLine(rawLines[i]);
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (line.equalsIgnoreCase(firstCommand.trim())
+                        || matchesPromptPlusCommandLine(line, firstCommand)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[WARN] Cannot read log for first-command check: "
+                    + logFile.getName() + " -> " + e.getMessage());
+        }
+        return false;
+    }
+
+    private static boolean containsPromptPlusLastCommand(File logFile, String lastCommand) {
+        if (logFile == null || lastCommand == null || lastCommand.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            String tailContent = readUtf8Tail(logFile, LAST_COMMAND_TAIL_BYTES_TO_SCAN);
+            if (tailContent.isEmpty()) {
+                return false;
+            }
+
+            String[] rawLines = tailContent.split("\r?\n");
+            int startIndex = Math.max(0, rawLines.length - LAST_COMMAND_TAIL_LINES_TO_SCAN);
+            List<String> tailLines = new ArrayList<>();
+            for (int i = startIndex; i < rawLines.length; i++) {
+                tailLines.add(sanitizeLogLine(rawLines[i]));
+            }
+
+            for (int i = tailLines.size() - 1; i >= 0; i--) {
+                String line = tailLines.get(i);
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (matchesPromptPlusCommandLine(line, lastCommand)
+                        || matchesCommandCompletionFallback(tailLines, i, lastCommand)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[WARN] Cannot read log for last-command check: "
+                    + logFile.getName() + " -> " + e.getMessage());
+        }
+        return false;
+    }
+
+    private static String readUtf8Tail(File logFile, int tailBytesToScan) throws IOException {
+        if (logFile == null || !logFile.isFile()) {
+            return "";
+        }
+
+        long fileLength = logFile.length();
+        if (fileLength <= 0) {
+            return "";
+        }
+
+        int bytesToRead = (int) Math.min(fileLength, Math.max(1, tailBytesToScan));
+        byte[] buffer = new byte[bytesToRead];
+        try (RandomAccessFile raf = new RandomAccessFile(logFile, "r")) {
+            long startPos = Math.max(0L, fileLength - bytesToRead);
+            raf.seek(startPos);
+            raf.readFully(buffer);
+
+            String tail = new String(buffer, java.nio.charset.StandardCharsets.UTF_8);
+            if (startPos > 0) {
+                int firstNewLine = tail.indexOf('\n');
+                if (firstNewLine >= 0 && firstNewLine + 1 < tail.length()) {
+                    tail = tail.substring(firstNewLine + 1);
+                }
+            }
+            return tail;
+        }
+    }
+
+    private static String readUtf8Head(File logFile, int headBytesToScan) throws IOException {
+        if (logFile == null || !logFile.isFile()) {
+            return "";
+        }
+
+        long fileLength = logFile.length();
+        if (fileLength <= 0) {
+            return "";
+        }
+
+        int bytesToRead = (int) Math.min(fileLength, Math.max(1, headBytesToScan));
+        byte[] buffer = new byte[bytesToRead];
+        try (RandomAccessFile raf = new RandomAccessFile(logFile, "r")) {
+            raf.seek(0);
+            raf.readFully(buffer);
+            return new String(buffer, java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    private static String sanitizeLogLine(String line) {
+        if (line == null) {
+            return "";
+        }
+        return line
+                .replaceAll("\\u001B\\[[;\\d]*[ -/]*[@-~]", "")
+                .replace("\r", "")
+                .trim();
+    }
+
+    private static boolean matchesPromptPlusCommandLine(String line, String command) {
+        if (line == null || command == null) {
+            return false;
+        }
+
+        String cmd = command.trim();
+        if (cmd.isEmpty()) {
+            return false;
+        }
+
+        String quotedCmd = Pattern.quote(cmd);
+        return line.matches("^<[^\\r\\n>]+>\\s*" + quotedCmd + "\\s*$")
+                || line.matches("^\\[(?:~|\\*)?[^\\r\\n\\]]+(?:-[^\\]]+)?\\]\\s*" + quotedCmd + "\\s*$")
+                || line.matches("^[A-Za-z0-9._:-]+[>#]\\s*" + quotedCmd + "\\s*$")
+                || line.equalsIgnoreCase(cmd);
+    }
+
+    private static boolean matchesCommandCompletionFallback(List<String> tailLines, int commandLineIndex, String lastCommand) {
+        if (tailLines == null || lastCommand == null) {
+            return false;
+        }
+        if (commandLineIndex < 0 || commandLineIndex >= tailLines.size()) {
+            return false;
+        }
+
+        String cmd = lastCommand.trim();
+        if (cmd.isEmpty()) {
+            return false;
+        }
+
+        String currentLine = tailLines.get(commandLineIndex);
+        if (currentLine == null || !currentLine.equalsIgnoreCase(cmd)) {
+            return false;
+        }
+
+        String normalizedCmd = cmd.toLowerCase(Locale.ROOT);
+        boolean isSessionClosingCommand = normalizedCmd.equals("quit")
+                || normalizedCmd.equals("exit")
+                || normalizedCmd.equals("logout");
+        if (!isSessionClosingCommand) {
+            return false;
+        }
+
+        int end = Math.min(tailLines.size(), commandLineIndex + 8);
+        for (int i = commandLineIndex + 1; i < end; i++) {
+            String next = tailLines.get(i);
+            if (next == null || next.isEmpty()) {
+                continue;
+            }
+
+            String lower = next.toLowerCase(Locale.ROOT);
+            if (lower.contains("channel closed while waiting for cmd: " + normalizedCmd)
+                    || lower.contains("channel closed")
+                    || lower.contains("connection closed")
+                    || lower.contains("foreign host")
+                    || lower.contains("logout")
+                    || lower.contains("script done")
+                    || lower.contains("enter ip address")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     private static String readLogHead(File logFile, int maxLines) {
         if (logFile == null || !logFile.exists()) {
@@ -2439,41 +2805,9 @@ public class BotGetLog_TrueCorp {
     }
 
     private static boolean isLogComplete(File logFile, String lastCommand) {
-        if (logFile == null || !logFile.exists()) {
-            return false;
-        }
-        if (Telnet_Multi.hasWrongVendorSignal(logFile)) {
-            return false;
-        }
-
-        String safeLastCommand = lastCommand == null ? "" : lastCommand.trim().toLowerCase();
-
-        if (!isValidLogHead(logFile, extractDeviceFromLogName(logFile.getName()), extractCmdSetFromLogName(logFile.getName()))) {
-            return false;
-        }
-
-        try (RandomAccessFile raf = new RandomAccessFile(logFile, "r")) {
-            long fileLength = raf.length();
-            long seekPos = Math.max(0, fileLength - 4096);
-            raf.seek(seekPos);
-
-            byte[] buf = new byte[(int) (fileLength - seekPos)];
-            raf.readFully(buf);
-            String tail = new String(buf, java.nio.charset.StandardCharsets.UTF_8).toLowerCase();
-
-            boolean hasLastCommand = safeLastCommand.isEmpty() || tail.contains(safeLastCommand);
-            boolean hasSessionEnd = tail.contains("connection closed")
-                    || tail.contains("script done")
-                    || tail.contains("enter ip address")
-                    || tail.contains("foreign host")
-                    || tail.contains("logout")
-                    || tail.contains("quit");
-
-            return hasLastCommand && hasSessionEnd;
-        } catch (Exception e) {
-            System.out.println("[WARN] Error checking log completion: " + logFile.getName() + " -> " + e.getMessage());
-            return false;
-        }
+        String cmdSet = extractCmdSetFromLogName(logFile == null ? "" : logFile.getName());
+        String firstCommand = getCachedFirstCommand(cmdSet);
+        return isLogComplete(logFile, firstCommand, lastCommand, cmdSet);
     }
 
     private static boolean hasConnectionFailureSignalInLog(File logFile) {
@@ -2580,7 +2914,7 @@ public class BotGetLog_TrueCorp {
                     continue;
                 }
 
-                if (isLogComplete(file, lastCommand)) {
+                if (isLogComplete(file, getCachedFirstCommand(cmdSet), lastCommand, cmdSet)) {
                     return file;
                 }
             }
@@ -2588,6 +2922,72 @@ public class BotGetLog_TrueCorp {
             System.out.println("[WARN] Unable to find completed log: " + e.getMessage());
         }
         return null;
+    }
+
+    private static File findLatestMatchingLog(PathFile fileInput, int rowNum, String loopback, String cmdSet) {
+        try {
+            File logDir = new File(fileInput.getLog());
+            if (!logDir.exists() || !logDir.isDirectory()) {
+                return null;
+            }
+
+            File[] matched = logDir.listFiles((dir, name)
+                    -> name != null
+                    && name.startsWith("[" + rowNum + "]")
+                    && name.contains(loopback + "_")
+                    && name.endsWith(".txt"));
+
+            if (matched == null || matched.length == 0) {
+                return null;
+            }
+
+            Arrays.sort(matched, BotGetLog_TrueCorp::compareLogPriority);
+            for (File file : matched) {
+                if (isEquivalentCmdSet(cmdSet, extractCmdSetFromLogName(file.getName()))) {
+                    return file;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[WARN] Unable to find latest log: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private static void archiveIncompleteMatchingLogs(PathFile fileInput, int rowNum, String loopback,
+            String device, String cmdSet, String firstCommand, String lastCommand, String reason) {
+        try {
+            File logDir = new File(fileInput.getLog());
+            if (!logDir.exists() || !logDir.isDirectory()) {
+                return;
+            }
+
+            File[] matched = logDir.listFiles((dir, name)
+                    -> name != null
+                    && name.startsWith("[" + rowNum + "]")
+                    && name.contains(loopback + "_")
+                    && name.endsWith(".txt"));
+
+            if (matched == null) {
+                return;
+            }
+
+            for (File file : matched) {
+                String fileCmdSet = extractCmdSetFromLogName(file.getName());
+                if (!isEquivalentCmdSet(cmdSet, fileCmdSet)) {
+                    continue;
+                }
+                if (isLogComplete(file, firstCommand, lastCommand, cmdSet)) {
+                    continue;
+                }
+                if (Telnet_Multi.isProtectedLogFile(file)) {
+                    System.out.println("[DELETE-SKIP] Incomplete TRUE log is active/recent, keep for safety: " + file.getName());
+                    continue;
+                }
+                Telnet_Multi.moveLogToArchiveIfInactive(file, reason);
+            }
+        } catch (Exception e) {
+            System.out.println("[WARN] Unable to archive incomplete logs: " + e.getMessage());
+        }
     }
 
 //   node  monitor ()
@@ -2688,6 +3088,12 @@ public class BotGetLog_TrueCorp {
                 return;
             }
 
+            if (Telnet_Multi.hasActiveLogSessionFor(rowNum, ip, cmd)) {
+                System.out.printf("[RE-RUN]  Skip rerun Row %d | %s | %s because original log is still active%n",
+                        rowNum, ip, cmd);
+                return;
+            }
+
             String rerunKey = rowNum + "|" + ip + "|" + devName + "|" + normalizeCmdSetFamily(cmd);
             if (!rerunOncePerRunKeys.add(rerunKey)) {
                 System.out.printf("[RE-RUN]  Skip rerun Row %d | %s | %s because rerun already happened once in this program run%n",
@@ -2730,6 +3136,13 @@ public class BotGetLog_TrueCorp {
                         rerunOncePerRunKeys.remove(rerunKey);
                         System.out.printf("[RE-RUN]  Skip rerun Row %d | %s | %s because completed equivalent log already exists before submit: %s%n",
                                 rowNum, finalIp, finalCmd, latestCompletedLog.getName());
+                        return;
+                    }
+
+                    if (Telnet_Multi.hasActiveLogSessionFor(rowNum, finalIp, finalCmd)) {
+                        rerunOncePerRunKeys.remove(rerunKey);
+                        System.out.printf("[RE-RUN]  Skip rerun Row %d | %s | %s because original log became active before submit%n",
+                                rowNum, finalIp, finalCmd);
                         return;
                     }
 

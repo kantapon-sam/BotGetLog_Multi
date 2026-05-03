@@ -52,6 +52,8 @@ public class BotGetLog_DTAC {
     private static final int LAST_COMMAND_TAIL_LINES_TO_SCAN = 200;
     private static final int EXCEL_OPEN_MAX_RETRY = 3;
     private static final long EXCEL_OPEN_RETRY_DELAY_MS = 3000L;
+    private static final long DEFAULT_MONITOR_SAFETY_IDLE_MS = 10L * 60L * 1000L;
+    private static final long MONITOR_SCAN_INTERVAL_MS = 60L * 1000L;
     private static final int DEFAULT_THREAD_POOL_SIZE = 6;
     private static final int MAX_THREAD_POOL_SIZE = 30;
     private static final int TURBO_THREAD_MULTIPLIER = 2;
@@ -69,6 +71,8 @@ public class BotGetLog_DTAC {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private static ThreadPoolExecutor executor;
+    private static Thread monitorSafetyThread;
+    private static final Set<String> monitorRerunKeys = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger completedTasks = new AtomicInteger(0);
     private static final AtomicInteger successTaskCount = new AtomicInteger(0);
     private static final AtomicInteger failedTaskCount = new AtomicInteger(0);
@@ -657,12 +661,50 @@ public class BotGetLog_DTAC {
     private static void deleteLogFileQuietly(File logFile, String reason) {
         if (logFile == null || !logFile.exists()) return;
 
-        try {
-            Files.deleteIfExists(logFile.toPath());
-            System.out.printf("[DELETE] %s (%s)%n", logFile.getName(), reason);
-        } catch (IOException e) {
-            System.out.printf("[WARN] Cannot delete log file %s : %s%n", logFile.getName(), e.getMessage());
+        if (SSH_Multi.isActiveLogSession(logFile)) {
+            System.out.printf("[DELETE-SKIP] %s (%s) because DTAC log is still active%n",
+                    logFile.getName(), reason);
+            return;
         }
+
+        try {
+            File archiveDir = resolveDeletedLogDir(logFile);
+            if (!archiveDir.exists()) {
+                archiveDir.mkdirs();
+            }
+            Path target = new File(archiveDir, buildArchivedLogName(logFile.getName(), reason)).toPath();
+            Files.move(logFile.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+            System.out.printf("[DELETE-MOVE] %s -> %s (%s)%n", logFile.getName(), target.getFileName(), reason);
+        } catch (IOException e) {
+            System.out.printf("[WARN] Cannot move log file %s to Deleted_Log : %s%n", logFile.getName(), e.getMessage());
+        }
+    }
+
+    private static File resolveDeletedLogDir(File logFile) {
+        File parent = logFile == null ? null : logFile.getParentFile();
+        File outputDir = parent == null ? null : parent.getParentFile();
+        if (outputDir == null) {
+            outputDir = new File("_output");
+        }
+        return new File(outputDir, "Deleted_Log");
+    }
+
+    private static String buildArchivedLogName(String originalName, String reason) {
+        String safeReason = reason == null ? "unknown" : reason.trim();
+        if (safeReason.isEmpty()) {
+            safeReason = "unknown";
+        }
+        safeReason = safeReason.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
+        if (safeReason.length() > 60) {
+            safeReason = safeReason.substring(0, 60);
+        }
+
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmssSSS"));
+        if (originalName != null && originalName.toLowerCase(Locale.ROOT).endsWith(".txt")) {
+            return originalName.substring(0, originalName.length() - 4)
+                    + "_deleted_" + ts + "_" + safeReason + ".txt";
+        }
+        return String.valueOf(originalName) + "_deleted_" + ts + "_" + safeReason;
     }
 
     private static List<File> findMatchingLogFiles(int excelRow, List<String> cmdSetCandidates) {
@@ -771,9 +813,6 @@ public class BotGetLog_DTAC {
             } else {
                 System.out.printf("[WARN] [%d]%s (%s) cmdSet=%s finished but not complete after %d attempt(s)%n",
                         task.rowNum, task.deviceName, task.ip, task.cmdSet, maxAttempts);
-                if (latestLog != null) {
-                    deleteMatchingLogFiles(task.rowNum, task.cmdSetCandidates, "final incomplete command boundary");
-                }
                 FailureType failureType = latestLog == null
                         ? FailureType.LOG_MISSING
                         : FailureType.COMMAND_INCOMPLETE;
@@ -799,6 +838,8 @@ public class BotGetLog_DTAC {
         validationMissingTaskCount.set(0);
         stoppedTaskCount.set(0);
         unknownFailedTaskCount.set(0);
+        monitorRerunKeys.clear();
+        monitorSafetyThread = null;
         stopRequested = false;
         alarmEnabled = true;
         turboMode = false;
@@ -863,18 +904,24 @@ public class BotGetLog_DTAC {
         new File(fileInput.getLogWork()).mkdirs();
 
         showProgressWindowBeforePrompt();
+
+        CredentialInput startupCredentials = promptForValidatedCredentials("", "", Collections.emptyList());
+        if (startupCredentials == null) {
+            System.out.println("[INFO] DTAC startup cancelled before Excel check.");
+            closeStartupWindows();
+            return;
+        }
+
         Set<String> existingLogs = loadExistingLogNames();
 
-        String sshUser;
-        String sshPass;
+        String sshUser = startupCredentials.username;
+        String sshPass = startupCredentials.password;
         int configuredThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
 
         List<DeviceTask> jobList = new ArrayList<>();
 
         try (Workbook workbook = openInputWorkbookWithRetry()) {
             Map<String, String> settings = readSettings(workbook);
-            sshUser = firstSetting(settings, "user", "username", "sshUsername").trim();
-            sshPass = firstSetting(settings, "pass", "password", "sshPassword").trim();
             String deviceSelectMode = firstSetting(settings, "deviceSelectMode").trim();
             int deviceRowStart = firstSettingInt(settings, 0, "deviceRowStart");
             int deviceRowEnd = firstSettingInt(settings, 0, "deviceRowEnd");
@@ -905,14 +952,6 @@ public class BotGetLog_DTAC {
         }
 
         totalTasks = jobList.size();
-        CredentialInput validatedCredentials = promptForValidatedCredentials(sshUser, sshPass, jobList);
-        if (validatedCredentials == null) {
-            System.out.println("[INFO] DTAC startup cancelled before SSH jobs.");
-            closeStartupWindows();
-            return;
-        }
-        sshUser = validatedCredentials.username;
-        sshPass = validatedCredentials.password;
 
         int poolSize = clampThreadPoolSize(configuredThreadPoolSize, totalTasks);
         normalThreadPoolSize = poolSize;
@@ -920,6 +959,7 @@ public class BotGetLog_DTAC {
         executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(poolSize);
         System.out.printf("[INFO] Thread pool size: %d (configured=%d, max=%d)%n",
                 poolSize, configuredThreadPoolSize, MAX_THREAD_POOL_SIZE);
+        startMonitorSafetyNet(jobList, sshUser, sshPass);
 
         List<Future<?>> futures = new ArrayList<>();
         final List<TaskRunResult> failedResults = Collections.synchronizedList(new ArrayList<>());
@@ -959,6 +999,7 @@ public class BotGetLog_DTAC {
 
         boolean stoppedManually = stopRequested;
         stopRequested = true;
+        stopMonitorSafetyNet();
         shutdownExecutor();
         writeSummary(totalTasks, stoppedManually, failedResults);
         System.out.println("=== END ===");
@@ -1009,6 +1050,158 @@ public class BotGetLog_DTAC {
         int configured = configuredThreadPoolSize <= 0 ? DEFAULT_THREAD_POOL_SIZE : configuredThreadPoolSize;
         int capped = Math.min(configured, MAX_THREAD_POOL_SIZE);
         return Math.max(1, Math.min(capped, taskCount));
+    }
+
+    private static long getPositiveLongProperty(String propertyName, long defaultValue, long minValue) {
+        String configured = System.getProperty(propertyName);
+        if (configured != null && !configured.trim().isEmpty()) {
+            try {
+                long value = Long.parseLong(configured.trim());
+                if (value >= minValue) {
+                    return value;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private static long getMonitorSafetyIdleMs() {
+        return DEFAULT_MONITOR_SAFETY_IDLE_MS;
+    }
+
+    private static String formatDurationSeconds(long milliseconds) {
+        long seconds = Math.max(1L, milliseconds / 1000L);
+        if (seconds < 60L) {
+            return seconds + "s";
+        }
+        long minutes = seconds / 60L;
+        long remainingSeconds = seconds % 60L;
+        if (remainingSeconds == 0L) {
+            return minutes + "m";
+        }
+        return minutes + "m " + remainingSeconds + "s";
+    }
+
+    private static void startMonitorSafetyNet(List<DeviceTask> jobList, String sshUser, String sshPass) {
+        if (jobList == null || jobList.isEmpty()) {
+            return;
+        }
+        if (monitorSafetyThread != null && monitorSafetyThread.isAlive()) {
+            return;
+        }
+
+        final List<DeviceTask> tasks = Collections.unmodifiableList(new ArrayList<>(jobList));
+        final String finalUser = sshUser == null ? "" : sshUser;
+        final String finalPass = sshPass == null ? "" : sshPass;
+        monitorSafetyThread = new Thread(() -> runMonitorSafetyNet(tasks, finalUser, finalPass),
+                "DTAC-Monitor-SafetyNet");
+        monitorSafetyThread.setDaemon(true);
+        monitorSafetyThread.start();
+    }
+
+    private static void stopMonitorSafetyNet() {
+        Thread thread = monitorSafetyThread;
+        if (thread != null && thread.isAlive()) {
+            thread.interrupt();
+        }
+    }
+
+    private static void runMonitorSafetyNet(List<DeviceTask> tasks, String sshUser, String sshPass) {
+        long safetyIdleMs = getMonitorSafetyIdleMs();
+        System.out.println("[MONITOR] DTAC safety net started (every "
+                + formatDurationSeconds(MONITOR_SCAN_INTERVAL_MS)
+                + ", safety idle " + formatDurationSeconds(safetyIdleMs) + ")");
+
+        while (!stopRequested) {
+            try {
+                Thread.sleep(MONITOR_SCAN_INTERVAL_MS);
+                if (stopRequested) {
+                    break;
+                }
+
+                int checked = 0;
+                int rechecked = 0;
+                long now = System.currentTimeMillis();
+                safetyIdleMs = getMonitorSafetyIdleMs();
+
+                for (DeviceTask task : tasks) {
+                    if (stopRequested) {
+                        break;
+                    }
+                    if (task == null || task.firstCommands.isEmpty() || task.lastCommands.isEmpty()) {
+                        continue;
+                    }
+                    if (SSH_Multi.hasActiveLogSessionFor(task.rowNum, task.cmdSetCandidates)) {
+                        continue;
+                    }
+
+                    File latestLog = findLatestMatchingLogFile(task.rowNum, task.cmdSetCandidates);
+                    if (latestLog == null || !latestLog.isFile()) {
+                        continue;
+                    }
+                    if (containsPromptPlusFirstAndLastCommand(latestLog, task.firstCommands, task.lastCommands)) {
+                        continue;
+                    }
+                    if (isConnectFailureLog(latestLog)) {
+                        continue;
+                    }
+
+                    long idleTime = now - latestLog.lastModified();
+                    if (idleTime < safetyIdleMs) {
+                        continue;
+                    }
+
+                    checked++;
+                    String rerunKey = task.rowNum + "|" + task.ip + "|" + task.cmdSet.toUpperCase(Locale.ROOT);
+                    if (!monitorRerunKeys.add(rerunKey)) {
+                        continue;
+                    }
+
+                    rechecked++;
+                    String reason = "monitor safety net incomplete after "
+                            + formatDurationSeconds(idleTime);
+                    appendMonitorLog("[MONITOR] DTAC re-run [" + task.rowNum + "]"
+                            + task.deviceName + " (" + task.ip + ") cmdSet=" + task.cmdSet
+                            + " because " + reason + " latestLog=" + latestLog.getName());
+                    deleteMatchingLogFiles(task.rowNum, task.cmdSetCandidates,
+                            "dtac monitor incomplete before safety rerun");
+
+                    TaskRunResult result = runTaskWithCompletionCheck(task, sshUser, sshPass);
+                    appendMonitorLog("[MONITOR] DTAC re-run result [" + task.rowNum + "]"
+                            + task.deviceName + " (" + task.ip + ") cmdSet=" + task.cmdSet
+                            + " result=" + result.statusLabel()
+                            + " attempts=" + result.attempts
+                            + " reason=" + result.message
+                            + " latestLog=" + result.latestLogName);
+                }
+
+                if (checked > 0 || rechecked > 0) {
+                    System.out.printf("[MONITOR] DTAC safety checked=%d rechecked=%d%n", checked, rechecked);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                System.out.println("[MONITOR] DTAC safety net error: " + e.getMessage());
+            }
+        }
+
+        System.out.println("[MONITOR] DTAC safety net stopped");
+    }
+
+    private static void appendMonitorLog(String text) {
+        try {
+            Path logPath = Paths.get(fileInput.getLogWork(),
+                    "MonitorLog_DTAC_" + LocalDate.now().format(SUMMARY_DATE_FORMAT) + ".txt");
+            Files.createDirectories(logPath.getParent());
+            String line = LocalDateTime.now().format(SUMMARY_TIMESTAMP_FORMAT)
+                    + " " + (text == null ? "" : text) + System.lineSeparator();
+            Files.write(logPath, line.getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception e) {
+            System.out.println("[MONITOR] Cannot write DTAC monitor log: " + e.getMessage());
+        }
     }
 
     private static CredentialInput promptForValidatedCredentials(String initialUser,

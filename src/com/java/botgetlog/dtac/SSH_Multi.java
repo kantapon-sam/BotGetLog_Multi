@@ -46,17 +46,21 @@ private static final int FIRST_PROMPT_IDLE_BREAK_MS = 350;    // ไม่มี
 private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
 private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
 private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
+private static final long DEFAULT_COMMAND_PROMPT_SETTLE_MS = 2500L;
 private static final int PROMPT_WINDOW_CHARS = 600;           // buffer ท้ายไว้ใช้ detect prompt
 private static final int EXCEL_CACHE_OPEN_MAX_RETRY = 3;
 private static final long EXCEL_CACHE_OPEN_RETRY_DELAY_MS = 1500L;
 private static final String CMDSET_SHEET = "cmdSet";
 private static final Object CONSOLE_LOG_LOCK = new Object();
 private static final DateTimeFormatter LOG_DATE_TAG_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+private static final DateTimeFormatter LOG_COLLISION_TAG_FORMATTER = DateTimeFormatter.ofPattern("HHmmssSSS");
 private static final Map<String, List<String>> CMDSET_CACHE = new ConcurrentHashMap<>();
 private static final Object CMDSET_CACHE_LOCK = new Object();
+private static final Set<String> ACTIVE_LOG_SESSIONS = ConcurrentHashMap.newKeySet();
 private static volatile boolean CMDSET_CACHE_READY = false;
     private final PathFile fileInput = new PathFile();
     private Session session;
+    private String activeLogSessionPath;
     private String activeLogSessionIdentity;
     private String activeLogDateTag;
 
@@ -213,6 +217,11 @@ static {
         long seconds = getPositiveLongProperty("botgetlog.dtac.command.idleTimeout.seconds",
                 DEFAULT_COMMAND_IDLE_TIMEOUT_MS / 1000L, 30L);
         return seconds * 1000L;
+    }
+
+    private static long getCommandPromptSettleMs() {
+        return getPositiveLongProperty("botgetlog.dtac.command.promptSettle.ms",
+                DEFAULT_COMMAND_PROMPT_SETTLE_MS, 100L);
     }
 
     private static String formatDurationSeconds(long milliseconds) {
@@ -593,6 +602,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             // --- รันคำสั่งทั้งหมดใน channel เดิม ---
             long commandMaxWaitMs = getCommandMaxWaitMs();
             long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
+            long commandPromptSettleMs = getCommandPromptSettleMs();
             boolean stopCommandLoop = false;
             for (String cmd : commands) {
                 if (cmd == null || cmd.trim().isEmpty()) continue;
@@ -612,7 +622,13 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                     if (got) last = System.currentTimeMillis();
 
                     if (isPrompt(window.toString(), promptHint)) {
-                        break;
+                        if (waitForStablePromptAndDrain(in, null, window, buf, streamLog,
+                                promptHint, commandPromptSettleMs)) {
+                            break;
+                        }
+                        last = System.currentTimeMillis();
+                        logwork("[PROMPT-WAIT] DTAC " + host + " extra output arrived after prompt candidate for CMD: "
+                                + cmd + "\n");
                     }
 
                     long now = System.currentTimeMillis();
@@ -689,6 +705,7 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         // 2) ยิงคำสั่งทีละคำสั่ง
         long commandMaxWaitMs = getCommandMaxWaitMs();
         long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
+        long commandPromptSettleMs = getCommandPromptSettleMs();
         boolean stopCommandLoop = false;
         for (String cmd : commands) {
             if (cmd == null || cmd.trim().isEmpty()) continue;
@@ -713,7 +730,12 @@ private String runCommandsInShell(List<String> commands, String promptHint)
 
                 String winStr = window.toString();
                 if (isPrompt(winStr, promptHint)) {
-                    break;
+                    if (waitForStablePromptAndDrain(in, all, window, buf, null,
+                            promptHint, commandPromptSettleMs)) {
+                        break;
+                    }
+                    lastData = System.currentTimeMillis();
+                    logwork("[PROMPT-WAIT] DTAC extra output arrived after prompt candidate for CMD: " + cmd + "\n");
                 }
 
                 long now = System.currentTimeMillis();
@@ -809,6 +831,33 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         streamLog.flush();
     }
 
+    private boolean waitForStablePromptAndDrain(InputStream in,
+                                                StringBuilder all,
+                                                StringBuilder window,
+                                                byte[] buf,
+                                                Writer streamLog,
+                                                String promptHint,
+                                                long promptSettleMs) throws IOException {
+        long stableStart = System.currentTimeMillis();
+        long settleMs = Math.max(100L, promptSettleMs);
+
+        while (System.currentTimeMillis() - stableStart < settleMs) {
+            boolean gotMore = readAvailable(in, all, window, buf, streamLog);
+            if (gotMore) {
+                stableStart = System.currentTimeMillis();
+            } else {
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    return isPrompt(window == null ? "" : window.toString(), promptHint);
+                }
+            }
+        }
+
+        return isPrompt(window == null ? "" : window.toString(), promptHint);
+    }
+
     /**
      * ตรวจว่าใน window ล่าสุดมี prompt หรือยัง
      * รองรับทั้งรูปแบบ:
@@ -871,7 +920,7 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         } catch (Exception e) {
             logwork("[WARN] Disconnect error: " + e + "\n");
         } finally {
-            clearActiveLogSessionDate();
+            clearActiveLogSession();
         }
     }
 
@@ -1004,7 +1053,11 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         return activeLogDateTag;
     }
 
-    private synchronized void clearActiveLogSessionDate() {
+    private synchronized void clearActiveLogSession() {
+        if (activeLogSessionPath != null) {
+            ACTIVE_LOG_SESSIONS.remove(activeLogSessionPath);
+            activeLogSessionPath = null;
+        }
         activeLogSessionIdentity = null;
         activeLogDateTag = null;
     }
@@ -1026,11 +1079,95 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         return normalized.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
+    public static boolean isActiveLogSession(File file) {
+        return file != null && ACTIVE_LOG_SESSIONS.contains(file.getAbsolutePath());
+    }
+
+    public static boolean hasActiveLogSessionFor(int rowNum, Collection<String> cmdSetCandidates) {
+        if (cmdSetCandidates == null || cmdSetCandidates.isEmpty()) {
+            return false;
+        }
+        String prefix = "[" + rowNum + "]";
+        for (String path : ACTIVE_LOG_SESSIONS) {
+            if (path == null) {
+                continue;
+            }
+            String name = new File(path).getName();
+            if (name == null || !name.startsWith(prefix)) {
+                continue;
+            }
+            for (String cmdSet : cmdSetCandidates) {
+                if (cmdSet != null && !cmdSet.trim().isEmpty() && name.contains("_" + cmdSet.trim() + "_")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private synchronized void registerActiveLogFile(File logFile) {
+        if (activeLogSessionPath != null) {
+            ACTIVE_LOG_SESSIONS.remove(activeLogSessionPath);
+        }
+        activeLogSessionPath = logFile.getAbsolutePath();
+        ACTIVE_LOG_SESSIONS.add(activeLogSessionPath);
+    }
+
+    private Path resolveSafeLogPath(Path preferredPath) {
+        File preferredFile = preferredPath.toFile();
+        if (!isActiveLogSession(preferredFile)) {
+            return preferredPath;
+        }
+
+        String fileName = preferredPath.getFileName().toString();
+        String suffix = "_run" + LocalDateTime.now().format(LOG_COLLISION_TAG_FORMATTER);
+        String collisionName = fileName.endsWith(".txt")
+                ? fileName.substring(0, fileName.length() - 4) + suffix + ".txt"
+                : fileName + suffix;
+        Path parent = preferredPath.getParent();
+        Path collisionPath = parent == null ? Paths.get(collisionName) : parent.resolve(collisionName);
+        logwork("[WARN] Active DTAC log path is already in use, writing to: " + collisionPath.toString() + "\n");
+        return collisionPath;
+    }
+
+    private void archiveExistingLogFile(Path path, String reason) throws IOException {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+
+        Path parent = path.getParent();
+        Path outputDir = parent == null ? Paths.get("_output") : parent.getParent();
+        if (outputDir == null) {
+            outputDir = Paths.get("_output");
+        }
+        Path archiveDir = outputDir.resolve("Deleted_Log");
+        Files.createDirectories(archiveDir);
+
+        String fileName = path.getFileName().toString();
+        String safeReason = reason == null ? "unknown" : reason.trim();
+        if (safeReason.isEmpty()) {
+            safeReason = "unknown";
+        }
+        safeReason = safeReason.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
+        if (safeReason.length() > 60) {
+            safeReason = safeReason.substring(0, 60);
+        }
+
+        String suffix = "_deleted_" + LocalDateTime.now().format(LOG_COLLISION_TAG_FORMATTER) + "_" + safeReason;
+        String archiveName = fileName.endsWith(".txt")
+                ? fileName.substring(0, fileName.length() - 4) + suffix + ".txt"
+                : fileName + suffix;
+        Path archivePath = archiveDir.resolve(archiveName);
+        Files.move(path, archivePath, StandardCopyOption.REPLACE_EXISTING);
+        logwork("[INFO] Existing DTAC log moved to Deleted_Log before overwrite: " + archivePath.toString() + "\n");
+    }
+
     private File prepareNodeLogFile(int rowNum, String loopback, String device, String cmdSetName) throws IOException {
-        Path path = buildNodeLogPath(rowNum, loopback, device, cmdSetName);
+        Path path = resolveSafeLogPath(buildNodeLogPath(rowNum, loopback, device, cmdSetName));
         Files.createDirectories(path.getParent());
-        Files.deleteIfExists(path);
+        archiveExistingLogFile(path, "before stream overwrite");
         Files.createFile(path);
+        registerActiveLogFile(path.toFile());
         logwork("[INFO] Node log streaming started: " + path.toString() + "\n");
         return path.toFile();
     }
@@ -1055,8 +1192,9 @@ private String runCommandsInShell(List<String> commands, String promptHint)
                                   String content) {
 
         try {
-            Path path = buildNodeLogPath(rowNum, loopback, device, cmdSetName);
+            Path path = resolveSafeLogPath(buildNodeLogPath(rowNum, loopback, device, cmdSetName));
             Files.createDirectories(path.getParent());
+            archiveExistingLogFile(path, "before fallback write");
 
             Files.write(path, content.getBytes("UTF-8"),
                     StandardOpenOption.CREATE,

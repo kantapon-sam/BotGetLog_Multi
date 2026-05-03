@@ -70,6 +70,7 @@ public final class LoginRecipe {
     public String buildAutomationScript(String username, String password) {
         StringBuilder script = new StringBuilder();
         script.append("(function(){");
+        script.append("var SITE_ID=").append(toJsString(siteId)).append(";");
         script.append("var USER=").append(toJsString(username)).append(";");
         script.append("var PASS=").append(toJsString(password)).append(";");
         script.append("var USER_SELECTORS=").append(toJsArray(usernameSelectors)).append(";");
@@ -77,6 +78,10 @@ public final class LoginRecipe {
         script.append("var SUBMIT_SELECTORS=").append(toJsArray(submitSelectors)).append(";");
         script.append("var NEXT_SELECTORS=").append(toJsArray(nextSelectors)).append(";");
         script.append("var AUTO_SUBMIT=").append(autoSubmit ? "true" : "false").append(";");
+        script.append("var LOGIN_MARKER='BOT_AUTO_LOGIN_DONE:'+SITE_ID;");
+        script.append("function alreadyAttempted(){try{return (window.name||'').indexOf(LOGIN_MARKER)>=0;}catch(e){return false;}}");
+        script.append("function markAttempted(){try{var n=window.name||'';if(n.indexOf(LOGIN_MARKER)<0){window.name=n+(n?'|':'')+LOGIN_MARKER;}}catch(ignore){}}");
+        script.append("if(alreadyAttempted()){return 'DONE:already-attempted';}");
         script.append("function list(selector){try{return Array.prototype.slice.call(document.querySelectorAll(selector));}catch(e){return [];}}");
         script.append("function visible(el){if(!el){return false;}var s=window.getComputedStyle(el);return s&&s.display!=='none'&&s.visibility!=='hidden'&&el.offsetWidth>0&&el.offsetHeight>0&&!el.disabled;}");
         script.append("function bySelectors(selectors){for(var i=0;i<selectors.length;i++){var items=list(selectors[i]);for(var j=0;j<items.length;j++){if(visible(items[j])){return items[j];}}}return null;}");
@@ -100,6 +105,7 @@ public final class LoginRecipe {
         script.append("if(!usernameInput){return 'RETRY:username-not-found';}");
         script.append("if(!passwordInput){return 'RETRY:password-not-found';}");
         script.append("var submitButton=likelyButton(passwordInput.form||usernameInput.form,SUBMIT_SELECTORS,['login','log in','sign in','submit','เข้าสู่ระบบ']);");
+        script.append("markAttempted();");
         script.append("if(AUTO_SUBMIT&&submitButton){submitButton.click();return 'SUBMITTED';}");
         script.append("return AUTO_SUBMIT?'FILLED:no-submit':'FILLED';");
         script.append("})()");
