@@ -1654,7 +1654,7 @@ public class BotGetLog_TrueCorp {
                                                     dupIndex++;
                                                 }
 
-                                                boolean logComplete = isLogComplete(latestLog, firstCommand, lastCommand, cmdSet);
+                                                boolean logComplete = isLogCompleteForLogFileCmdSet(latestLog, cmdSet);
 
                                                 //  -
                                                 if (logComplete) {
@@ -2544,6 +2544,14 @@ public class BotGetLog_TrueCorp {
         return isLogComplete(logFile, firstCommand, lastCommand, safeCmdSet);
     }
 
+    private static boolean isLogCompleteForLogFileCmdSet(File logFile, String fallbackCmdSet) {
+        String fileCmdSet = extractCmdSetFromLogName(logFile == null ? "" : logFile.getName());
+        String validationCmdSet = fileCmdSet == null || fileCmdSet.trim().isEmpty()
+                ? fallbackCmdSet
+                : fileCmdSet;
+        return isLogCompleteForCmdSet(logFile, validationCmdSet);
+    }
+
     private static boolean isLogComplete(File logFile, String firstCommand, String lastCommand, String cmdSet) {
         if (logFile == null || !logFile.exists()) {
             return false;
@@ -2705,6 +2713,8 @@ public class BotGetLog_TrueCorp {
         String quotedCmd = Pattern.quote(cmd);
         return line.matches("^<[^\\r\\n>]+>\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^\\[(?:~|\\*)?[^\\r\\n\\]]+(?:-[^\\]]+)?\\]\\s*" + quotedCmd + "\\s*$")
+                || line.matches("^[A-Za-z]:[^\\r\\n#>]+#\\s*" + quotedCmd + "\\s*$")
+                || line.matches("^[^\\r\\n#>]+[>#]\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^[A-Za-z0-9._:-]+[>#]\\s*" + quotedCmd + "\\s*$")
                 || line.equalsIgnoreCase(cmd);
     }
@@ -2793,16 +2803,67 @@ public class BotGetLog_TrueCorp {
         }
 
         if (safeCmdSet.startsWith("zte-")) {
-            return safeHead.startsWith(safeDevice + "#") && safeHead.contains("terminal length 0");
+            String promptDevice = extractHashPromptDevice(head);
+            String expectedDevice = normalizeDeviceForLogComparison(device);
+            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
+            return safeHead.contains("#")
+                    && safeHead.contains("terminal length 0")
+                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
         }
         if (safeCmdSet.startsWith("n-")) {
-            return safeHead.startsWith("a:" + safeDevice + "#") && safeHead.contains("environment no more");
+            String promptDevice = extractNokiaPromptDevice(head);
+            String expectedDevice = normalizeDeviceForLogComparison(device);
+            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
+            return safeHead.startsWith("a:")
+                    && safeHead.contains("#")
+                    && safeHead.contains("environment no more")
+                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
         }
         if (safeCmdSet.startsWith("hw-")) {
-            return safeHead.startsWith("<" + safeDevice + ">") && safeHead.contains("screen-length 0");
+            String promptDevice = extractAnglePromptDevice(head);
+            String expectedDevice = normalizeDeviceForLogComparison(device);
+            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
+            return safeHead.startsWith("<")
+                    && safeHead.contains(">")
+                    && safeHead.contains("screen-length 0")
+                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
         }
 
         return (safeHead.contains(safeDevice) && (safeHead.contains("#") || safeHead.contains(">")));
+    }
+
+    private static String extractNokiaPromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^[A-Za-z]:([^#\\r\\n]+)#").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String extractAnglePromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String extractHashPromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^([^#>\\r\\n]+)#").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String normalizeDeviceForLogComparison(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('_', '-')
+                .replaceAll("\\s+", "");
     }
 
     private static boolean isLogComplete(File logFile, String lastCommand) {
@@ -2864,7 +2925,7 @@ public class BotGetLog_TrueCorp {
 
     private static String extractCmdSetFromLogName(String fileName) {
         try {
-            Matcher matcher = Pattern.compile("\\[(\\d+)](.*?)_(.*?)_(.*?)_(\\d{4}-\\d{2}-\\d{2})\\.txt").matcher(fileName);
+            Matcher matcher = Pattern.compile("\\[(\\d+)](.*?)_(.*?)_(.*?)_(\\d{4}-\\d{2}-\\d{2})(?:_deleted_.*)?\\.txt").matcher(fileName);
             if (matcher.find()) {
                 return matcher.group(4);
             }
@@ -2875,7 +2936,7 @@ public class BotGetLog_TrueCorp {
 
     private static String extractDeviceFromLogName(String fileName) {
         try {
-            Matcher matcher = Pattern.compile("\\[(\\d+)](.*?)_(.*?)_(.*?)_(\\d{4}-\\d{2}-\\d{2})\\.txt").matcher(fileName);
+            Matcher matcher = Pattern.compile("\\[(\\d+)](.*?)_(.*?)_(.*?)_(\\d{4}-\\d{2}-\\d{2})(?:_deleted_.*)?\\.txt").matcher(fileName);
             if (matcher.find()) {
                 return matcher.group(3);
             }
@@ -2915,7 +2976,7 @@ public class BotGetLog_TrueCorp {
                     continue;
                 }
 
-                if (isLogComplete(file, getCachedFirstCommand(cmdSet), lastCommand, cmdSet)) {
+                if (isLogCompleteForLogFileCmdSet(file, cmdSet)) {
                     return file;
                 }
             }
@@ -2977,7 +3038,7 @@ public class BotGetLog_TrueCorp {
                 if (!isEquivalentCmdSet(cmdSet, fileCmdSet)) {
                     continue;
                 }
-                if (isLogComplete(file, firstCommand, lastCommand, cmdSet)) {
+                if (isLogCompleteForLogFileCmdSet(file, cmdSet)) {
                     continue;
                 }
                 if (Telnet_Multi.isProtectedLogFile(file)) {
