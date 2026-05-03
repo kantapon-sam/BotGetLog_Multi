@@ -1,7 +1,6 @@
 package com.java.tools.ptp;
 
 import com.java.botgetlog.AppConsole;
-import com.java.launcher.LauncherGate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -27,9 +26,6 @@ public class PTP {
     }
 
     public static void main(String[] args) {
-        if (LauncherGate.redirectToLauncherIfNeeded("PTP")) {
-            return;
-        }
         AppConsole.install("PTP Console", "PTP - Console");
         Dialog.setLAF();
         System.out.println("[INFO] PTP started");

@@ -1,6 +1,5 @@
 package com.java.botgetlog;
 
-import com.java.launcher.LauncherGate;
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
 import java.awt.Toolkit;
@@ -1128,9 +1127,6 @@ public class BotGetLog_TrueCorp {
     }
 
     public static void main(String[] args) {
-        if (LauncherGate.redirectToLauncherIfNeeded("BotGetLog")) {
-            return;
-        }
         AppConsole.install();
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;

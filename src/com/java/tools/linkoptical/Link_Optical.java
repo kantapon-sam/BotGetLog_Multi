@@ -1,7 +1,6 @@
 package com.java.tools.linkoptical;
 
 import com.java.botgetlog.AppConsole;
-import com.java.launcher.LauncherGate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -189,9 +188,6 @@ public class Link_Optical {
     }
 
     public static void main(String[] args) {
-        if (LauncherGate.redirectToLauncherIfNeeded("Link Optical")) {
-            return;
-        }
         AppConsole.install("Link Optical Console", "Link Optical - Console");
         Dialog.setLAF();
         System.out.println("[INFO] Link Optical started");
