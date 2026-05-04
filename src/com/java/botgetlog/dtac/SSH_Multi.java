@@ -550,7 +550,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 if (got) lastData = System.currentTimeMillis();
 
                 // ถ้ามี prompt แล้วหยุดอ่าน
-                if (isPrompt(window.toString(), promptHint)) break;
+                if (isPrompt(window.toString(), promptHint) || isPrompt(window.toString(), "")) break;
 
                 // ถ้าไม่มีข้อมูลใหม่มาสักพัก ให้หยุดเร็ว
                 if (System.currentTimeMillis() - lastData > FIRST_PROMPT_IDLE_BREAK_MS) break;
@@ -561,6 +561,19 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             // --- detect vendor จาก prompt แรก ---
             String vendor = detectVendorByFirstPromptChar(window.toString());
             if (vendor == null) vendor = detectVendorByFirstPromptChar(all.toString());
+            String promptMatchHint = extractPromptHint(window.toString());
+            if (promptMatchHint == null || promptMatchHint.isEmpty()) {
+                promptMatchHint = extractPromptHint(all.toString());
+            }
+            if (promptMatchHint == null || promptMatchHint.isEmpty()) {
+                promptMatchHint = promptHint;
+            }
+            if (promptMatchHint != null && promptHint != null
+                    && !promptHint.trim().isEmpty()
+                    && !promptMatchHint.trim().equalsIgnoreCase(promptHint.trim())) {
+                logwork("[PROMPT] DTAC " + host + " deviceHint=" + promptHint
+                        + " actualPrompt=" + promptMatchHint + "\n");
+            }
 
             String cmdSetUsed = baseCmdSet;
             if (vendor != null && !vendor.trim().isEmpty()) {
@@ -619,11 +632,20 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 
                 while (true) {
                     boolean got = readAvailable(in, null, window, buf, streamLog);
-                    if (got) last = System.currentTimeMillis();
+                    if (got) {
+                        last = System.currentTimeMillis();
+                        String echoPromptHint = extractPromptHintBeforeCommand(window.toString(), cmd);
+                        if (!echoPromptHint.isEmpty()
+                                && !echoPromptHint.equalsIgnoreCase(promptMatchHint == null ? "" : promptMatchHint.trim())) {
+                            logwork("[PROMPT] DTAC " + host + " commandEchoPrompt="
+                                    + echoPromptHint + " for CMD: " + cmd + "\n");
+                            promptMatchHint = echoPromptHint;
+                        }
+                    }
 
-                    if (isPrompt(window.toString(), promptHint)) {
+                    if (isPrompt(window.toString(), promptMatchHint)) {
                         if (waitForStablePromptAndDrain(in, null, window, buf, streamLog,
-                                promptHint, commandPromptSettleMs)) {
+                                promptMatchHint, commandPromptSettleMs)) {
                             break;
                         }
                         last = System.currentTimeMillis();
@@ -888,6 +910,76 @@ private String runCommandsInShell(List<String> commands, String promptHint)
                 .replaceAll("\\u001B\\[[;\\d]*[ -/]*[@-~]", "")
                 .replace("\\r", "")
                 .trim();
+    }
+
+    private String extractPromptHint(String text) {
+        if (text == null || text.isEmpty()) return "";
+
+        String tail = (text.length() > PROMPT_WINDOW_CHARS)
+                ? text.substring(text.length() - PROMPT_WINDOW_CHARS)
+                : text;
+        String[] lines = tail.split("\r?\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String hint = extractPromptHintFromLine(sanitizePromptLine(lines[i]));
+            if (!hint.isEmpty()) {
+                return hint;
+            }
+        }
+        return "";
+    }
+
+    private String extractPromptHintBeforeCommand(String text, String command) {
+        if (text == null || text.isEmpty() || command == null || command.trim().isEmpty()) {
+            return "";
+        }
+
+        String tail = (text.length() > PROMPT_WINDOW_CHARS)
+                ? text.substring(text.length() - PROMPT_WINDOW_CHARS)
+                : text;
+        String quotedCommand = java.util.regex.Pattern.quote(command.trim());
+        String promptChars = "([A-Za-z0-9._:-]+)";
+        java.util.regex.Pattern[] patterns = new java.util.regex.Pattern[] {
+                java.util.regex.Pattern.compile("^<" + promptChars + ">\\s*" + quotedCommand + "\\s*$"),
+                java.util.regex.Pattern.compile("^" + promptChars + "[>#]\\s*" + quotedCommand + "\\s*$"),
+                java.util.regex.Pattern.compile("^\\[(?:~|\\*)?" + promptChars + "(?:-[^\\]]+)?\\]\\s*"
+                        + quotedCommand + "\\s*$")
+        };
+
+        String[] lines = tail.split("\r?\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = sanitizePromptLine(lines[i]);
+            if (line.isEmpty()) continue;
+            for (java.util.regex.Pattern pattern : patterns) {
+                java.util.regex.Matcher matcher = pattern.matcher(line);
+                if (matcher.matches()) {
+                    return matcher.group(1);
+                }
+            }
+        }
+
+        return "";
+    }
+
+    private String extractPromptHintFromLine(String line) {
+        if (line == null || line.isEmpty()) return "";
+
+        if (line.matches("^[A-Za-z0-9._:-]+[>#]$")) {
+            return line.substring(0, line.length() - 1);
+        }
+
+        java.util.regex.Matcher anglePrompt =
+                java.util.regex.Pattern.compile("^<([A-Za-z0-9._:-]+)>$").matcher(line);
+        if (anglePrompt.matches()) {
+            return anglePrompt.group(1);
+        }
+
+        java.util.regex.Matcher bracketPrompt =
+                java.util.regex.Pattern.compile("^\\[(?:~|\\*)?([A-Za-z0-9._:-]+)(?:-[^\\]]+)?\\]$").matcher(line);
+        if (bracketPrompt.matches()) {
+            return bracketPrompt.group(1);
+        }
+
+        return "";
     }
 
     private boolean matchesPromptLine(String line, String promptHint) {
