@@ -13,7 +13,7 @@ import java.util.Comparator;
 public class ARP {
 
     private static final int MAX_LINES_PER_FILE = 500000;
-    private static final String CSV_HEADER = "Node,Model,Loopback,IP ADDRESS,MAC ADDRESS,INTERFACE,VPN-INSTANCE,PHY,Protocol,Description";
+    private static final String CSV_HEADER = "Node,Model,Loopback,IP ADDRESS,MAC ADDRESS,Type,INTERFACE,VPN-INSTANCE,PHY,Protocol,Description";
 
     private static String buildOutputFileName(String formattedDateTime, int fileIndex) {
         return "DataARP_" + formattedDateTime + "_" + fileIndex + ".csv";

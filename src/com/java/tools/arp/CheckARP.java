@@ -456,7 +456,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
 
                         Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                                 + ip + "," + mac + ","
-                                + port + "," + vpn + "," + PHY + "," + Protocol + "," + Des;
+                                + TYPE + "," + port + "," + vpn + "," + PHY + "," + Protocol + "," + Des;
                         matched = true;
                         break;
                     }
@@ -465,7 +465,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                 if (!matched) {
                     Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                             + ip + "," + mac + ","
-                            + port + "," + vpn + ",,,\"\"";
+                            + TYPE + "," + port + "," + vpn + ",,,\"\"";
                 }
             }
         } else if (path.contains("_ZTE-ARP_")) {
@@ -770,6 +770,9 @@ if (!curIp.isEmpty()) {
                 String mac = safe(arpParts, 1);
                 String EXPIRE = safe(arpParts, 2);
                 String TYPE = safe(arpParts, 3);
+                if (TYPE.isEmpty()) {
+                    TYPE = EXPIRE;
+                }
                 String port = safe(arpParts, 4);
                 String vpn = safe(arpParts, 5);
 
@@ -796,7 +799,7 @@ if (!curIp.isEmpty()) {
 
                         Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                                 + ip + "," + mac + ","
-                                + port + "," + vpn + "," + PHY + "," + Protocol + "," + Des;
+                                + TYPE + "," + port + "," + vpn + "," + PHY + "," + Protocol + "," + Des;
                         matched = true;
                         break;
                     }
@@ -805,7 +808,7 @@ if (!curIp.isEmpty()) {
        if (!matched) {
     Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
             + ip + "," + mac + ","
-            + port + "," + vpn + ",,,\"\"";
+            + TYPE + "," + port + "," + vpn + ",,,\"\"";
 }
             }
         } else if (path.contains("_N-ARP_")) {
@@ -1116,6 +1119,7 @@ if (!curIp.isEmpty()) {
                 if (parts.length >= 5 && parts[0].matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
                     String ip = cleanNokiaValue(parts[0]);
                     String mac = cleanNokiaValue(parts[1]);
+                    String arpType = cleanNokiaValue(parts[3]);
                     String ifaceName = cleanNokiaValue(parts[4]);
                     String binding = cleanNokiaValue(routerIfToPort.getOrDefault(ifaceName, ifaceName));
                     String port = resolveNokiaPortDisplay(binding, lagToPorts.get(binding));
@@ -1126,7 +1130,7 @@ if (!curIp.isEmpty()) {
 
                     Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                             + ip + "," + mac + ","
-                            + port + "," + vpn + "," + phy + "," + proto + "," + quote(desc);
+                            + arpType + "," + port + "," + vpn + "," + phy + "," + proto + "," + quote(desc);
                 }
             }
 
@@ -1169,6 +1173,7 @@ if (!curIp.isEmpty()) {
                 if (parts.length >= 6 && parts[0].matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
                     String ip = cleanNokiaValue(parts[0]);
                     String mac = cleanNokiaValue(parts[1]);
+                    String arpType = cleanNokiaValue(parts[3]);
                     String ifaceName = cleanNokiaValue(parts[4]);
                     String sap = cleanNokiaValue(parts[5]);
                     String basePort = extractSapPort(sap);
@@ -1188,7 +1193,7 @@ if (!curIp.isEmpty()) {
 
                     Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                             + ip + "," + mac + ","
-                            + port + "," + vpn + "," + phy + "," + proto + "," + quote(desc);
+                            + arpType + "," + port + "," + vpn + "," + phy + "," + proto + "," + quote(desc);
                 }
             }
         }
