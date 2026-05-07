@@ -2964,13 +2964,7 @@ public class BotGetLog_TrueCorp {
 
             Arrays.sort(matched, BotGetLog_TrueCorp::compareLogPriority);
             for (File file : matched) {
-                String name = file.getName();
-                int datePos = name.lastIndexOf('_');
-                int prevUnderscore = (datePos > 0) ? name.lastIndexOf('_', datePos - 1) : -1;
-                int secondUnderscore = (prevUnderscore > 0) ? name.lastIndexOf('_', prevUnderscore - 1) : -1;
-                String fileCmdSet = (prevUnderscore > 0 && secondUnderscore > 0)
-                        ? name.substring(secondUnderscore + 1, prevUnderscore)
-                        : "";
+                String fileCmdSet = extractCmdSetFromLogName(file.getName());
 
                 if (!isEquivalentCmdSet(cmdSet, fileCmdSet)) {
                     continue;
