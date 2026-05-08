@@ -57,6 +57,7 @@ final class DescriptionChecker {
                     "Current State",
                     "Description",
                     "Site code 7 digits",
+                    "New site code",
                     "Desc site digit",
                     "Description Check"
             ));
@@ -112,6 +113,7 @@ final class DescriptionChecker {
 
                 String siteCode = getField(row, siteCodeIndex).trim();
                 String siteCodeSevenDigits = extractSiteCodeSevenDigits(siteCode);
+                String newSiteCode = getNewSiteCode(siteCodeSevenDigits, newSiteByOldSite);
                 String descSiteDigit = extractSiteCodeSevenDigits(description);
                 String home = getHome(siteCode);
                 boolean siteCodeFound = !siteCodeSevenDigits.isEmpty()
@@ -122,9 +124,9 @@ final class DescriptionChecker {
 
                 boolean newSiteFound = false;
                 if (!siteCodeFound) {
-                    newSiteFound = matchesNewSite(descSiteDigit, description, siteCodeSevenDigits, newSiteByOldSite);
+                    newSiteFound = matchesNewSite(descSiteDigit, description, newSiteCode);
                     if (newSiteFound && descSiteDigit.isEmpty()) {
-                        descSiteDigit = newSiteByOldSite.get(siteCodeSevenDigits);
+                        descSiteDigit = newSiteCode;
                     }
                 }
 
@@ -141,6 +143,7 @@ final class DescriptionChecker {
                         currentState,
                         description,
                         siteCodeSevenDigits,
+                        newSiteCode,
                         descSiteDigit,
                         descriptionOk ? CHECK_OK : CHECK_NOT_OK
                 ));
@@ -153,6 +156,7 @@ final class DescriptionChecker {
 
     private static Map<String, String> loadNewSiteMap() throws IOException {
         Map<String, String> newSiteByOldSite = new HashMap<String, String>();
+        Map<String, Integer> priorityByOldSite = new HashMap<String, Integer>();
         File referenceFile = findNewSiteFile();
         if (referenceFile == null) {
             System.out.println("[INFO] New site reference     : not found");
@@ -173,10 +177,17 @@ final class DescriptionChecker {
             String record;
             while ((record = readCsvRecord(reader)) != null) {
                 List<String> row = parseCsvRecord(record);
-                String oldSite = extractSiteCodeSevenDigits(getField(row, oldSiteIndex));
+                String oldSiteValue = getField(row, oldSiteIndex);
+                String oldSite = extractSiteCodeSevenDigits(oldSiteValue);
                 String newSite = extractSiteCodeSevenDigits(getField(row, newSiteIndex));
                 if (!oldSite.isEmpty() && !newSite.isEmpty()) {
-                    newSiteByOldSite.put(oldSite.toUpperCase(Locale.ROOT), newSite.toUpperCase(Locale.ROOT));
+                    String oldSiteKey = oldSite.toUpperCase(Locale.ROOT);
+                    int priority = getOldSiteMappingPriority(oldSiteValue, oldSiteKey);
+                    Integer currentPriority = priorityByOldSite.get(oldSiteKey);
+                    if (currentPriority == null || priority > currentPriority.intValue()) {
+                        newSiteByOldSite.put(oldSiteKey, newSite.toUpperCase(Locale.ROOT));
+                        priorityByOldSite.put(oldSiteKey, Integer.valueOf(priority));
+                    }
                 }
             }
         }
@@ -191,21 +202,31 @@ final class DescriptionChecker {
         return candidate.isFile() ? candidate : null;
     }
 
-    private static boolean matchesNewSite(String descSiteDigit, String description,
-            String oldSiteDigit, Map<String, String> newSiteByOldSite) {
-        if (oldSiteDigit == null || oldSiteDigit.isEmpty() || newSiteByOldSite.isEmpty()) {
-            return false;
+    private static int getOldSiteMappingPriority(String oldSiteValue, String oldSiteKey) {
+        String normalizedOldSite = oldSiteValue == null
+                ? ""
+                : oldSiteValue.replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
+        return normalizedOldSite.equals(oldSiteKey) ? 2 : 1;
+    }
+
+    private static String getNewSiteCode(String siteCodeSevenDigits, Map<String, String> newSiteByOldSite) {
+        if (siteCodeSevenDigits == null || siteCodeSevenDigits.isEmpty() || newSiteByOldSite.isEmpty()) {
+            return "";
         }
 
-        String newSite = newSiteByOldSite.get(oldSiteDigit.toUpperCase(Locale.ROOT));
-        if (newSite == null || newSite.isEmpty()) {
+        String newSiteCode = newSiteByOldSite.get(siteCodeSevenDigits.toUpperCase(Locale.ROOT));
+        return newSiteCode == null ? "" : newSiteCode;
+    }
+
+    private static boolean matchesNewSite(String descSiteDigit, String description, String newSiteCode) {
+        if (newSiteCode == null || newSiteCode.isEmpty()) {
             return false;
         }
 
         if (descSiteDigit != null && !descSiteDigit.isEmpty()) {
-            return newSite.equalsIgnoreCase(descSiteDigit);
+            return newSiteCode.equalsIgnoreCase(descSiteDigit);
         }
-        return description != null && containsIgnoreCase(description, newSite);
+        return description != null && containsIgnoreCase(description, newSiteCode);
     }
 
     private static String getHome(String siteCode) {
