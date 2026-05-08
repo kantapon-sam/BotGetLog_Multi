@@ -357,6 +357,7 @@ function Assert-RequiredReleaseArtifacts {
         "PTP.jar",
         "README.TXT",
         "defaults\UserInterface_Input.xlsx",
+        "defaults\NEW_Site.csv",
         "updater\BotGetLog_Updater.jar"
     )
 

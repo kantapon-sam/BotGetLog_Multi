@@ -1,5 +1,6 @@
 package com.java.tools.linkoptical;
 
+import com.java.shared.AppMetadata;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -22,6 +23,7 @@ import java.util.regex.Pattern;
 final class DescriptionChecker {
 
     private static final String OUTPUT_PREFIX = "DataDescription_MB_";
+    private static final String NEW_SITE_FILE_NAME = "NEW_Site.csv";
     private static final String CHECK_OK = "OK";
     private static final String CHECK_NOT_OK = "Mismatch";
     private static final List<String> BLOCKED_DESCRIPTION_TEXT = Arrays.asList("-CO-", "-AG-", "-AC-", "TO_AN");
@@ -43,6 +45,7 @@ final class DescriptionChecker {
         Files.createDirectories(outputDir);
 
         Path outputFile = outputDir.resolve(OUTPUT_PREFIX + timestamp + ".csv");
+        Map<String, String> newSiteByOldSite = loadNewSiteMap();
         ProcessStats stats;
         try (BufferedWriter writer = Files.newBufferedWriter(outputFile, StandardCharsets.UTF_8)) {
             writer.write('\ufeff');
@@ -58,7 +61,7 @@ final class DescriptionChecker {
                     "Description Check"
             ));
 
-            stats = processFile(lldpFile.toPath(), writer);
+            stats = processFile(lldpFile.toPath(), writer, newSiteByOldSite);
         }
 
         System.out.println("[INFO] Description source      : " + lldpFile.getName());
@@ -71,7 +74,8 @@ final class DescriptionChecker {
         return outputFile.toFile();
     }
 
-    private static ProcessStats processFile(Path inputFile, BufferedWriter writer) throws IOException {
+    private static ProcessStats processFile(Path inputFile, BufferedWriter writer,
+            Map<String, String> newSiteByOldSite) throws IOException {
         ProcessStats stats = new ProcessStats();
 
         try (BufferedReader reader = newCsvReader(inputFile)) {
@@ -116,7 +120,16 @@ final class DescriptionChecker {
                     descSiteDigit = siteCodeSevenDigits;
                 }
 
+                boolean newSiteFound = false;
                 if (!siteCodeFound) {
+                    newSiteFound = matchesNewSite(descSiteDigit, description, siteCodeSevenDigits, newSiteByOldSite);
+                    if (newSiteFound && descSiteDigit.isEmpty()) {
+                        descSiteDigit = newSiteByOldSite.get(siteCodeSevenDigits);
+                    }
+                }
+
+                boolean descriptionOk = siteCodeFound || newSiteFound;
+                if (!descriptionOk) {
                     stats.mismatchSiteCodeRows++;
                 }
 
@@ -129,13 +142,70 @@ final class DescriptionChecker {
                         description,
                         siteCodeSevenDigits,
                         descSiteDigit,
-                        siteCodeFound ? CHECK_OK : CHECK_NOT_OK
+                        descriptionOk ? CHECK_OK : CHECK_NOT_OK
                 ));
                 stats.rowsWritten++;
             }
         }
 
         return stats;
+    }
+
+    private static Map<String, String> loadNewSiteMap() throws IOException {
+        Map<String, String> newSiteByOldSite = new HashMap<String, String>();
+        File referenceFile = findNewSiteFile();
+        if (referenceFile == null) {
+            System.out.println("[INFO] New site reference     : not found");
+            return newSiteByOldSite;
+        }
+
+        try (BufferedReader reader = newCsvReader(referenceFile.toPath())) {
+            String headerRecord = readCsvRecord(reader);
+            if (headerRecord == null) {
+                return newSiteByOldSite;
+            }
+
+            List<String> headers = parseCsvRecord(headerRecord);
+            Map<String, Integer> headerIndex = buildHeaderIndex(headers);
+            int oldSiteIndex = requiredColumn(headerIndex, "OLD SITE", referenceFile.toPath());
+            int newSiteIndex = requiredColumn(headerIndex, "NEW SITE", referenceFile.toPath());
+
+            String record;
+            while ((record = readCsvRecord(reader)) != null) {
+                List<String> row = parseCsvRecord(record);
+                String oldSite = extractSiteCodeSevenDigits(getField(row, oldSiteIndex));
+                String newSite = extractSiteCodeSevenDigits(getField(row, newSiteIndex));
+                if (!oldSite.isEmpty() && !newSite.isEmpty()) {
+                    newSiteByOldSite.put(oldSite.toUpperCase(Locale.ROOT), newSite.toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+
+        System.out.println("[INFO] New site reference     : " + referenceFile.getName()
+                + " (" + newSiteByOldSite.size() + " mapping rows)");
+        return newSiteByOldSite;
+    }
+
+    private static File findNewSiteFile() {
+        File candidate = new File(new File(AppMetadata.getAppDirectory(), "defaults"), NEW_SITE_FILE_NAME);
+        return candidate.isFile() ? candidate : null;
+    }
+
+    private static boolean matchesNewSite(String descSiteDigit, String description,
+            String oldSiteDigit, Map<String, String> newSiteByOldSite) {
+        if (oldSiteDigit == null || oldSiteDigit.isEmpty() || newSiteByOldSite.isEmpty()) {
+            return false;
+        }
+
+        String newSite = newSiteByOldSite.get(oldSiteDigit.toUpperCase(Locale.ROOT));
+        if (newSite == null || newSite.isEmpty()) {
+            return false;
+        }
+
+        if (descSiteDigit != null && !descSiteDigit.isEmpty()) {
+            return newSite.equalsIgnoreCase(descSiteDigit);
+        }
+        return description != null && containsIgnoreCase(description, newSite);
     }
 
     private static String getHome(String siteCode) {

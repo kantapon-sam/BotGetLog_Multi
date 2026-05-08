@@ -33,7 +33,7 @@ if not errorlevel 1 (
 
 echo.
 echo Staging files...
-git add manifest.mf build.xml release.ps1 make_release.bat push_release.bat build_local.bat BotGetLog_Multi.bat UserInterface_Input.xlsx update\version.json update\version.template.json nbproject\project.properties lib src\com\java
+git add manifest.mf build.xml release.ps1 make_release.bat push_release.bat build_local.bat BotGetLog_Multi.bat UserInterface_Input.xlsx defaults update\version.json update\version.template.json nbproject\project.properties lib src\com\java
 if errorlevel 1 (
     echo git add failed.
     pause
