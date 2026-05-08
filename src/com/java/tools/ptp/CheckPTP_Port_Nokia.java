@@ -22,20 +22,18 @@ public class CheckPTP_Port_Nokia {
                     h++;
                 }
                 if (line.contains("PTP Adm/Opr")) {
-                    insideTable = true; // à¹€à¸£à¸´à¹ˆà¸¡à¸­à¹ˆà¸²à¸™à¸‚à¹‰à¸­à¸¡à¸¹à¸¥
+                    insideTable = true;
                     continue;
                 }
                 if (insideTable) {
-                    // à¸‚à¹‰à¸²à¸¡à¹€à¸ªà¹‰à¸™à¹à¸šà¹ˆà¸‡à¸«à¸£à¸·à¸­à¸šà¸£à¸£à¸—à¸±à¸”à¸§à¹ˆà¸²à¸‡
                     if (line.isEmpty() || line.startsWith("--") || line.startsWith("No. of PTP")) {
                         continue;
                     }
 
                     if (line.startsWith("=")) {
-                        break; // à¸ˆà¸šà¸šà¸¥à¹‡à¸­à¸
+                        break;
                     }
 
-                    // à¹à¸¢à¸à¹à¸¥à¸°à¸žà¸´à¸¡à¸žà¹Œà¸”à¹‰à¸§à¸¢ comma
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 6) {
                         parts[0] = "'" + parts[0];

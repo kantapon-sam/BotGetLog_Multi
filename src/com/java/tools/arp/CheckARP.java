@@ -120,13 +120,10 @@ private static String buildZtePort(String iface, String subIface, String extVlan
     String s = subIface == null ? "" : subIface.trim();
     String v = extVlan == null ? "" : extVlan.trim();
 
-    // à¸–à¹‰à¸²à¸¡à¸µ sub-interface à¸ˆà¸£à¸´à¸‡ à¹ƒà¸«à¹‰à¹ƒà¸Šà¹‰ sub-interface à¸à¹ˆà¸­à¸™
     if (!s.isEmpty() && !s.equalsIgnoreCase("N/A")) {
         return s;
     }
 
-    // à¸–à¹‰à¸² interface à¸¥à¸‡à¸—à¹‰à¸²à¸¢à¸”à¹‰à¸§à¸¢ "." à¹à¸¥à¸°à¸¡à¸µ ext vlan à¹ƒà¸«à¹‰à¸•à¹ˆà¸­à¸—à¹‰à¸²à¸¢à¹€à¸‚à¹‰à¸²à¹„à¸›
-    // à¹€à¸Šà¹ˆà¸™ gei-1/1/0/5. + 3351 => gei-1/1/0/5.3351
     if (!i.isEmpty() && i.endsWith(".") && !v.isEmpty() && !v.equalsIgnoreCase("N/A")) {
         return i + v;
     }
@@ -670,12 +667,10 @@ if (!curIp.isEmpty()) {
             }
 
         } else if (!first.isEmpty() && first.matches("^\\d+$")) {
-            // iface à¸«à¸¥à¸±à¸ à¹€à¸Šà¹ˆà¸™ gei-1/1/0/5. + 3351
             if (!curIface.isEmpty() && curIface.endsWith(".")) {
                 curIface = curIface + first;
             }
 
-            // subIface à¹€à¸Šà¹ˆà¸™ gei-1/1/0/5.3 + 351
             if (!curSubIface.isEmpty() && !curSubIface.equalsIgnoreCase("N/A")) {
                 if (!second.isEmpty() && second.matches("^\\d+$")) {
                     curSubIface = curSubIface + second;

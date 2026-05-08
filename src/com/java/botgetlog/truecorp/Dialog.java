@@ -1,5 +1,6 @@
-package com.java.botgetlog;
+package com.java.botgetlog.truecorp;
 
+import com.java.shared.AppConsole;
 import javax.swing.JOptionPane;
 import javax.swing.UIManager;
 

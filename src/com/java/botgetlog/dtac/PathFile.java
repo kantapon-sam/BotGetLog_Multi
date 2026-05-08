@@ -25,30 +25,25 @@ public class PathFile {
     public PathFile() {
         try {
 
-            // โฟลเดอร์ปัจจุบัน (path ที่รันโปรแกรม / jar อยู่)
             CurrentFolder = AppMetadata.getAppDirectory().getCanonicalPath();
 
             FolderCurrent = new File(CurrentFolder);
             FileBot = FolderCurrent.listFiles();
 
             // -------------------------------
-            // ไฟล์ input
             // -------------------------------
             UserInterface_Input = ensureUserInputWorkbook(FolderCurrent).getCanonicalPath();
 
             // -------------------------------
-            // Log → _output\Total_Log\
             // -------------------------------
             Log = CurrentFolder + "\\_output\\Total_Log\\";
 
             // -------------------------------
-            // LogWork → JAR\log\
             // -------------------------------
             File logWorkDir = AppMetadata.getBotWorkLogDirectory().getCanonicalFile();
             LogWork = logWorkDir.getCanonicalPath() + "\\";
 
             // -------------------------------
-            // สร้างโฟลเดอร์ที่จำเป็น
             // -------------------------------
             new File(CurrentFolder + "\\_output").mkdirs();
             new File(Log).mkdirs();

@@ -1,4 +1,4 @@
-package com.java.botgetlog;
+package com.java.shared;
 
 import java.awt.BorderLayout;
 import java.awt.Color;

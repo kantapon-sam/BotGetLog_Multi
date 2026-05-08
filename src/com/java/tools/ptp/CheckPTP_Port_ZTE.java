@@ -26,14 +26,11 @@ public class CheckPTP_Port_ZTE {
                     insideTable = true;
                     continue;
                 }
-                // à¸–à¹‰à¸²à¸à¸³à¸¥à¸±à¸‡à¸­à¸¢à¸¹à¹ˆà¹ƒà¸™à¸Šà¹ˆà¸§à¸‡à¸‚à¸­à¸‡à¸•à¸²à¸£à¸²à¸‡
                 if (insideTable) {
-                    // à¸«à¸¢à¸¸à¸”à¸­à¹ˆà¸²à¸™à¹€à¸¡à¸·à¹ˆà¸­à¹€à¸ˆà¸­ prompt à¸«à¸£à¸·à¸­à¸šà¸£à¸£à¸—à¸±à¸”à¸§à¹ˆà¸²à¸‡
                     if (line.isEmpty() || line.contains("#") || line.startsWith("CPE-")) {
                         break;
                     }
 
-                    // à¹à¸¢à¸à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸”à¹‰à¸§à¸¢ whitespace à¸«à¸¥à¸²à¸¢à¸•à¸±à¸§
                     String[] parts = line.split("\\s+");
                     if (parts.length == 7) {
                        // System.out.println(String.join(",", parts));

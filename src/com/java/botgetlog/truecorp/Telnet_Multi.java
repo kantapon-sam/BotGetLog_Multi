@@ -1,4 +1,4 @@
-package com.java.botgetlog;
+package com.java.botgetlog.truecorp;
 
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.JSch;
@@ -27,7 +27,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -3145,22 +3144,6 @@ public class Telnet_Multi {
         }
         return "<prompt detected>";
     }
-
-    private static String joinQuotedValues(List<String> values) {
-        if (values == null || values.isEmpty()) {
-            return "";
-        }
-
-        List<String> quoted = new ArrayList<>();
-        for (String value : values) {
-            String cleaned = cleanPromptToken(value);
-            if (!cleaned.isEmpty()) {
-                quoted.add("\"" + cleaned + "\"");
-            }
-        }
-        return String.join(", ", quoted);
-    }
-
     private String formatPromptWaitMessage(int numRow, String loopback, String device,
             List<String> promptCandidates, String command) {
         LinkedHashSet<String> nodePrompts = new LinkedHashSet<>();
@@ -3413,22 +3396,6 @@ public class Telnet_Multi {
 
         return "";
     }
-
-    private static boolean isPromptedCommandLine(String line, String command) {
-        String trimmed = safeTrim(line);
-        String normalizedCommand = safeTrim(command);
-        if (trimmed.isEmpty() || normalizedCommand.isEmpty()) {
-            return false;
-        }
-
-        String promptToken = extractLeadingPromptToken(trimmed);
-        if (promptToken.isEmpty() || !trimmed.startsWith(promptToken) || trimmed.length() <= promptToken.length()) {
-            return false;
-        }
-
-        return normalizedCommand.equals(trimmed.substring(promptToken.length()));
-    }
-
     private static boolean isPromptWithBodyLine(String line) {
         String trimmed = safeTrim(line);
         if (trimmed.isEmpty()) {
@@ -4887,24 +4854,6 @@ public class Telnet_Multi {
         }
         return "";
     }
-
-    private static boolean hasStrongSessionEnd(String tail) {
-        if (tail == null) {
-            return false;
-        }
-        String low = tail.toLowerCase();
-        if (low.contains("enter ip address [press q")) {
-            return true;
-        }
-
-        boolean hasClose = low.contains("connection closed")
-                || low.contains("foreign host")
-                || low.contains("logout");
-        boolean hasExitSignal = low.contains("script done")
-                || low.contains("quit");
-        return hasClose && hasExitSignal;
-    }
-
     private static boolean isExpectedStandaloneExitCompletion(File logFile, String command, String detail) {
         if (!isStandaloneNodeExitCommand(command)) {
             return false;
@@ -6375,166 +6324,11 @@ public class Telnet_Multi {
         connFailMonitorThread.start();
     }
 //  Utility function - Random ports from each slot
-
-    private static List<String> pickRandomFromEachSlot(Map<String, List<String>> slotMap, int totalNeeded) {
-        List<String> result = new ArrayList<>();
-        Random rand = new Random();
-
-        while (result.size() < totalNeeded && !slotMap.isEmpty()) {
-            for (Iterator<Map.Entry<String, List<String>>> it = slotMap.entrySet().iterator(); it.hasNext();) {
-                Map.Entry<String, List<String>> entry = it.next();
-                List<String> ports = entry.getValue();
-                if (ports.isEmpty()) {
-                    it.remove();
-                    continue;
-                }
-                String port = ports.remove(rand.nextInt(ports.size()));
-                result.add(port);
-                if (result.size() >= totalNeeded) {
-                    break;
-                }
-            }
-        }
-        return result;
-    }
 //  - slot 
 
     //  - slot 
 //   2   card/slot  round-robin
-    private static List<String> pickSequentialFromEachSlot(Map<String, List<String>> slotMap, int totalNeeded) {
-        List<String> result = new ArrayList<>();
-
-        //  step 1:  card-slot
-        Map<String, List<List<String>>> groupsByCardSlot = new LinkedHashMap<>();
-
-        for (Map.Entry<String, List<String>> entry : slotMap.entrySet()) {
-            List<String> ports = entry.getValue();
-            if (ports.size() < 2) {
-                continue; //  slot -
-            }
-            //  port  slot
-            ports.sort(Comparator.comparingInt(p
-                    -> Integer.parseInt(p.replaceAll(".*?/\\d+/(\\d+).*", "$1"))
-            ));
-
-            //  block  2
-            List<List<String>> blocks = new ArrayList<>();
-            List<String> current = new ArrayList<>();
-            for (int i = 0; i < ports.size(); i++) {
-                if (current.isEmpty()) {
-                    current.add(ports.get(i));
-                } else {
-                    int prev = Integer.parseInt(current.get(current.size() - 1)
-                            .replaceAll(".*?/\\d+/(\\d+).*", "$1"));
-                    int next = Integer.parseInt(ports.get(i)
-                            .replaceAll(".*?/\\d+/(\\d+).*", "$1"));
-                    if (next == prev + 1) {
-                        current.add(ports.get(i));
-                    } else {
-                        if (current.size() >= 2) {
-                            blocks.add(new ArrayList<>(current));
-                        }
-                        current.clear();
-                        current.add(ports.get(i));
-                    }
-                }
-            }
-            if (current.size() >= 2) {
-                blocks.add(new ArrayList<>(current));
-            }
-
-            if (!blocks.isEmpty()) {
-                groupsByCardSlot.put(entry.getKey(), blocks);
-            }
-        }
-
-        //  step 2:  block  round-robin
-        boolean added = true;
-        while (result.size() < totalNeeded && added) {
-            added = false;
-            for (Iterator<Map.Entry<String, List<List<String>>>> it = groupsByCardSlot.entrySet().iterator(); it.hasNext();) {
-                Map.Entry<String, List<List<String>>> entry = it.next();
-                List<List<String>> blocks = entry.getValue();
-                if (blocks.isEmpty()) {
-                    it.remove();
-                    continue;
-                }
-                List<String> block = blocks.remove(0);
-                for (String p : block) {
-                    if (result.size() >= totalNeeded) {
-                        break;
-                    }
-                    result.add(p);
-                    added = true;
-                }
-                if (result.size() >= totalNeeded) {
-                    break;
-                }
-            }
-        }
-
-        //  step 3:  quota   block -
-        if (result.size() < totalNeeded) {
-            for (List<List<String>> blocks : groupsByCardSlot.values()) {
-                for (List<String> b : blocks) {
-                    for (String p : b) {
-                        if (result.size() >= totalNeeded) {
-                            break;
-                        }
-                        if (!result.contains(p)) {
-                            result.add(p);
-                        }
-                    }
-                    if (result.size() >= totalNeeded) {
-                        break;
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
 //   block  1  card-slot
-
-    private static Map<String, List<List<String>>> makeBlocks(Map<String, List<String>> portMap) {
-        Map<String, List<List<String>>> result = new LinkedHashMap<>();
-
-        for (Map.Entry<String, List<String>> entry : portMap.entrySet()) {
-            List<String> ports = entry.getValue();
-            ports.sort(Comparator.comparingInt(p
-                    -> Integer.parseInt(p.replaceAll(".*?/\\d+/(\\d+).*", "$1"))
-            ));
-
-            List<List<String>> blocks = new ArrayList<>();
-            List<String> current = new ArrayList<>();
-
-            for (String p : ports) {
-                if (current.isEmpty()) {
-                    current.add(p);
-                } else {
-                    int prev = Integer.parseInt(current.get(current.size() - 1)
-                            .replaceAll(".*?/\\d+/(\\d+).*", "$1"));
-                    int next = Integer.parseInt(p.replaceAll(".*?/\\d+/(\\d+).*", "$1"));
-                    if (next == prev + 1) {
-                        current.add(p);
-                    } else {
-                        blocks.add(new ArrayList<>(current));
-                        current.clear();
-                        current.add(p);
-                    }
-                }
-            }
-            if (!current.isEmpty()) {
-                blocks.add(current);
-            }
-            if (!blocks.isEmpty()) {
-                result.put(entry.getKey(), blocks);
-            }
-        }
-
-        return result;
-    }
-
     private static boolean sendUndoBatch(Telnet_Multi self, String Loopback, String Device, String cmdSet, int Num_row,
             List<String> ports, List<String> afterUndoPorts) {
         StringBuilder sb = new StringBuilder();

@@ -30,14 +30,11 @@ public class CheckPTP_Port_Huawei {
                     insideTable = true;
                     continue;
                 }
-                // à¸«à¸¢à¸¸à¸”à¹€à¸¡à¸·à¹ˆà¸­à¹€à¸ˆà¸­ Time Performance à¸«à¸£à¸·à¸­à¹€à¸ªà¹‰à¸™à¸‚à¸µà¸”à¹ƒà¸«à¸¡à¹ˆ
                 if (line.contains("Time Performance")) {
                     break;
                 }
                 if (insideTable && !line.trim().isEmpty() && !line.contains("----")) {
-                    // à¸•à¸±à¸”à¸šà¸£à¸£à¸—à¸±à¸”à¸”à¹‰à¸§à¸¢à¸Šà¹ˆà¸­à¸‡à¸§à¹ˆà¸²à¸‡ (regex \\s+)
                     String[] parts = line.trim().split("\\s+");
-                    // join à¹€à¸›à¹‡à¸™ CSV
                    // System.out.println(String.join(",", parts));
                     
                      Str_PTP += "\n" + hostname[0] + "," + String.join(",", parts);

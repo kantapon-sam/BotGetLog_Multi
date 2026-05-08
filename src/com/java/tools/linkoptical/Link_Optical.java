@@ -1,6 +1,6 @@
 package com.java.tools.linkoptical;
 
-import com.java.botgetlog.AppConsole;
+import com.java.shared.AppConsole;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -18,12 +18,6 @@ import java.util.regex.Pattern;
 
 public class Link_Optical {
 
-    // Site code 7 chars: 3 letters + 4 digits (e.g., BKA0087)
-    private static final Pattern P_SITE7 = Pattern.compile("(?i)(?<![A-Z0-9])([A-Z]{3}\\d{4})(?![A-Z0-9])");
-
-    // ===============================
-    // FILE 2 FILTER + NeighborDes (à¹ƒà¸Šà¹‰ Neighbor SysName)
-    // ===============================
     private static final Pattern P_NODE_ACAGCO = Pattern.compile("(?i)([A-Z0-9]+-(?:AC|AG|CO)-\\d+)");
     private static final Pattern P_NODE_PREFIXED = Pattern.compile(
             "(?i)\\b((?:CPE|PN\\d?|PN|DN\\d?|DN|RN\\d?|RN|AGN\\d?|AGN|AN\\d?|AN)-[A-Z0-9-]+)\\b");
@@ -127,66 +121,6 @@ public class Link_Optical {
         return "";
     }
 
-    // === DescNeighborMatch ===
-    private static String extractFromDescriptionByPrefix(String desc) {
-        if (desc == null) {
-            return null;
-        }
-        String d = desc.toUpperCase();
-
-        Matcher mAgn = Pattern.compile("AGN-[A-Z]{3}").matcher(d);
-        if (mAgn.find()) {
-            return mAgn.group();
-        }
-
-        Matcher mAn = Pattern.compile("AN[1-6]?-[A-Z]{3}\\d{2}(?:-\\d+)?").matcher(d);
-        if (mAn.find()) {
-            return mAn.group();
-        }
-
-        return null;
-    }
-
-    private static String extractFromNeighborSysName(String neighbor) {
-        if (neighbor == null) {
-            return null;
-        }
-        String n = neighbor.toUpperCase();
-
-        String[] patterns = {
-            "AGN-[A-Z]{3}",
-            "AN[1-6]-[A-Z]{3}\\d{2}(?:-\\d+)?",
-            "AN-[A-Z]{3}\\d{2}(?:-\\d+)?",
-            "[A-Z]{3}\\d{4}(?!\\d)"
-        };
-
-        for (String p : patterns) {
-            Matcher m = Pattern.compile(p).matcher(n);
-            if (m.find()) {
-                return m.group();
-            }
-        }
-        return null;
-    }
-
-    private static boolean computeDescNeighborMatch(String desc, String neighborSysName) {
-        if (desc == null && neighborSysName == null) {
-            return false;
-        }
-
-        String dKey = extractFromDescriptionByPrefix(desc);
-        if (dKey != null && neighborSysName != null) {
-            return neighborSysName.toUpperCase().contains(dKey);
-        }
-
-        String nKey = extractFromNeighborSysName(neighborSysName);
-        if (nKey != null && desc != null) {
-            return desc.toUpperCase().contains(nKey);
-        }
-
-        return false;
-    }
-
     public static void main(String[] args) {
         AppConsole.install("Link Optical Console", "Link Optical - Console");
         Dialog.setLAF();
@@ -245,7 +179,6 @@ public class Link_Optical {
             }
 
             // =========================
-            // 1) à¹€à¸‚à¸µà¸¢à¸™à¹„à¸Ÿà¸¥à¹Œà¹€à¸•à¹‡à¸¡
             // =========================
             LocalDateTime now1 = LocalDateTime.now();
             String formattedDateTime1 = now1.format(formatter);
@@ -277,7 +210,6 @@ public class Link_Optical {
             System.out.println("[INFO] Generated " + output_LLDP);
 
             // =========================
-            // 2) à¹€à¸‚à¸µà¸¢à¸™à¹„à¸Ÿà¸¥à¹Œ 2
             // =========================
             LocalDateTime now2 = now1.plusSeconds(1);
             String formattedDateTime2 = now2.format(formatter);
@@ -333,7 +265,6 @@ public class Link_Optical {
             System.out.println("[INFO] Generated " + output_LLDP_2);
 
             // =========================
-            // 3) à¹€à¸‚à¸µà¸¢à¸™à¹„à¸Ÿà¸¥à¹Œ 3 : DataPort_xxx.csv
             // =========================
             LocalDateTime now3 = now2.plusSeconds(1);
             String formattedDateTime3 = now3.format(formatter);
@@ -409,7 +340,7 @@ public class Link_Optical {
                 boolean isUsed
                         = !d.isEmpty()
                         && !d.contains("huawei")
-                        && !d.contains("ethernet");   // âœ… à¹€à¸žà¸´à¹ˆà¸¡à¸•à¸£à¸‡à¸™à¸µà¹‰
+                        && !d.contains("ethernet");
                 boolean isRehoming = d.contains("reser") && d.contains("rehom");
                 boolean isOLT = d.contains("reser") && d.contains("olt");
                 boolean isReserved = d.contains("reser") && !isRehoming && !isOLT;
@@ -472,13 +403,26 @@ public class Link_Optical {
             fw3.close();
             System.out.println("[INFO] Generated " + output_PORT);
 
+            // 4) DataDescription_MB_xxx.csv reads from the first full LLDP CSV.
+            LocalDateTime now4 = now3.plusSeconds(1);
+            String formattedDateTime4 = now4.format(formatter);
+            if (formattedDateTime4.equals(formattedDateTime3)) {
+                now4 = now4.plusSeconds(1);
+                formattedDateTime4 = now4.format(formatter);
+            }
+
+            File descriptionFile = DescriptionChecker.process(fullFile, new File(f.getLLDP()), formattedDateTime4);
+            String output_DESCRIPTION = descriptionFile.getName();
+
             System.out.println(output_PORT);
+            System.out.println(output_DESCRIPTION);
             System.out.println(output_LLDP_2);
             System.out.println(output_LLDP);
             System.out.println(TotalFile + " Node");
             Dialog.Success(
-                    "Generated 3 Link Optical file(s)\n"
+                    "Generated 4 Link Optical file(s)\n"
                     + output_PORT + "\n"
+                    + output_DESCRIPTION + "\n"
                     + output_LLDP_2 + "\n"
                     + output_LLDP,
                     TotalFile
@@ -487,26 +431,6 @@ public class Link_Optical {
         } catch (Exception ex) {
             System.out.println(ex.toString() + file_fail);
         }
-    }
-
-    private static final Pattern NEIGHBOR_FROM_DESC_PATTERN = Pattern.compile(
-            "(?<![A-Z0-9])("
-            + "[A-Z]{3}\\d{4}"
-            + "|AGN-[A-Z]{3}"
-            + "|AN[1-6]?-[A-Z]{3}\\d{2}"
-            + ")(?=(_|\\W|$))"
-    );
-
-    private static String extractNeighborFromDescription(String description) {
-        if (description == null || description.trim().isEmpty()) {
-            return "";
-        }
-
-        Matcher matcher = NEIGHBOR_FROM_DESC_PATTERN.matcher(description.toUpperCase());
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return "";
     }
 
     private static String[] splitCsvLineSimple(String line) {
@@ -553,7 +477,6 @@ public class Link_Optical {
         return "CO";
     }
 
-    // âœ… à¹€à¸žà¸´à¹ˆà¸¡à¹€à¸„à¸ªà¸Šà¸·à¹ˆà¸­à¹à¸šà¸š PREFIX_SITECODE à¹€à¸Šà¹ˆà¸™ UTT06200S00_UTT8520
     if (s.matches("^.+_[A-Z]{3}\\d{4}$")) {
         return "PN";
     }
@@ -594,10 +517,6 @@ public class Link_Optical {
 
     return "";
 }
-    private static boolean containsIgnoreCase(String text, String keyword) {
-        return text != null && text.toLowerCase().contains(keyword.toLowerCase());
-    }
-
     private static String normalizeBW(String iface, String bw) {
         String ifx = iface == null ? "" : iface.trim().toLowerCase();
         if (ifx.startsWith("gei-")) {

@@ -1,4 +1,4 @@
-package com.java.botgetlog;
+package com.java.botgetlog.truecorp;
 
 import com.sun.management.OperatingSystemMXBean;
 import java.lang.management.ManagementFactory;

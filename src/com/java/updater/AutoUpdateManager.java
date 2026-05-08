@@ -26,7 +26,6 @@ public final class AutoUpdateManager {
     private static final String DEFAULT_MANIFEST_URL =
             "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/master/update/version.json";
     private static final String MANIFEST_URL_PROPERTY = "botgetlog.update.manifestUrl";
-    private static final String UPDATE_LOG_NAME = "update.log";
     private static final Pattern JSON_TEXT_PATTERN =
             Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
     private static final Pattern GITHUB_RELEASE_DOWNLOAD_PATTERN =

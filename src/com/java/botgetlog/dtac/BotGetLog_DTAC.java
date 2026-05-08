@@ -6,7 +6,6 @@ import javax.swing.*;
 import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Robot;
 import java.awt.MouseInfo;
@@ -28,15 +27,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
-/**
- * โปรแกรมหลัก:
- *  - อ่าน UserInterface_Input.xlsx
- *      - _setting  → SshUsername / sshPassword
- *      - deviceList → row ที่เป็น Y + cmdSet แต่ละคอลัมน์
- *      - cmdSet    → ใช้ใน SSH_Multi
- *  - ยิงงานแบบ multi-thread ด้วย ExecutorService
- *  - StopProgram GUI ใช้ดู progress และกดหยุดได้
- */
 public class BotGetLog_DTAC {
 
     private static final PathFile fileInput = new PathFile();
@@ -327,11 +317,6 @@ public class BotGetLog_DTAC {
         }
         return false;
     }
-
-    private static List<String> loadLastCommands(Workbook workbook, List<String> cmdSetCandidates) {
-        return loadTaskBoundaryCommands(workbook, cmdSetCandidates).lastCommands;
-    }
-
     private static CommandBoundary loadTaskBoundaryCommands(Workbook workbook, List<String> cmdSetCandidates) {
         LinkedHashSet<String> firsts = new LinkedHashSet<>();
         LinkedHashSet<String> lasts = new LinkedHashSet<>();
@@ -1051,21 +1036,6 @@ public class BotGetLog_DTAC {
         int capped = Math.min(configured, MAX_THREAD_POOL_SIZE);
         return Math.max(1, Math.min(capped, taskCount));
     }
-
-    private static long getPositiveLongProperty(String propertyName, long defaultValue, long minValue) {
-        String configured = System.getProperty(propertyName);
-        if (configured != null && !configured.trim().isEmpty()) {
-            try {
-                long value = Long.parseLong(configured.trim());
-                if (value >= minValue) {
-                    return value;
-                }
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return defaultValue;
-    }
-
     private static long getMonitorSafetyIdleMs() {
         return DEFAULT_MONITOR_SAFETY_IDLE_MS;
     }

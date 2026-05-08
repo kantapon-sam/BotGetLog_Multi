@@ -1,6 +1,7 @@
-package com.java.botgetlog;
+package com.java.botgetlog.truecorp;
 
 import com.java.shared.AppMetadata;
+import com.java.shared.AppConsole;
 import com.java.updater.AutoUpdateManager;
 import java.awt.Toolkit;
 import java.io.*;
@@ -1076,56 +1077,6 @@ public class BotGetLog_TrueCorp {
             return null;
         }
     }
-
-    private static Set<String> loadAllConnectionFailedKeys(PathFile fileInput) {
-        Set<String> keys = new HashSet<>();
-        try {
-            File logDir = new File(fileInput.getLogWork());
-            if (!logDir.exists() || !logDir.isDirectory()) {
-                return keys;
-            }
-
-            File[] failFiles = logDir.listFiles((dir, name)
-                    -> name != null
-                    && name.startsWith("Node_ConnectionFailed_")
-                    && name.endsWith(".txt"));
-
-            if (failFiles == null || failFiles.length == 0) {
-                return keys;
-            }
-
-            Arrays.sort(failFiles, Comparator.comparing(File::getName));
-
-            Pattern ptn = Pattern.compile("\\[(\\d+)](\\d+\\.\\d+\\.\\d+\\.\\d+)_.*", Pattern.CASE_INSENSITIVE);
-            for (File failFile : failFiles) {
-                try (BufferedReader br = new BufferedReader(new FileReader(failFile))) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        Matcher m = ptn.matcher(line);
-                        if (m.find()) {
-                            String rowNum = m.group(1).trim();
-                            String ip = m.group(2).trim();
-                            keys.add(rowNum + "," + ip);
-                        }
-                    }
-                } catch (Exception e) {
-                    System.out.println("[SKIP-CONN-FAIL] Unable to read file: "
-                            + failFile.getName() + " : " + e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("[SKIP-CONN-FAIL] Unable to read Node_ConnectionFailed logs: " + e.getMessage());
-        }
-        return keys;
-    }
-
-    private static boolean isConnectionFailed(Set<String> failedKeys, int rowNum, String loopback) {
-        if (failedKeys == null || failedKeys.isEmpty()) {
-            return false;
-        }
-        return failedKeys.contains(rowNum + "," + loopback);
-    }
-
     public static void main(String[] args) {
         AppConsole.install();
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
@@ -2406,24 +2357,6 @@ public class BotGetLog_TrueCorp {
     }
 
 //  Helper: -- summary
-    private static int countLines(File file) {
-        if (!file.exists()) {
-            return 0;
-        }
-        try ( BufferedReader br = new BufferedReader(new FileReader(file))) {
-            int count = 0;
-            String line;
-            while ((line = br.readLine()) != null) {
-                if (line.trim().startsWith("[") && line.contains(",")) {
-                    count++;
-                }
-            }
-            return count;
-        } catch (IOException e) {
-            return 0;
-        }
-    }
-
 //  log static  static method
     private static synchronized void logworkStatic(String text) {
         try {

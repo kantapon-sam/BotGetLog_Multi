@@ -1,4 +1,4 @@
-package com.java.botgetlog;
+package com.java.botgetlog.truecorp;
 
 import com.java.shared.AppMetadata;
 import java.io.File;

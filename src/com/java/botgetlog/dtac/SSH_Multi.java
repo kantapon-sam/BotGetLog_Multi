@@ -13,20 +13,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-// ====== เพิ่มมาสำคัญสำหรับ BouncyCastle ======
 import java.security.Security;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 // ============================================
 
-/**
- * ทำงานแบบ instance ละ 1 โหนด (1 row + 1 cmdSet)
- * Constructor จะ:
- * - อ่าน cmd จาก sheet cmdSet ตามชื่อ cmdSet
- * - SSH เข้า Loopback
- * - ยิงทุก command (ผ่าน shell interactive เหมือน Telnet)
- * - เขียน log ต่อโหนด (ไฟล์ text)
- * - เขียน logWork
- */
 public class SSH_Multi {
 
     private final LocalDateTime now = LocalDateTime.now();
@@ -35,19 +25,19 @@ public class SSH_Multi {
 
 // ====== TIMEOUT/RETRY CONFIG ======
 private static final int SSH_PORT = 22;
-private static final int TCP_PRECHECK_TIMEOUT_MS = 3000;      // เช็ค port 22 ก่อนลอง SSH
+private static final int TCP_PRECHECK_TIMEOUT_MS = 3000;
 private static final int CONNECT_TIMEOUT_MS = 30000;          // session.connect()
-private static final int SESSION_SOCKET_TIMEOUT_MS = 60000;   // socket read timeout หลัง connect
+private static final int SESSION_SOCKET_TIMEOUT_MS = 60000;
 private static final int CHANNEL_TIMEOUT_MS = 20000;          // channel.connect()
-private static final int MAX_RETRY = 2;                       // retry ต่อโหนด (เฉพาะ timeout/ชั่วคราว)
-private static final int RETRY_BACKOFF_MS = 2500;             // หน่วงก่อน retry (คูณด้วย attempt)
-private static final int FIRST_PROMPT_TIMEOUT_MS = 4000;      // รอ prompt แรกหลังเข้า shell
-private static final int FIRST_PROMPT_IDLE_BREAK_MS = 350;    // ไม่มีข้อมูลใหม่กี่ ms ให้ตัดอ่าน prompt แรก
+private static final int MAX_RETRY = 2;
+private static final int RETRY_BACKOFF_MS = 2500;
+private static final int FIRST_PROMPT_TIMEOUT_MS = 4000;
+private static final int FIRST_PROMPT_IDLE_BREAK_MS = 350;
 private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
 private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
 private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
 private static final long DEFAULT_COMMAND_PROMPT_SETTLE_MS = 2500L;
-private static final int PROMPT_WINDOW_CHARS = 600;           // buffer ท้ายไว้ใช้ detect prompt
+private static final int PROMPT_WINDOW_CHARS = 600;
 private static final int EXCEL_CACHE_OPEN_MAX_RETRY = 3;
 private static final long EXCEL_CACHE_OPEN_RETRY_DELAY_MS = 1500L;
 private static final String CMDSET_SHEET = "cmdSet";
@@ -77,35 +67,29 @@ private static volatile boolean CMDSET_CACHE_READY = false;
     }
 
     // ====== STATIC BLOCK: init BouncyCastle + dhgex ======
-// ====== STATIC BLOCK: init BouncyCastle + kex/hostkey เก่า/ใหม่ ======
-// ====== STATIC BLOCK: init BouncyCastle + kex/hostkey/cipher เก่า/ใหม่ ======
 static {
     try {
-        // ให้ BouncyCastle อยู่ลำดับแรก ๆ
         if (Security.getProvider("BC") == null) {
             Security.insertProviderAt(new BouncyCastleProvider(), 1);
         }
 
-        // ---- KEX รองรับทั้ง sha1 (เก่า) และ sha256/curve/ecdh (ใหม่) ----
         String kex =
                 "diffie-hellman-group-exchange-sha1," +
                 "diffie-hellman-group14-sha1," +
-                "diffie-hellman-group1-sha1," +  // สำหรับโหนดเก่ามาก ๆ
+                "diffie-hellman-group1-sha1," +
                 "diffie-hellman-group-exchange-sha256," +
                 "diffie-hellman-group14-sha256," +
                 "curve25519-sha256,curve25519-sha256@libssh.org," +
                 "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521";
         JSch.setConfig("kex", kex);
 
-        // ---- CIPHER: เพิ่ม CBC ให้ตรงกับ serverProposal (aes128-cbc,3des-cbc,des-cbc) ----
         String ciphers =
-                "aes128-ctr,aes192-ctr,aes256-ctr," +  // ของใหม่
-                "aes128-cbc,3des-cbc,des-cbc";          // ของเก่า (ที่ node 10.242.9.110 ใช้)
+                "aes128-ctr,aes192-ctr,aes256-ctr," +
+                "aes128-cbc,3des-cbc,des-cbc";
 
-        JSch.setConfig("cipher.c2s", ciphers); // client → server
-        JSch.setConfig("cipher.s2c", ciphers); // server → client
+        JSch.setConfig("cipher.c2s", ciphers);
+        JSch.setConfig("cipher.s2c", ciphers);
 
-        // ---- HOST KEY: เพิ่มแบบเก่าเข้าไป (ssh-rsa / ssh-dss) ----
         String current = JSch.getConfig("server_host_key");
         if (current == null || current.isEmpty()) {
             current = "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384," +
@@ -256,9 +240,8 @@ static {
         String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
         logwork("[START] " + loopback + " (" + device + ", " + cmdSet + ") at " + startTime + "\n");
 
-        try {            // 1) (ย้ายไปโหลดหลัง detect vendor/cmdSet เพื่อให้เลือก sheet ถูก)
+        try {
 
-            // 2) เลือก user/pass (ตามลำดับ L2 > CLLS > Server)
             String sshUser = firstNonEmpty(userL2, userCLLS, userServer);
             String sshPass = firstNonEmpty(pwL2, pwCLLS, pwServer);
 
@@ -272,20 +255,14 @@ static {
                 return;
             }
 
-            // 3) ต่อ SSH
             boolean connectedOk = connectSSHWithRetry(loopback.trim(), sshUser.trim(), sshPass, rowNum, device, cmdSet);
             if (!connectedOk) { return; }
 
-            // 3.1) เปิด shell เพียงครั้งเดียว แล้ว detect vendor จาก prompt
-            //     - ถ้า prompt ลงท้ายด้วย '#' => ZTE
-            //     - ถ้า prompt ลงท้ายด้วย '>' => HW
-            //     (กันปัญหา session is down ที่เกิดจากการเปิด shell 2 รอบ)
             RunResult rr = runCommandsInShellAutoVendor(cmdSet, device, loopback, rowNum);
             String cmdSetUsed = rr.cmdSetUsed;
             String allOutput = rr.output;
 
 
-            // 5) เขียนไฟล์ต่อโหนด
             if (rr.logFile != null) {
                 logwork("[INFO] Node log streamed: " + rr.logFile.getAbsolutePath() + "\n");
             } else {
@@ -302,7 +279,6 @@ static {
         }
     }
 
-    // ========= SSH (JSch ใหม่ + BouncyCastle) ==========
 
 
     private boolean connectSSHWithRetry(String host, String user, String pass, int rowNum, String device, String cmdSetName) {
@@ -350,8 +326,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 
     JSch jsch = new JSch();
 
-    // ===== บังคับใช้ config ที่มี kex เก่า/ใหม่ ตาม static block ด้านบน =====
-    // (จริง ๆ static block ก็ set แล้ว แต่ตรงนี้กันไว้ให้แน่ใจอีกทีว่า instance นี้ใช้แน่นอน)
     java.util.Hashtable<String, String> baseCfg = new java.util.Hashtable<>(JSch.getConfig());
     jsch.setConfig(baseCfg);
     // ========================================================
@@ -360,9 +334,8 @@ private void connectSSH(String host, int port, String user, String pass) throws 
     session.setPassword(pass);
 
     Properties config = new Properties();
-    config.put("StrictHostKeyChecking", "no"); // ไม่เช็ค host key
+    config.put("StrictHostKeyChecking", "no");
 
-    // ให้ลอง auth แบบ password ก่อน (โหนดส่วนใหญ่ใช้แบบนี้)
     config.put("PreferredAuthentications", "password,keyboard-interactive,publickey");
 
     session.setConfig(config);
@@ -376,15 +349,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 }
 
 
-    /**
-     * รันคำสั่งทั้งหมดใน shell interactive session เดียว
-     * ทำงานคล้าย Telnet: login → ได้ prompt → ส่ง cmd1 → รอ prompt → cmd2 → ...
-     */
 
-    /**
-     * เปลี่ยน prefix cmdSet เป็น vendor + suffix เดิม เช่น
-     * N-PTP -> HW-PTP หรือ ZTE-PTP
-     */
     private String applyVendorToCmdSet(String beforeCmdSet, String vendor) {
         if (beforeCmdSet == null || beforeCmdSet.trim().isEmpty()) return beforeCmdSet;
         if (vendor == null || vendor.trim().isEmpty()) return beforeCmdSet;
@@ -394,68 +359,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         return vendor.trim().toUpperCase(Locale.ROOT) + suffix;
     }
 
-    /**
-     * หา vendor จาก "prompt ตัวแรก" ใน shell:
-     * - '#' => ZTE
-     * - '>' => HW
-     *
-     * หมายเหตุ: เปิด ChannelShell ชั่วคราวเพื่ออ่าน banner/prompt แล้วปิดทันที
-     */
-    private String detectVendorFromPrompt(Session sess) {
-        if (sess == null || !sess.isConnected()) return null;
-
-        ChannelShell ch = null;
-        try {
-            ch = (ChannelShell) sess.openChannel("shell");
-            ch.setPty(true);
-
-            InputStream in = ch.getInputStream();
-            OutputStream out = ch.getOutputStream();
-
-            ch.connect(CHANNEL_TIMEOUT_MS);
-
-            // กระตุ้นให้ prompt โผล่
-            out.write("\n".getBytes("UTF-8"));
-            out.flush();
-
-            StringBuilder all = new StringBuilder();
-            StringBuilder window = new StringBuilder();
-            byte[] buf = new byte[4096];
-
-            long start = System.currentTimeMillis();
-            long lastData = start;
-
-            // อ่านสั้น ๆ (ไม่เกิน 2500ms) เพื่อไม่ให้กระทบ logic อื่น
-            while (System.currentTimeMillis() - start < 2500) {
-                boolean got = readAvailable(in, all, window, buf);
-                if (got) {
-                    lastData = System.currentTimeMillis();
-
-                    // พยายาม detect จากข้อมูลที่ได้ล่าสุด
-                    String v = detectVendorByFirstPromptChar(window.toString());
-                    if (v != null) return v;
-                }
-
-                // ถ้าไม่มีข้อมูลใหม่มาสักพัก ให้หยุดเร็ว
-                if (System.currentTimeMillis() - lastData > 300) break;
-
-                try { Thread.sleep(60); } catch (InterruptedException ignored) { }
-            }
-
-            // scan ทั้งหมดอีกรอบ
-            return detectVendorByFirstPromptChar(all.toString());
-
-        } catch (Exception ignore) {
-            return null;
-        } finally {
-            try { if (ch != null) ch.disconnect(); } catch (Exception ignore) { }
-        }
-    }
-
-    /**
-     * คืนค่า "ZTE" ถ้าเจอ prompt ลงท้ายด้วย '#', "HW" ถ้า prompt ลงท้ายด้วย '>'
-     * ใช้การดู "ท้ายบรรทัดที่ไม่ว่าง" เพื่อเลี่ยง false positive จาก banner
-     */
     private String detectVendorByFirstPromptChar(String text) {
         if (text == null || text.isEmpty()) return null;
 
@@ -506,14 +409,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         }
     }
 
-    /**
-     * เปิด ChannelShell "ครั้งเดียว" เพื่อ:
-     * 1) อ่าน prompt แรก แล้วตัดสิน vendor (# => ZTE, > => HW)
-     * 2) เลือก cmdSet ที่ถูกต้อง + โหลดคำสั่งจาก Excel (มี fallback)
-     * 3) รันคำสั่งทั้งหมดใน channel เดิม
-     *
-     * เหตุผล: บางโหนดปิดทั้ง session เมื่อเราปิด shell channel แรก (เลยเกิด "session is down" ถ้าเปิด shell รอบสอง)
-     */
     private RunResult runCommandsInShellAutoVendor(String baseCmdSet, String promptHint, String host, int rowNum)
             throws JSchException, IOException, InvalidFormatException {
 
@@ -535,8 +430,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             StringBuilder window = new StringBuilder();
             byte[] buf = new byte[8192];
 
-            // --- อ่าน banner/prompt แรก ---
-            // กระตุ้นให้ prompt โผล่ (อย่าส่งหลายครั้ง)
             try {
                 out.write("\n".getBytes("UTF-8"));
                 out.flush();
@@ -549,16 +442,13 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 boolean got = readAvailable(in, all, window, buf);
                 if (got) lastData = System.currentTimeMillis();
 
-                // ถ้ามี prompt แล้วหยุดอ่าน
                 if (isPrompt(window.toString(), promptHint) || isPrompt(window.toString(), "")) break;
 
-                // ถ้าไม่มีข้อมูลใหม่มาสักพัก ให้หยุดเร็ว
                 if (System.currentTimeMillis() - lastData > FIRST_PROMPT_IDLE_BREAK_MS) break;
 
                 try { Thread.sleep(80); } catch (InterruptedException ignored) { }
             }
 
-            // --- detect vendor จาก prompt แรก ---
             String vendor = detectVendorByFirstPromptChar(window.toString());
             if (vendor == null) vendor = detectVendorByFirstPromptChar(all.toString());
             String promptMatchHint = extractPromptHint(window.toString());
@@ -580,20 +470,17 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 cmdSetUsed = applyVendorToCmdSet(baseCmdSet, vendor);
             }
 
-            // --- โหลด commands ด้วย fallback ---
             List<String> commands = loadCommandsFromExcel(cmdSetUsed);
 
             if (commands.isEmpty()) {
-                // fallback 1: ใช้ cmdSet เดิม
                 cmdSetUsed = baseCmdSet;
                 commands = loadCommandsFromExcel(cmdSetUsed);
             }
             if (commands.isEmpty() && vendor != null) {
-                // fallback 2: สลับ vendor อีกฝั่ง
                 String otherVendor = "ZTE".equalsIgnoreCase(vendor) ? "HW" : "ZTE";
                 cmdSetUsed = applyVendorToCmdSet(baseCmdSet, otherVendor);
                 commands = loadCommandsFromExcel(cmdSetUsed);
-                vendor = otherVendor; // อัปเดตให้สอดคล้องกับ cmdSet ที่ใช้จริง
+                vendor = otherVendor;
             }
 
             logwork("[AUTO-VENDOR] " + host + " vendor=" + vendor + " baseCmdSet=" + baseCmdSet + " -> cmdSetUsed=" + cmdSetUsed
@@ -612,7 +499,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 streamLog.flush();
                 all.setLength(0);
 
-            // --- รันคำสั่งทั้งหมดใน channel เดิม ---
             long commandMaxWaitMs = getCommandMaxWaitMs();
             long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
             long commandPromptSettleMs = getCommandPromptSettleMs();
@@ -698,116 +584,6 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             try { if (channel != null) channel.disconnect(); } catch (Exception ignore) { }
         }
     }
-
-
-private String runCommandsInShell(List<String> commands, String promptHint)
-            throws JSchException, IOException {
-
-        ChannelShell channel = (ChannelShell) session.openChannel("shell");
-        channel.setPty(true); // จำลอง terminal จริง (สำคัญกับ Huawei / Cisco)
-
-        InputStream in = channel.getInputStream();
-        OutputStream out = channel.getOutputStream();
-
-        channel.connect(CHANNEL_TIMEOUT_MS);
-
-        StringBuilder all = new StringBuilder();
-        StringBuilder window = new StringBuilder();
-        byte[] buf = new byte[8192];
-
-        // 1) อ่าน banner / prompt แรก
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < 3000 && in.available() == 0) {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException ignored) { }
-        }
-        readAvailable(in, all, window, buf);
-
-        // 2) ยิงคำสั่งทีละคำสั่ง
-        long commandMaxWaitMs = getCommandMaxWaitMs();
-        long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
-        long commandPromptSettleMs = getCommandPromptSettleMs();
-        boolean stopCommandLoop = false;
-        for (String cmd : commands) {
-            if (cmd == null || cmd.trim().isEmpty()) continue;
-
-            String send = cmd + "\n";
-            out.write(send.getBytes("UTF-8"));
-            out.flush();
-
-          //  all.append("\n\n>>>> CMD: ").append(cmd).append("\n");
-
-            window.setLength(0);
-            long commandStart = System.currentTimeMillis();
-            long lastData = commandStart;
-            long lastNotice = commandStart;
-
-            while (true) {
-                boolean gotData = readAvailable(in, all, window, buf);
-
-                if (gotData) {
-                    lastData = System.currentTimeMillis();
-                }
-
-                String winStr = window.toString();
-                if (isPrompt(winStr, promptHint)) {
-                    if (waitForStablePromptAndDrain(in, all, window, buf, null,
-                            promptHint, commandPromptSettleMs)) {
-                        break;
-                    }
-                    lastData = System.currentTimeMillis();
-                    logwork("[PROMPT-WAIT] DTAC extra output arrived after prompt candidate for CMD: " + cmd + "\n");
-                }
-
-                long now = System.currentTimeMillis();
-                if (now - lastNotice >= COMMAND_WAIT_LOG_INTERVAL_MS) {
-                    logwork("[WAITING] DTAC prompt for CMD: " + cmd
-                            + " elapsed=" + formatDurationSeconds(now - commandStart)
-                            + " idle=" + formatDurationSeconds(now - lastData) + "\n");
-                    lastNotice = now;
-                }
-                if (now - lastData > commandIdleTimeoutMs) {
-                    all.append("\n[WARN] no output for ")
-                            .append(formatDurationSeconds(commandIdleTimeoutMs))
-                            .append(" while waiting prompt for CMD: ")
-                            .append(cmd).append("\n");
-                    stopCommandLoop = true;
-                    break;
-                }
-                if (now - commandStart > commandMaxWaitMs) {
-                    all.append("\n[WARN] prompt wait exceeded ")
-                            .append(formatDurationSeconds(commandMaxWaitMs))
-                            .append(" for CMD: ")
-                            .append(cmd).append("\n");
-                    stopCommandLoop = true;
-                    break;
-                }
-
-                if (channel.isClosed()) {
-                    all.append("\n[INFO] Channel closed while waiting for CMD: ").append(cmd).append("\n");
-                    stopCommandLoop = !isSessionClosingCommand(cmd);
-                    break;
-                }
-
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) { }
-            }
-
-            if (stopCommandLoop) {
-                break;
-            }
-        }
-
-        channel.disconnect();
-        return all.toString();
-    }
-
-    /**
-     * อ่านข้อมูลที่มีใน InputStream ทั้งหมด ณ ขณะนั้น
-     * คืนค่า true ถ้ามี data เข้ามา
-     */
     private boolean readAvailable(InputStream in,
                                   StringBuilder all,
                                   StringBuilder window,
@@ -880,13 +656,6 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         return isPrompt(window == null ? "" : window.toString(), promptHint);
     }
 
-    /**
-     * ตรวจว่าใน window ล่าสุดมี prompt หรือยัง
-     * รองรับทั้งรูปแบบ:
-     *  - ZTE/Cisco: HOST# / HOST>
-     *  - Huawei user-view: <HOST>
-     *  - Huawei config-view: [HOST], [~HOST], [*HOST], [HOST-mode]
-     */
     private boolean isPrompt(String window, String promptHint) {
         if (window == null || window.isEmpty()) return false;
 
@@ -1016,7 +785,6 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         }
     }
 
-    // ========= อ่าน cmdSet จาก Excel =========
 
     private List<String> loadCommandsFromExcel(String cmdSetName) throws IOException, InvalidFormatException {
         ensureCmdSetCacheLoaded();
@@ -1127,7 +895,6 @@ private String runCommandsInShell(List<String> commands, String promptHint)
         }
     }
 
-    // ========= เขียน log per node =========
 
     private synchronized void lockActiveLogSessionDate(int rowNum, String loopback, String device, String cmdSetName) {
         activeLogSessionIdentity = buildActiveLogSessionIdentity(rowNum, loopback, device);

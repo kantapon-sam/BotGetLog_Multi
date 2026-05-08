@@ -1,6 +1,6 @@
 package com.java.tools.ptp;
 
-import com.java.botgetlog.AppConsole;
+import com.java.shared.AppConsole;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;

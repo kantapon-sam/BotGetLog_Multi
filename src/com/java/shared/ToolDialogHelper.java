@@ -1,6 +1,5 @@
 package com.java.shared;
 
-import com.java.botgetlog.AppConsole;
 import java.awt.GraphicsEnvironment;
 import java.awt.Toolkit;
 import java.io.File;
