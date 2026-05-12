@@ -7,10 +7,12 @@ import com.jcraft.jsch.Logger;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UIKeyboardInteractive;
 import com.jcraft.jsch.UserInfo;
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -3959,6 +3961,8 @@ public class Telnet_Multi {
             patterns.add("A:" + safeDevice + "#");
             patterns.add(safeDevice + "#");
         }
+        patterns.add(">");
+        patterns.add("#");
         patterns.add("error:");
         return patterns.toArray(new String[0]);
     }
@@ -4806,7 +4810,7 @@ public class Telnet_Multi {
             return newR;
         }
 
-        try ( Workbook wb = WorkbookFactory.create(new File(fileInput.getUserInterface_Input()))) {
+        try ( Workbook wb = openWorkbookReadOnly(new File(fileInput.getUserInterface_Input()))) {
             Sheet sheet = wb.getSheet("cmdSet");
             if (sheet != null && sheet.getRow(0) != null) {
                 for (int j = 0; j < sheet.getRow(0).getLastCellNum(); j++) {
@@ -4835,6 +4839,10 @@ public class Telnet_Multi {
         }
 
         return newR;
+    }
+
+    private static Workbook openWorkbookReadOnly(File excelFile) throws IOException {
+        return WorkbookFactory.create(new BufferedInputStream(new FileInputStream(excelFile)));
     }
 
     private static boolean isEquivalentCmdSet(String left, String right) {
@@ -6078,7 +6086,7 @@ public class Telnet_Multi {
         }
         try {
             File excelFile = new File(fileInput.getUserInterface_Input());
-            try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
+            try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
                 Sheet sheet = workbook.getSheet("cmdSet");
                 for (int j = 0; j < sheet.getRow(0).getLastCellNum(); j++) {
                     String name = BotGetLog_TrueCorp.getCellValue(sheet.getRow(0).getCell(j));
@@ -6111,7 +6119,7 @@ public class Telnet_Multi {
         }
         try {
             File excelFile = new File(fileInput.getUserInterface_Input());
-            try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
+            try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
                 Sheet sheet = BotGetLog_TrueCorp.getSheetAny(workbook, "deviceList_TRUE", "deviceList");
                 if (sheet == null) {
                     return false;
@@ -6242,7 +6250,7 @@ public class Telnet_Multi {
                         } else {
                             try {
                                 File excelFile = new File(fileInput.getUserInterface_Input());
-                                try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
+                                try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
                                     Sheet sheet = workbook.getSheet("cmdSet");
                                     for (int j = 0; j < sheet.getRow(0).getLastCellNum(); j++) {
                                         String header = BotGetLog_TrueCorp.getCellValue(sheet.getRow(0).getCell(j));

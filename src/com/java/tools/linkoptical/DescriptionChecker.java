@@ -26,7 +26,8 @@ final class DescriptionChecker {
     private static final String NEW_SITE_FILE_NAME = "NEW_Site.csv";
     private static final String CHECK_OK = "OK";
     private static final String CHECK_NOT_OK = "Mismatch";
-    private static final List<String> BLOCKED_DESCRIPTION_TEXT = Arrays.asList("-CO-", "-AG-", "-AC-", "TO_AN");
+    private static final List<String> BLOCKED_DESCRIPTION_TEXT = Arrays.asList(
+            "-CO-", "-AG-", "-AC-", "TO_AN", "GPON", "OLT", "FIBERHOME");
     private static final List<String> REQUIRED_DESCRIPTION_TEXT = Arrays.asList("L21", "L23", "U21", "L18", "2G", "3G", "5G", "LTE");
     private static final Pattern ALNUM_TOKEN = Pattern.compile("[A-Za-z0-9]+");
 
@@ -105,14 +106,20 @@ final class DescriptionChecker {
                 }
                 stats.upRows++;
 
+                String siteCode = getField(row, siteCodeIndex).trim();
+                if (isSkippedNodeSiteCode(siteCode)) {
+                    continue;
+                }
+
                 String description = getField(row, descriptionIndex);
                 if (!passesDescriptionFilter(description)) {
                     continue;
                 }
-                stats.filteredRows++;
-
-                String siteCode = getField(row, siteCodeIndex).trim();
                 String siteCodeSevenDigits = extractSiteCodeSevenDigits(siteCode);
+                if (siteCodeSevenDigits.isEmpty()) {
+                    continue;
+                }
+                stats.filteredRows++;
                 String newSiteCode = getNewSiteCode(siteCodeSevenDigits, newSiteByOldSite);
                 String descSiteDigit = extractSiteCodeSevenDigits(description);
                 String home = getHome(siteCode);
@@ -299,6 +306,10 @@ final class DescriptionChecker {
             }
         }
 
+        if (extractSiteCodeSevenDigits(description).isEmpty()) {
+            return false;
+        }
+
         for (String requiredText : REQUIRED_DESCRIPTION_TEXT) {
             if (containsRequiredBand(upperDescription, requiredText)) {
                 return true;
@@ -306,6 +317,12 @@ final class DescriptionChecker {
         }
 
         return upperDescription.contains("NB0");
+    }
+
+    private static boolean isSkippedNodeSiteCode(String siteCode) {
+        String value = siteCode == null ? "" : siteCode.trim().toUpperCase(Locale.ROOT);
+        return value.matches("^(AN|PN|RN|DN)(\\d)?-.*")
+                || value.startsWith("AGN-");
     }
 
     private static boolean containsRequiredBand(String description, String band) {
@@ -318,6 +335,10 @@ final class DescriptionChecker {
             }
 
             int afterIndex = index + band.length();
+            if (index > 0 && Character.isLetterOrDigit(description.charAt(index - 1))) {
+                fromIndex = index + 1;
+                continue;
+            }
             if (afterIndex >= description.length() || !Character.isDigit(description.charAt(afterIndex))) {
                 return true;
             }
@@ -342,7 +363,16 @@ final class DescriptionChecker {
 
     private static String extractSiteDigitFromToken(String token) {
         for (int start = 0; start <= token.length() - 7; start++) {
+            if (start > 0 && Character.isLetterOrDigit(token.charAt(start - 1))) {
+                continue;
+            }
+
             String candidate = token.substring(start, start + 7);
+            int afterIndex = start + 7;
+            if (afterIndex < token.length() && Character.isDigit(token.charAt(afterIndex))) {
+                continue;
+            }
+
             if (isSiteDigit(candidate)) {
                 return candidate;
             }
@@ -356,21 +386,29 @@ final class DescriptionChecker {
             return false;
         }
 
-        boolean hasLetter = false;
-        boolean hasDigit = false;
+        if (value.matches("[A-Z]{4}\\d{3}")) {
+            return true;
+        }
 
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (Character.isLetter(c)) {
-                hasLetter = true;
-            } else if (Character.isDigit(c)) {
-                hasDigit = true;
-            } else {
+        for (int i = 0; i < 3; i++) {
+            if (!Character.isLetter(value.charAt(i))) {
                 return false;
             }
         }
 
-        return hasLetter && hasDigit;
+        for (int i = 3; i < 5; i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+
+        for (int i = 5; i < value.length(); i++) {
+            if (!Character.isLetterOrDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static boolean containsIgnoreCase(String text, String keyword) {

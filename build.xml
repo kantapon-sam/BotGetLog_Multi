@@ -100,6 +100,9 @@
 
         <mkdir dir="${dist.dir}/lib"/>
         <copy file="${basedir}/lib/jsch-2.27.6.jar" todir="${dist.dir}/lib"/>
+        <copy file="${basedir}/README.TXT"
+              tofile="${dist.dir}/README.TXT"
+              failonerror="true"/>
 
         <jar destfile="${dist.dir}/BotGetLog_TrueCorp.jar">
             <manifest>

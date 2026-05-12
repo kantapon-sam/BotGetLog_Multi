@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.11",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.11/BotGetLog_Multi-dist-1.1.11.zip",
-    "sha256":  "e3d1758ddcce768fecc242d34b47a089dcf1a72bfa946ed82935b62b857e0973",
-    "notes":  "Released 1.1.11: Refresh build metadata, launcher release notes, and package artifacts for version 1.1.11."
+    "version":  "1.1.12",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.12/BotGetLog_Multi-dist-1.1.12.zip",
+    "sha256":  "0c1713c82b6b6599ee05e555a758937b30dd3fffac7a6107d03da606fe9ae209",
+    "notes":  "Released 1.1.12: Improve TRUE Excel login handling and Link Optical filters"
 }

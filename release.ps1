@@ -321,7 +321,7 @@ function Update-LauncherVersionComment {
     }
 
     $commentText = "Version ${NewVersion}: $ReleaseNotesText"
-    $commentLines = New-WrappedCommentLines -Indent $indent -Text $commentText
+    $commentLines = @(New-WrappedCommentLines -Indent $indent -Text $commentText)
     for ($i = $commentLines.Count - 1; $i -ge 0; $i--) {
         $lines.Insert($versionLineIndex, $commentLines[$i])
     }

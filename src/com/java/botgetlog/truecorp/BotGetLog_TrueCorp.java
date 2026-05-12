@@ -963,6 +963,36 @@ public class BotGetLog_TrueCorp {
         }
     }
 
+    private static CredentialInput loadStartupCllsCredentials(PathFile fileInput) {
+        if (fileInput == null) {
+            return new CredentialInput("", "");
+        }
+
+        File excelFile = new File(fileInput.getUserInterface_Input());
+        if (!excelFile.exists()) {
+            return new CredentialInput("", "");
+        }
+
+        try (Workbook workbook = openWorkbookReadOnly(excelFile)) {
+            Sheet settingSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
+            if (settingSheet == null) {
+                return new CredentialInput("", "");
+            }
+
+            Map<String, String> settings = readSettingValues(settingSheet);
+            String username = firstSettingValue(settings, "cllsUsername", "userCLLS");
+            String password = firstSettingValue(settings, "cllsPassword", "pwCLLS");
+            return new CredentialInput(username, password);
+        } catch (Exception e) {
+            System.out.println("[WARN] Cannot preload CLLS credentials from Excel: " + e.getMessage());
+            return new CredentialInput("", "");
+        }
+    }
+
+    private static Workbook openWorkbookReadOnly(File excelFile) throws IOException {
+        return WorkbookFactory.create(new BufferedInputStream(new FileInputStream(excelFile)));
+    }
+
     private static CredentialInput promptForValidatedCllsCredentials(
             String server,
             String userServer,
@@ -1143,11 +1173,18 @@ public class BotGetLog_TrueCorp {
             new File(FileInput.getLog()).mkdirs();
             new File(FileInput.getLogWork()).mkdirs();
 
-            CredentialInput startupCllsCredentials = promptForRequiredCllsCredentials("", "");
-            if (startupCllsCredentials == null) {
-                realOut.println("[INFO] TRUE startup cancelled before Excel check.");
-                requestImmediateShutdown("CLLS login dialog cancelled", 0);
-                return;
+            CredentialInput startupCllsCredentials = loadStartupCllsCredentials(FileInput);
+            if (startupCllsCredentials.username.isEmpty() || startupCllsCredentials.password.isEmpty()) {
+                startupCllsCredentials = promptForRequiredCllsCredentials(
+                        startupCllsCredentials.username,
+                        startupCllsCredentials.password);
+                if (startupCllsCredentials == null) {
+                    realOut.println("[INFO] TRUE startup cancelled before Excel check.");
+                    requestImmediateShutdown("CLLS login dialog cancelled", 0);
+                    return;
+                }
+            } else {
+                System.out.println("[INFO] Loaded CLLS credentials from Excel settings.");
             }
 
             int Num_row = 2; //  -- 2  ( header)
@@ -2255,8 +2292,8 @@ public class BotGetLog_TrueCorp {
             File connFailFile = new File(FileInput.getLogWork(), "Node_ConnectionFailed_" + today + ".txt");
 
             //   Unique -
-            int wrongVendorCount = countLinesUnique(wrongVendorFile);
-            int connFailCount = countLinesUnique(connFailFile);
+            int wrongVendorCount = countCurrentDateEntries(wrongVendorFile);
+            int connFailCount = countCurrentDateEntries(connFailFile);
 
             //  Success = ---
             int successCount = BotGetLog_TrueCorp.successCount.get();
@@ -2298,8 +2335,8 @@ public class BotGetLog_TrueCorp {
                 }
             }
 
-            int wrongVendorCount = countLinesUnique(wrongVendorFile);
-            int connFailCount = countLinesUnique(connFailFile);
+            int wrongVendorCount = countCurrentDateEntries(wrongVendorFile);
+            int connFailCount = countCurrentDateEntries(connFailFile);
 
             System.out.println("\n========== SUMMARY ==========");
             System.out.printf("[WARN] Wrong vendor: %d nodes%n", wrongVendorCount);
@@ -2316,44 +2353,30 @@ public class BotGetLog_TrueCorp {
         }
     }
 
-//   node  unique (Device+IP)  summary
-//   node  unique - (Device + IP) 
-    private static int countLinesUnique(File file) {
+    private static int countCurrentDateEntries(File file) {
         if (!file.exists()) {
             return 0;
         }
 
-        Set<String> uniqueKeys = new HashSet<>();
         String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                "^\\[\\d+\\],(\\d{4}-\\d{2}-\\d{2})\\s[0-9:]+,([^,]+),([^,]+),"
-        );
+        int count = 0;
 
         try ( BufferedReader br = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = br.readLine()) != null) {
                 line = line.trim();
-                java.util.regex.Matcher m = pattern.matcher(line);
-                if (m.find()) {
-                    String date = m.group(1).trim();
-                    String device = m.group(2).trim();
-                    String ip = m.group(3).trim();
-                    if (date.equals(today)) {
-                        String key = device + "_" + ip;
-                        uniqueKeys.add(key);
-                    }
+                if (!line.isEmpty() && line.contains(today)) {
+                    count++;
                 }
             }
         } catch (IOException e) {
-            System.out.println("[WARN] countLinesUnique: " + e);
+            System.out.println("[WARN] countCurrentDateEntries: " + e);
         }
 
-        //  Debug summary
-        System.out.printf("[SUMMARY] %s  %d unique nodes found for %s%n",
-                file.getName(), uniqueKeys.size(), today);
+        System.out.printf("[SUMMARY] %s  %d entries found for %s%n",
+                file.getName(), count, today);
 
-        return uniqueKeys.size();
+        return count;
     }
 
 //  Helper: -- summary
@@ -2461,7 +2484,7 @@ public class BotGetLog_TrueCorp {
                 PathFile fileInput = new PathFile();
                 File excelFile = new File(fileInput.getUserInterface_Input());
                 if (excelFile.exists()) {
-                    try (Workbook workbook = WorkbookFactory.create(excelFile)) {
+                    try (Workbook workbook = openWorkbookReadOnly(excelFile)) {
                         if (firstCommand.isEmpty()) {
                             firstCommand = getFirstCommandFromCmdSheet(workbook, safeCmdSet);
                         }
@@ -3013,7 +3036,7 @@ public class BotGetLog_TrueCorp {
                     return;
                 }
 
-                try ( Workbook workbook = WorkbookFactory.create(excelFile)) {
+                try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
                     Sheet setSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
                     Sheet deviceSheet = getSheetAny(workbook, TRUE_DEVICE_SHEET, LEGACY_DEVICE_SHEET);
                     Map<String, String> trueSettings = readSettingValues(setSheet);
