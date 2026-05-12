@@ -59,7 +59,8 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.12: Improve TRUE Excel login handling and Link Optical filters
+    // Version 1.1.12: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.12.
     private static final String FALLBACK_VERSION = "1.1.12";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
