@@ -2824,17 +2824,19 @@ public class Telnet_Multi {
             }
         } else if ("ZTE".equals(vendor)) {
             String safeDevice = device == null ? "" : device.trim();
-            if (!safeDevice.isEmpty()) {
-                String expected = safeDevice + "#";
-                int idx = safeLine.indexOf(expected);
-                if (idx >= 0) {
-                    return expected;
+            Matcher matcher = Pattern.compile("([^\\s<>:#][^\\s#]*#)").matcher(safeLine);
+            String firstCandidate = "";
+            while (matcher.find()) {
+                String candidate = matcher.group(1);
+                if (firstCandidate.isEmpty()) {
+                    firstCandidate = candidate;
+                }
+                String candidateNodeName = extractNodeNameFromPromptToken(candidate);
+                if (safeDevice.isEmpty() || matchesDeviceForLogComparison(safeDevice, candidateNodeName)) {
+                    return candidate;
                 }
             }
-            Matcher matcher = Pattern.compile("([^\\s<>:#][^\\s#]*#)").matcher(safeLine);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
+            return firstCandidate;
         }
 
         return "";
@@ -2944,6 +2946,22 @@ public class Telnet_Multi {
     private void updateRuntimeDeviceNameFromResponse(String response, String configuredDevice, String vendorOrCmdSet) {
         String vendor = extractVendorPrefix(vendorOrCmdSet);
         String promptToken = extractPromptCandidateFromText(response, vendor, configuredDevice);
+        updateRuntimeDeviceNameFromPromptToken(promptToken, configuredDevice);
+    }
+
+    private void updateRuntimeDeviceNameFromLogFile(File logFile, String configuredDevice, String vendorOrCmdSet) {
+        List<String> promptCandidates = readPromptCandidatesFromLog(logFile, configuredDevice, vendorOrCmdSet);
+        for (String promptToken : promptCandidates) {
+            String actualNodeName = extractNodeNameFromPromptToken(promptToken);
+            if (!actualNodeName.isEmpty()
+                    && matchesDeviceForLogComparison(configuredDevice, actualNodeName)) {
+                updateRuntimeDeviceNameFromPromptToken(promptToken, configuredDevice);
+                return;
+            }
+        }
+    }
+
+    private void updateRuntimeDeviceNameFromPromptToken(String promptToken, String configuredDevice) {
         String actualNodeName = extractNodeNameFromPromptToken(promptToken);
         if (actualNodeName.isEmpty()) {
             return;
@@ -4626,10 +4644,7 @@ public class Telnet_Multi {
     }
 
     private String resolveActiveLogDateTag(String Loopback, String Device, String cmdSet, int Num_row) {
-        String identity = Num_row + "|"
-                + sanitizeFileNameComponent(Loopback) + "|"
-                + resolveLogDeviceName(Device) + "|"
-                + sanitizeFileNameComponent(cmdSet);
+        String identity = buildActiveLogSessionIdentity(Loopback, resolveLogDeviceName(Device), cmdSet, Num_row);
         if (!identity.equals(activeLogSessionIdentity) || activeLogDateTag == null || activeLogDateTag.isEmpty()) {
             activeLogSessionIdentity = identity;
             activeLogDateTag = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
@@ -4637,7 +4652,18 @@ public class Telnet_Multi {
         return activeLogDateTag;
     }
 
+    private String buildActiveLogSessionIdentity(String Loopback, String logDeviceName, String cmdSet, int Num_row) {
+        return Num_row + "|"
+                + sanitizeFileNameComponent(Loopback) + "|"
+                + sanitizeDeviceNameForFileName(logDeviceName) + "|"
+                + sanitizeFileNameComponent(cmdSet);
+    }
+
     private String buildDailyLogFileName(String Loopback, String Device, String cmdSet, int Num_row, String dateTag) {
+        return buildDailyLogFileNameForDeviceName(Loopback, resolveLogDeviceName(Device), cmdSet, Num_row, dateTag);
+    }
+
+    private String buildDailyLogFileNameForDeviceName(String Loopback, String logDeviceName, String cmdSet, int Num_row, String dateTag) {
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         String safeDateTag = dateTag == null || dateTag.trim().isEmpty()
                 ? LocalDateTime.now().format(dtf)
@@ -4645,9 +4671,69 @@ public class Telnet_Multi {
         return String.format("[%d]%s_%s_%s_%s.txt",
                 Num_row,
                 sanitizeFileNameComponent(Loopback),
-                resolveLogDeviceName(Device),
+                sanitizeDeviceNameForFileName(logDeviceName),
                 sanitizeFileNameComponent(cmdSet),
                 safeDateTag);
+    }
+
+    private File renameLogToRuntimeDeviceNameIfNeeded(File logFile, String Loopback, String Device, String cmdSet, int Num_row) {
+        if (logFile == null || !logFile.exists()) {
+            return logFile;
+        }
+
+        String configuredName = sanitizeDeviceNameForFileName(Device);
+        String runtimeName = resolveLogDeviceName(Device);
+        if (runtimeName.isEmpty()
+                || configuredName.isEmpty()
+                || runtimeName.equals(configuredName)) {
+            return logFile;
+        }
+
+        Matcher matcher = DAILY_LOG_FILE_PATTERN.matcher(logFile.getName());
+        String dateTag = activeLogDateTag;
+        if (matcher.matches()) {
+            dateTag = matcher.group(5);
+        }
+
+        File parent = logFile.getParentFile();
+        if (parent == null) {
+            return logFile;
+        }
+
+        String targetName = buildDailyLogFileNameForDeviceName(Loopback, runtimeName, cmdSet, Num_row, dateTag);
+        File target = new File(parent, targetName);
+        if (target.getAbsolutePath().equals(logFile.getAbsolutePath())) {
+            return logFile;
+        }
+
+        if (target.exists()) {
+            System.out.println("[LOG-RENAME-SKIP] Target log already exists: "
+                    + logFile.getName() + " -> " + target.getName());
+            return logFile;
+        }
+
+        try {
+            String oldPath = logFile.getAbsolutePath();
+            Files.move(logFile.toPath(), target.toPath());
+
+            if (oldPath.equals(activeLogSessionPath)) {
+                activeLogSessions.remove(oldPath);
+                activeLogSessionPath = target.getAbsolutePath();
+                activeLogSessions.add(activeLogSessionPath);
+            }
+            if (oldPath.equals(preparedLogSessionKey)) {
+                preparedLogSessionKey = target.getAbsolutePath();
+            }
+            activeLogSessionIdentity = buildActiveLogSessionIdentity(Loopback, runtimeName, cmdSet, Num_row);
+
+            System.out.println("[LOG-RENAME] Using actual node name: "
+                    + logFile.getName() + " -> " + target.getName());
+            return target;
+        } catch (Exception e) {
+            System.out.println("[LOG-RENAME-FAIL] Cannot rename log to actual node name: "
+                    + logFile.getName() + " -> " + targetName + " : " + e.getMessage());
+            return logFile;
+        }
     }
 
     private static String normalizeCmdSetFamily(String cmdSet) {
@@ -5000,9 +5086,6 @@ public class Telnet_Multi {
         }
 
         String safeHead = head.toLowerCase();
-        String comparableHead = safeHead.replace('_', '-');
-        String safeDevice = device == null ? "" : device.trim().toLowerCase();
-        String comparableDevice = safeDevice.replace('_', '-');
         String safeCmdSet = cmdSet == null ? "" : cmdSet.trim().toLowerCase();
 
         if (safeHead.contains("enter ip address") || safeHead.contains("connection closed") || safeHead.contains("script done")) {
@@ -5010,16 +5093,82 @@ public class Telnet_Multi {
         }
 
         if (safeCmdSet.startsWith("zte-")) {
-            return comparableHead.startsWith(comparableDevice + "#") && safeHead.contains("terminal length 0");
+            String promptDevice = extractHashPromptDevice(head);
+            return safeHead.contains("#")
+                    && safeHead.contains("terminal length 0")
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
         if (safeCmdSet.startsWith("n-")) {
-            return comparableHead.startsWith("a:" + comparableDevice + "#") && safeHead.contains("environment no more");
+            String promptDevice = extractNokiaPromptDevice(head);
+            boolean hasNokiaPrompt = safeHead.startsWith("a:")
+                    || safeHead.startsWith("b:")
+                    || safeHead.startsWith("*a:")
+                    || safeHead.startsWith("*b:");
+            return hasNokiaPrompt
+                    && safeHead.contains("#")
+                    && safeHead.contains("environment no more")
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
         if (safeCmdSet.startsWith("hw-")) {
-            return comparableHead.startsWith("<" + comparableDevice + ">") && safeHead.contains("screen-length 0");
+            String promptDevice = extractAnglePromptDevice(head);
+            return safeHead.startsWith("<")
+                    && safeHead.contains(">")
+                    && safeHead.contains("screen-length 0")
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
 
+        String safeDevice = device == null ? "" : device.trim().toLowerCase();
+        String comparableHead = safeHead.replace('_', '-');
+        String comparableDevice = safeDevice.replace('_', '-');
         return (comparableHead.contains(comparableDevice) && (safeHead.contains("#") || safeHead.contains(">")));
+    }
+
+    private static String extractHashPromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^([^#>\\r\\n]+)#").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String extractNokiaPromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^\\*?[A-Za-z]:([^#\\r\\n]+)#").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String extractAnglePromptDevice(String line) {
+        if (line == null) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(line.trim());
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static String normalizeDeviceForLogComparison(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('_', '-')
+                .replaceAll("\\s+", "");
+    }
+
+    private static boolean matchesDeviceForLogComparison(String expectedDevice, String promptDevice) {
+        String expected = normalizeDeviceForLogComparison(expectedDevice);
+        String actual = normalizeDeviceForLogComparison(promptDevice);
+        if (expected.isEmpty()) {
+            return true;
+        }
+        if (actual.isEmpty()) {
+            return false;
+        }
+        return expected.equals(actual)
+                || actual.endsWith("-" + expected)
+                || expected.endsWith("-" + actual);
     }
 
     private File prepareFreshLogFile(String Loopback, String Device, String cmdSet, int Num_row) {
@@ -5200,6 +5349,8 @@ public class Telnet_Multi {
                     : CommandReadResult.ioError(e.getMessage());
         }
 
+        updateRuntimeDeviceNameFromLogFile(logFile, Device, cmdSet);
+        logFile = renameLogToRuntimeDeviceNameIfNeeded(logFile, Loopback, Device, cmdSet, Num_row);
         normalizeSshCommandTranscript(logFile, command);
         if (result.remoteClosed && isExpectedStandaloneExitCompletion(logFile, command, result.detail)) {
             System.out.println("[EXIT-OK]" + consolePrefix + " "

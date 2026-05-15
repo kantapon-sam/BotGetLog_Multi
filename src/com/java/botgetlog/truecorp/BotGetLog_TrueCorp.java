@@ -2669,7 +2669,7 @@ public class BotGetLog_TrueCorp {
         String quotedCmd = Pattern.quote(cmd);
         return line.matches("^<[^\\r\\n>]+>\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^\\[(?:~|\\*)?[^\\r\\n\\]]+(?:-[^\\]]+)?\\]\\s*" + quotedCmd + "\\s*$")
-                || line.matches("^[A-Za-z]:[^\\r\\n#>]+#\\s*" + quotedCmd + "\\s*$")
+                || line.matches("^\\*?[A-Za-z]:[^\\r\\n#>]+#\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^[^\\r\\n#>]+[>#]\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^[A-Za-z0-9._:-]+[>#]\\s*" + quotedCmd + "\\s*$")
                 || line.equalsIgnoreCase(cmd);
@@ -2760,29 +2760,27 @@ public class BotGetLog_TrueCorp {
 
         if (safeCmdSet.startsWith("zte-")) {
             String promptDevice = extractHashPromptDevice(head);
-            String expectedDevice = normalizeDeviceForLogComparison(device);
-            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
             return safeHead.contains("#")
                     && safeHead.contains("terminal length 0")
-                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
         if (safeCmdSet.startsWith("n-")) {
             String promptDevice = extractNokiaPromptDevice(head);
-            String expectedDevice = normalizeDeviceForLogComparison(device);
-            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
-            return safeHead.startsWith("a:")
+            boolean hasNokiaPrompt = safeHead.startsWith("a:")
+                    || safeHead.startsWith("b:")
+                    || safeHead.startsWith("*a:")
+                    || safeHead.startsWith("*b:");
+            return hasNokiaPrompt
                     && safeHead.contains("#")
                     && safeHead.contains("environment no more")
-                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
         if (safeCmdSet.startsWith("hw-")) {
             String promptDevice = extractAnglePromptDevice(head);
-            String expectedDevice = normalizeDeviceForLogComparison(device);
-            String actualDevice = normalizeDeviceForLogComparison(promptDevice);
             return safeHead.startsWith("<")
                     && safeHead.contains(">")
                     && safeHead.contains("screen-length 0")
-                    && (expectedDevice.isEmpty() || expectedDevice.equals(actualDevice));
+                    && matchesDeviceForLogComparison(device, promptDevice);
         }
 
         return (safeHead.contains(safeDevice) && (safeHead.contains("#") || safeHead.contains(">")));
@@ -2792,7 +2790,7 @@ public class BotGetLog_TrueCorp {
         if (line == null) {
             return "";
         }
-        Matcher matcher = Pattern.compile("^[A-Za-z]:([^#\\r\\n]+)#").matcher(line.trim());
+        Matcher matcher = Pattern.compile("^\\*?[A-Za-z]:([^#\\r\\n]+)#").matcher(line.trim());
         return matcher.find() ? matcher.group(1).trim() : "";
     }
 
@@ -2820,6 +2818,20 @@ public class BotGetLog_TrueCorp {
                 .toLowerCase(Locale.ROOT)
                 .replace('_', '-')
                 .replaceAll("\\s+", "");
+    }
+
+    private static boolean matchesDeviceForLogComparison(String expectedDevice, String promptDevice) {
+        String expected = normalizeDeviceForLogComparison(expectedDevice);
+        String actual = normalizeDeviceForLogComparison(promptDevice);
+        if (expected.isEmpty()) {
+            return true;
+        }
+        if (actual.isEmpty()) {
+            return false;
+        }
+        return expected.equals(actual)
+                || actual.endsWith("-" + expected)
+                || expected.endsWith("-" + actual);
     }
 
     private static boolean isLogComplete(File logFile, String lastCommand) {
