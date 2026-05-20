@@ -907,18 +907,11 @@ public class BotGetLog_DTAC {
 
         try (Workbook workbook = openInputWorkbookWithRetry()) {
             Map<String, String> settings = readSettings(workbook);
-            String deviceSelectMode = firstSetting(settings, "deviceSelectMode").trim();
-            int deviceRowStart = firstSettingInt(settings, 0, "deviceRowStart");
-            int deviceRowEnd = firstSettingInt(settings, 0, "deviceRowEnd");
             configuredThreadPoolSize = firstSettingInt(settings, DEFAULT_THREAD_POOL_SIZE,
                     "threadPoolSize", "thread", "threads", "maxThreads");
 
-            jobList = buildDeviceTasks(workbook, existingLogs, deviceSelectMode, deviceRowStart, deviceRowEnd);
-            System.out.printf("[INFO] Loaded %d DTAC task(s), mode=%s, rows=%d-%d%n",
-                    jobList.size(),
-                    deviceSelectMode == null || deviceSelectMode.trim().isEmpty() ? "Y column" : deviceSelectMode,
-                    deviceRowStart,
-                    deviceRowEnd);
+            jobList = buildDeviceTasks(workbook, existingLogs);
+            System.out.printf("[INFO] Loaded %d DTAC task(s), selection=Y column only%n", jobList.size());
         } catch (OutOfMemoryError oom) {
             dialog.showError("Cannot read Excel file: Java heap space.\n"
                     + "Please run Bot Tool Launcher with -Xmx2048m or close other programs and try again.");
@@ -1561,31 +1554,14 @@ public class BotGetLog_DTAC {
         }
     }
 
-    private static boolean shouldRunDeviceRow(Row row, String deviceSelectMode, int deviceRowStart, int deviceRowEnd) {
+    private static boolean shouldRunDeviceRow(Row row) {
         if (row == null) return false;
 
-        String mode = deviceSelectMode == null ? "" : deviceSelectMode.trim();
-        if ("All".equalsIgnoreCase(mode)) {
-            return true;
-        }
-
         String enabled = getCellString(row.getCell(0));
-        if ("Y".equalsIgnoreCase(enabled)) {
-            return true;
-        }
-
-        int excelRow = row.getRowNum() + 1;
-        if ("Manual".equalsIgnoreCase(mode)
-                && deviceRowStart > 0
-                && deviceRowEnd >= deviceRowStart) {
-            return excelRow >= deviceRowStart && excelRow <= deviceRowEnd;
-        }
-
         return "Y".equalsIgnoreCase(enabled);
     }
 
-    private static List<DeviceTask> buildDeviceTasks(Workbook workbook, Set<String> existingLogs,
-            String deviceSelectMode, int deviceRowStart, int deviceRowEnd) {
+    private static List<DeviceTask> buildDeviceTasks(Workbook workbook, Set<String> existingLogs) {
         List<DeviceTask> list = new ArrayList<>();
         Sheet sheet = workbook.getSheet(DEVICE_SHEET);
         if (sheet == null) return list;
@@ -1600,7 +1576,7 @@ public class BotGetLog_DTAC {
             Row row = sheet.getRow(r);
             if (row == null) continue;
 
-            if (!shouldRunDeviceRow(row, deviceSelectMode, deviceRowStart, deviceRowEnd)) continue;
+            if (!shouldRunDeviceRow(row)) continue;
 
             String group = getCellString(row.getCell(1));
             String deviceName = getCellString(row.getCell(2));

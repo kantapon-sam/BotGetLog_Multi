@@ -434,11 +434,10 @@ public class BotGetLog_TrueCorp {
     }
 
     private static void rebuildExcelCache(Workbook workbook, String... deviceSheetNames) {
-        rebuildExcelCacheForSelection(workbook, "", 0, 0, deviceSheetNames);
+        rebuildExcelCacheForSelection(workbook, deviceSheetNames);
     }
 
-    private static void rebuildExcelCacheForSelection(Workbook workbook, String deviceSelectMode,
-            int deviceRowStart, int deviceRowEnd, String... deviceSheetNames) {
+    private static void rebuildExcelCacheForSelection(Workbook workbook, String... deviceSheetNames) {
         CMDSET_COMMAND_CACHE.clear();
         CMDSET_FIRST_COMMAND_CACHE.clear();
         CMDSET_LAST_COMMAND_CACHE.clear();
@@ -493,8 +492,7 @@ public class BotGetLog_TrueCorp {
                         continue;
                     }
                     int cacheRowNum = row.getRowNum() + 1;
-                    String runFlag = shouldRunDeviceRow(row, deviceSelectMode, deviceRowStart, deviceRowEnd)
-                            ? "Y" : getCell(row, 0);
+                    String runFlag = shouldRunDeviceRow(row) ? "Y" : getCell(row, 0);
                     DEVICE_ROW_CACHE.put(cacheRowNum,
                             new CachedDeviceRow(runFlag, getCell(row, 2), getCell(row, 3)));
                 }
@@ -602,20 +600,11 @@ public class BotGetLog_TrueCorp {
         return Math.max(1, Math.min(capped, taskCount));
     }
 
-    private static boolean shouldRunDeviceRow(Row row, String deviceSelectMode, int deviceRowStart, int deviceRowEnd) {
+    private static boolean shouldRunDeviceRow(Row row) {
         if (row == null) {
             return false;
         }
-        String mode = safeValue(deviceSelectMode);
-        if ("All".equalsIgnoreCase(mode)) {
-            return true;
-        }
-        if ("Y".equalsIgnoreCase(getCell(row, 0))) {
-            return true;
-        }
-        int excelRow = row.getRowNum() + 1;
-        return deviceRowStart > 0 && deviceRowEnd >= deviceRowStart
-                && excelRow >= deviceRowStart && excelRow <= deviceRowEnd;
+        return "Y".equalsIgnoreCase(getCell(row, 0));
     }
 
     private static String normalizeGatewayAddressValue(String value) {
@@ -1230,9 +1219,6 @@ public class BotGetLog_TrueCorp {
                 String trueSettingSheetName = trueSettingSheet.getSheetName();
                 String trueDeviceSheetName = trueDeviceSheet != null ? trueDeviceSheet.getSheetName() : TRUE_DEVICE_SHEET;
                 Map<String, String> trueSettings = readSettingValues(trueSettingSheet);
-                String deviceSelectMode = firstSettingValue(trueSettings, "deviceSelectMode");
-                int deviceRowStart = firstSettingInt(trueSettings, 0, "deviceRowStart");
-                int deviceRowEnd = firstSettingInt(trueSettings, 0, "deviceRowEnd");
                 int configuredThreadPoolSize = firstSettingInt(trueSettings, DEFAULT_THREAD_POOL_SIZE,
                         "threadPoolSize", "thread", "threads", "maxThreads");
 
@@ -1288,8 +1274,7 @@ public class BotGetLog_TrueCorp {
                             return;
                         }
                         trueDeviceSheetName = trueDeviceSheet.getSheetName();
-                        rebuildExcelCacheForSelection(workbook, deviceSelectMode, deviceRowStart, deviceRowEnd,
-                                trueDeviceSheetName);
+                        rebuildExcelCacheForSelection(workbook, trueDeviceSheetName);
 
                         try {
                                 final String pingTarget = Telnet_Multi.extractGatewayHost(server);
@@ -1455,7 +1440,7 @@ public class BotGetLog_TrueCorp {
                         List<Integer> indexRowList = new ArrayList<>();
                         for (Row row : sheet) {
                             try {
-                                if (shouldRunDeviceRow(row, deviceSelectMode, deviceRowStart, deviceRowEnd)
+                                if (shouldRunDeviceRow(row)
                                         && !getCell(row, 2).isEmpty()
                                         && !getCell(row, 3).isEmpty()
                                         && Num_row <= row.getRowNum() + 1) {
@@ -1471,7 +1456,7 @@ public class BotGetLog_TrueCorp {
                         Map<Integer, List<NodeCommandTask>> cmdSetBatches = new LinkedHashMap<>();
                         for (int rowIdx : indexRowList) {
                             Row row = sheet.getRow(rowIdx);
-                            if (!shouldRunDeviceRow(row, deviceSelectMode, deviceRowStart, deviceRowEnd)) {
+                            if (!shouldRunDeviceRow(row)) {
                                 continue;
                             }
                             String device = getCell(row, 2);
@@ -3051,11 +3036,7 @@ public class BotGetLog_TrueCorp {
                 try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
                     Sheet setSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
                     Sheet deviceSheet = getSheetAny(workbook, TRUE_DEVICE_SHEET, LEGACY_DEVICE_SHEET);
-                    Map<String, String> trueSettings = readSettingValues(setSheet);
-                    String deviceSelectMode = firstSettingValue(trueSettings, "deviceSelectMode");
-                    int deviceRowStart = firstSettingInt(trueSettings, 0, "deviceRowStart");
-                    int deviceRowEnd = firstSettingInt(trueSettings, 0, "deviceRowEnd");
-                    rebuildExcelCacheForSelection(workbook, deviceSelectMode, deviceRowStart, deviceRowEnd,
+                    rebuildExcelCacheForSelection(workbook,
                             deviceSheet != null ? deviceSheet.getSheetName() : TRUE_DEVICE_SHEET);
 
                     CachedDeviceRow refreshedRow = getCachedDeviceRow(rowNum);
