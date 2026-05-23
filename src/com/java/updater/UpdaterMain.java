@@ -30,7 +30,7 @@ public class UpdaterMain {
     private static final Set<String> APP_MANAGED_TOP_LEVEL = new HashSet<String>(
             Arrays.asList("defaults", "lib", "updater"));
     private static final Set<String> APP_MANAGED_FILES = new HashSet<String>(
-            Arrays.asList("BotGetLog_TrueCorp.jar", "BotGetLog_DTAC.jar", "Bot Tool Launcher.jar", "Link_Optical.jar", "ARP.jar", "PTP.jar", "README.TXT"));
+            Arrays.asList("BotGetLog_TrueCorp.jar", "BotGetLog_DTAC.jar", "Bot Tool Launcher.jar", "Link_Optical.jar", "ARP.jar", "PTP.jar", "Deleted_Log_Checker.jar", "README.TXT"));
     private static final List<String> LEGACY_CLEANUP_PATHS = Arrays.asList(
             "BotGetLog_Multi.jar",
             "analytics.properties",

@@ -8,6 +8,7 @@ Included tools:
 - Link_Optical.jar
 - ARP.jar
 - PTP.jar
+- Deleted_Log_Checker.jar
 
 How to run:
 1. Portable package: run run.bat.

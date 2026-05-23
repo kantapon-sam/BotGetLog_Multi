@@ -41,13 +41,16 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 
@@ -58,10 +61,11 @@ public class BotToolLauncher {
     private static final String LINK_OPTICAL_JAR_NAME = "Link_Optical.jar";
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
+    private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.14: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.1.14.
-    private static final String FALLBACK_VERSION = "1.1.14";
+    // Version 1.1.15: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.15.
+    private static final String FALLBACK_VERSION = "1.1.15";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -137,6 +141,7 @@ public class BotToolLauncher {
     private JButton linkOpticalButton;
     private JButton arpButton;
     private JButton ptpButton;
+    private JButton deletedLogCheckerButton;
     private JButton connectVpnButton;
     private JButton resetButton;
     private JButton exitButton;
@@ -183,6 +188,7 @@ public class BotToolLauncher {
         linkOpticalButton = new LauncherButton("Link Optical");
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
+        deletedLogCheckerButton = new LauncherButton("Deleted Log Check");
         connectVpnButton = new LauncherButton("Open Pulse VPN");
         resetButton = new LauncherButton("Reset");
         exitButton = new LauncherButton("Exit");
@@ -193,6 +199,7 @@ public class BotToolLauncher {
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
+        deletedLogCheckerButton.addActionListener(e -> launchDeletedLogCheckerJar());
         connectVpnButton.addActionListener(e -> connectPulseVpn());
         resetButton.addActionListener(e -> resetGeneratedFiles());
         exitButton.addActionListener(e -> frame.dispose());
@@ -202,6 +209,7 @@ public class BotToolLauncher {
         styleToolButton(linkOpticalButton);
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
+        styleToolButton(deletedLogCheckerButton);
         styleToolButton(connectVpnButton);
         styleSecondaryButton(resetButton);
         styleSecondaryButton(exitButton);
@@ -219,6 +227,7 @@ public class BotToolLauncher {
         actionButtonsPanel.add(linkOpticalButton);
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
+        actionButtonsPanel.add(deletedLogCheckerButton);
         actionButtonsPanel.add(connectVpnButton);
         actionButtonsPanel.add(resetButton);
         actionButtonsPanel.add(exitButton);
@@ -274,13 +283,16 @@ public class BotToolLauncher {
         text.append("5. PTP").append(lineBreak);
         text.append("   Open the built-in PTP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("6. Open Pulse VPN").append(lineBreak);
+        text.append("6. Deleted Log Check").append(lineBreak);
+        text.append("   Check Deleted_Log rows against Total_Log and skip connect-fail checks when a row exists.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("7. Open Pulse VPN").append(lineBreak);
         text.append("   Open Pulse Secure and bring its window to the front so you can click Connect there.").append(lineBreak);
         text.append(lineBreak);
-        text.append("7. Reset").append(lineBreak);
-        text.append("   Delete generated log/output files in this bot folder.").append(lineBreak);
+        text.append("8. Reset").append(lineBreak);
+        text.append("   Delete generated files in _output\\Total_Log and _output\\Deleted_Log.").append(lineBreak);
         text.append(lineBreak);
-        text.append("8. Exit").append(lineBreak);
+        text.append("9. Exit").append(lineBreak);
         text.append("   Close this launcher.").append(lineBreak);
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
@@ -1069,6 +1081,11 @@ public class BotToolLauncher {
         launchProgram(findPtpJar(), PTP_JAR_NAME, ptpButton);
     }
 
+    private void launchDeletedLogCheckerJar() {
+        deletedLogCheckerButton.setEnabled(false);
+        launchProgram(findDeletedLogCheckerJar(), DELETED_LOG_CHECKER_JAR_NAME, deletedLogCheckerButton);
+    }
+
     private void connectPulseVpn() {
         connectVpnButton.setEnabled(false);
         appendLine("[VPN] Opening Pulse Secure...");
@@ -1163,7 +1180,7 @@ public class BotToolLauncher {
         Object[] options = {"Yes", "No"};
         int answer = JOptionPane.showOptionDialog(
                 frame,
-                "Delete files in _output\\Total_Log now?",
+                "Delete files in _output\\Total_Log and _output\\Deleted_Log now?",
                 "Confirm Reset",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE,
@@ -1179,20 +1196,78 @@ public class BotToolLauncher {
 
         File outputDir = new File(getAppDirectory(), OUTPUT_DIR);
         File totalLogDir = new File(outputDir, "Total_Log");
+        File deletedLogDir = new File(outputDir, "Deleted_Log");
 
-        int deletedCount = 0;
-        deletedCount += deleteContents(totalLogDir);
+        resetButton.setEnabled(false);
+        appendLine("[RESET] Started.");
+        ResetProgressDialog progressDialog = new ResetProgressDialog(frame);
 
-        outputDir.mkdirs();
-        totalLogDir.mkdirs();
+        SwingWorker<ResetResult, ResetProgressUpdate> worker = new SwingWorker<ResetResult, ResetProgressUpdate>() {
+            @Override
+            protected ResetResult doInBackground() {
+                publish(ResetProgressUpdate.scanning("Scanning reset folders..."));
+                int totalItems = countContents(totalLogDir) + countContents(deletedLogDir);
+                MutableCounter processedItems = new MutableCounter();
+                ResetProgressReporter reporter = new ResetProgressReporter() {
+                    @Override
+                    public void report(String folderName, File file, int processed, int total) {
+                        String fileName = file == null ? "" : file.getName();
+                        publish(ResetProgressUpdate.progress("Deleting " + folderName + ": " + fileName,
+                                processed, total));
+                    }
+                };
 
-        appendLine("[RESET] Completed. Deleted items: " + deletedCount);
-        JOptionPane.showMessageDialog(
-                frame,
-                "Reset complete\nDeleted items: " + deletedCount,
-                "Reset finished",
-                JOptionPane.INFORMATION_MESSAGE
-        );
+                publish(ResetProgressUpdate.progress("Deleting reset folders...", 0, totalItems));
+                int totalLogDeletedCount = deleteContents(totalLogDir, "Total_Log", totalItems, processedItems, reporter);
+                int deletedLogDeletedCount = deleteContents(deletedLogDir, "Deleted_Log", totalItems, processedItems, reporter);
+
+                outputDir.mkdirs();
+                totalLogDir.mkdirs();
+                deletedLogDir.mkdirs();
+
+                return new ResetResult(totalLogDeletedCount, deletedLogDeletedCount, totalItems);
+            }
+
+            @Override
+            protected void process(List<ResetProgressUpdate> chunks) {
+                if (chunks == null || chunks.isEmpty()) {
+                    return;
+                }
+                progressDialog.update(chunks.get(chunks.size() - 1));
+            }
+
+            @Override
+            protected void done() {
+                resetButton.setEnabled(true);
+                progressDialog.close();
+                try {
+                    ResetResult result = get();
+                    appendLine("[RESET] Completed. Total_Log deleted: " + result.totalLogDeletedCount
+                            + " | Deleted_Log deleted: " + result.deletedLogDeletedCount
+                            + " | Total: " + result.deletedCount());
+                    JOptionPane.showMessageDialog(
+                            frame,
+                            "Reset complete\n"
+                            + "Total_Log deleted: " + result.totalLogDeletedCount + "\n"
+                            + "Deleted_Log deleted: " + result.deletedLogDeletedCount + "\n"
+                            + "Total deleted items: " + result.deletedCount(),
+                            "Reset finished",
+                            JOptionPane.INFORMATION_MESSAGE
+                    );
+                } catch (Exception ex) {
+                    appendLine("[RESET] Failed: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(
+                            frame,
+                            "Reset failed\n" + ex.getMessage(),
+                            "Reset failed",
+                            JOptionPane.ERROR_MESSAGE
+                    );
+                }
+            }
+        };
+
+        worker.execute();
+        progressDialog.show();
     }
 
     private void appendLine(String text) {
@@ -1203,7 +1278,42 @@ public class BotToolLauncher {
         textArea.setCaretPosition(textArea.getDocument().getLength());
     }
 
-    private static int deleteContents(File target) {
+    private static int countContents(File target) {
+        if (target == null || !target.exists()) {
+            return 0;
+        }
+
+        File[] children = target.listFiles();
+        if (children == null) {
+            return 0;
+        }
+
+        int count = 0;
+        for (File child : children) {
+            count += countRecursively(child);
+        }
+        return count;
+    }
+
+    private static int countRecursively(File target) {
+        if (target == null || !target.exists()) {
+            return 0;
+        }
+
+        int count = 1;
+        if (target.isDirectory()) {
+            File[] children = target.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    count += countRecursively(child);
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int deleteContents(File target, String folderName, int totalItems,
+            MutableCounter processedItems, ResetProgressReporter reporter) {
         if (target == null || !target.exists()) {
             return 0;
         }
@@ -1215,18 +1325,19 @@ public class BotToolLauncher {
         }
 
         for (File child : children) {
-            deletedCount += deleteRecursively(child);
+            deletedCount += deleteRecursively(child, folderName, totalItems, processedItems, reporter);
         }
         return deletedCount;
     }
 
-    private static int deleteRecursively(File target) {
+    private static int deleteRecursively(File target, String folderName, int totalItems,
+            MutableCounter processedItems, ResetProgressReporter reporter) {
         int deletedCount = 0;
         if (target.isDirectory()) {
             File[] children = target.listFiles();
             if (children != null) {
                 for (File child : children) {
-                    deletedCount += deleteRecursively(child);
+                    deletedCount += deleteRecursively(child, folderName, totalItems, processedItems, reporter);
                 }
             }
         }
@@ -1234,7 +1345,128 @@ public class BotToolLauncher {
         if (target.delete()) {
             deletedCount++;
         }
+        if (processedItems != null) {
+            processedItems.value++;
+            if (reporter != null) {
+                reporter.report(folderName, target, processedItems.value, totalItems);
+            }
+        }
         return deletedCount;
+    }
+
+    private interface ResetProgressReporter {
+        void report(String folderName, File file, int processed, int total);
+    }
+
+    private static final class MutableCounter {
+        int value;
+    }
+
+    private static final class ResetResult {
+        final int totalLogDeletedCount;
+        final int deletedLogDeletedCount;
+        final int scannedItems;
+
+        ResetResult(int totalLogDeletedCount, int deletedLogDeletedCount, int scannedItems) {
+            this.totalLogDeletedCount = totalLogDeletedCount;
+            this.deletedLogDeletedCount = deletedLogDeletedCount;
+            this.scannedItems = scannedItems;
+        }
+
+        int deletedCount() {
+            return totalLogDeletedCount + deletedLogDeletedCount;
+        }
+    }
+
+    private static final class ResetProgressUpdate {
+        final String message;
+        final int processed;
+        final int total;
+        final boolean indeterminate;
+
+        private ResetProgressUpdate(String message, int processed, int total, boolean indeterminate) {
+            this.message = message;
+            this.processed = processed;
+            this.total = total;
+            this.indeterminate = indeterminate;
+        }
+
+        static ResetProgressUpdate scanning(String message) {
+            return new ResetProgressUpdate(message, 0, 0, true);
+        }
+
+        static ResetProgressUpdate progress(String message, int processed, int total) {
+            return new ResetProgressUpdate(message, processed, total, false);
+        }
+    }
+
+    private static final class ResetProgressDialog {
+        private final JDialog dialog;
+        private final JLabel statusLabel;
+        private final JProgressBar progressBar;
+
+        ResetProgressDialog(JFrame owner) {
+            dialog = new JDialog(owner, "Reset Progress", false);
+            dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+            dialog.setLayout(new BorderLayout(10, 10));
+
+            JLabel titleLabel = new JLabel("Resetting generated log folders");
+            titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+
+            statusLabel = new JLabel("Preparing reset...");
+            statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+
+            progressBar = new JProgressBar();
+            progressBar.setStringPainted(true);
+            progressBar.setIndeterminate(true);
+            progressBar.setString("Scanning...");
+
+            JPanel contentPanel = new JPanel();
+            contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+            contentPanel.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
+            titleLabel.setAlignmentX(JLabel.LEFT_ALIGNMENT);
+            statusLabel.setAlignmentX(JLabel.LEFT_ALIGNMENT);
+            progressBar.setAlignmentX(JProgressBar.LEFT_ALIGNMENT);
+            progressBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+
+            contentPanel.add(titleLabel);
+            contentPanel.add(Box.createVerticalStrut(10));
+            contentPanel.add(statusLabel);
+            contentPanel.add(Box.createVerticalStrut(10));
+            contentPanel.add(progressBar);
+
+            dialog.add(contentPanel, BorderLayout.CENTER);
+            dialog.setPreferredSize(new Dimension(460, 150));
+            dialog.pack();
+            dialog.setLocationRelativeTo(owner);
+        }
+
+        void show() {
+            dialog.setVisible(true);
+        }
+
+        void update(ResetProgressUpdate update) {
+            if (update == null) {
+                return;
+            }
+            statusLabel.setText(update.message == null ? "" : update.message);
+            progressBar.setIndeterminate(update.indeterminate);
+            if (update.indeterminate) {
+                progressBar.setString("Scanning...");
+                return;
+            }
+
+            int max = Math.max(1, update.total);
+            int value = Math.min(Math.max(0, update.processed), max);
+            progressBar.setMaximum(max);
+            progressBar.setValue(value);
+            progressBar.setString(update.total <= 0 ? "No files to delete" : value + " / " + update.total);
+        }
+
+        void close() {
+            dialog.setVisible(false);
+            dialog.dispose();
+        }
     }
 
     private static String getJavaLauncher() {
@@ -1317,6 +1549,21 @@ public class BotToolLauncher {
         File[] candidates = new File[]{
             new File(appDir, PTP_JAR_NAME),
             new File(appDir, "dist\\" + PTP_JAR_NAME)
+        };
+
+        for (File candidate : candidates) {
+            if (candidate.isFile()) {
+                return candidate;
+            }
+        }
+        return candidates[candidates.length - 1];
+    }
+
+    private static File findDeletedLogCheckerJar() {
+        File appDir = getAppDirectory();
+        File[] candidates = new File[]{
+            new File(appDir, DELETED_LOG_CHECKER_JAR_NAME),
+            new File(appDir, "dist\\" + DELETED_LOG_CHECKER_JAR_NAME)
         };
 
         for (File candidate : candidates) {

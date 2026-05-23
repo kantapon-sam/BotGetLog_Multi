@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.14",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.14/BotGetLog_Multi-dist-1.1.14.zip",
-    "sha256":  "201586648690c7657e7f9f3c8915b32b7d8eeb8fc81baf3eea360df85fe6470e",
-    "notes":  "Released 1.1.14: Refresh build metadata, launcher release notes, and package artifacts for version 1.1.14."
+    "version":  "1.1.15",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.15/BotGetLog_Multi-dist-1.1.15.zip",
+    "sha256":  "96dc9f802e621c47b80add45e287dfc5e664cc7c22fe8db6e6b08034267f856b",
+    "notes":  "Released 1.1.15: Refresh build metadata, launcher release notes, and package artifacts for version 1.1.15."
 }

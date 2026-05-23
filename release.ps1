@@ -355,6 +355,7 @@ function Assert-RequiredReleaseArtifacts {
         "Link_Optical.jar",
         "ARP.jar",
         "PTP.jar",
+        "Deleted_Log_Checker.jar",
         "README.TXT",
         "defaults\UserInterface_Input.xlsx",
         "defaults\NEW_Site.csv",

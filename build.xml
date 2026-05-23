@@ -177,6 +177,20 @@
             </fileset>
         </jar>
 
+        <jar destfile="${dist.dir}/Deleted_Log_Checker.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.tools.deletedlogcheck.DeletedLogChecker"/>
+                <attribute name="Implementation-Title" value="Deleted_Log_Checker"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/AppConsole.class"/>
+                <include name="com/java/shared/AppConsole$ConsoleOutputStream.class"/>
+                <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/tools/deletedlogcheck/**/*.class"/>
+            </fileset>
+        </jar>
+
         <mkdir dir="${dist.dir}/updater"/>
         <jar destfile="${dist.dir}/updater/BotGetLog_Updater.jar">
             <manifest>
