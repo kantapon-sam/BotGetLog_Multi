@@ -80,6 +80,8 @@ public class BotGetLog_DTAC {
     private static volatile int normalThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
     private static volatile int currentThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
     private static volatile boolean turboMode = false;
+    private static final Map<Workbook, FormulaEvaluator> FORMULA_EVALUATORS
+            = Collections.synchronizedMap(new WeakHashMap<Workbook, FormulaEvaluator>());
 
     private static final class CredentialInput {
         final String username;
@@ -1561,39 +1563,58 @@ public class BotGetLog_DTAC {
         if (row == null) return false;
 
         String enabled = getCellString(row.getCell(0));
-        return "Y".equalsIgnoreCase(enabled);
+        return enabled != null && "Y".equalsIgnoreCase(enabled.trim());
     }
 
     private static List<DeviceTask> buildDeviceTasks(Workbook workbook, Set<String> existingLogs) {
         List<DeviceTask> list = new ArrayList<>();
         Sheet sheet = workbook.getSheet(DEVICE_SHEET);
-        if (sheet == null) return list;
+        if (sheet == null) {
+            System.out.printf("[WARN] DTAC sheet '%s' not found%n", DEVICE_SHEET);
+            return list;
+        }
 
         int lastRow = sheet.getLastRowNum();
         Row header = sheet.getRow(0);
-        if (header == null) return list;
+        if (header == null) {
+            System.out.printf("[WARN] DTAC sheet '%s' has no header row%n", DEVICE_SHEET);
+            return list;
+        }
 
-        int lastCol = header.getLastCellNum();
+        int headerLastCol = Math.max(0, header.getLastCellNum());
+        int enabledRows = 0;
+        int missingIdentityRows = 0;
+        int commandCells = 0;
+        int skippedDone = 0;
+        int maxScannedCol = headerLastCol;
 
         for (int r = 1; r <= lastRow; r++) {
             Row row = sheet.getRow(r);
             if (row == null) continue;
 
             if (!shouldRunDeviceRow(row)) continue;
+            enabledRows++;
 
             String group = getCellString(row.getCell(1));
             String deviceName = getCellString(row.getCell(2));
             String ip = getCellString(row.getCell(3));
             if (deviceName == null || deviceName.trim().isEmpty()
-                    || ip == null || ip.trim().isEmpty()) continue;
+                    || ip == null || ip.trim().isEmpty()) {
+                missingIdentityRows++;
+                continue;
+            }
 
-            for (int c = 4; c < lastCol; c++) {
+            int rowLastCol = Math.max(headerLastCol, Math.max(0, row.getLastCellNum()));
+            maxScannedCol = Math.max(maxScannedCol, rowLastCol);
+            for (int c = 4; c < rowLastCol; c++) {
                 String cmdSet = getCellString(row.getCell(c));
                 if (cmdSet == null || cmdSet.trim().isEmpty()) continue;
+                commandCells++;
 
                 TaskValidationInfo validationInfo = buildTaskValidationInfo(cmdSet.trim(), workbook);
 
                 if (isTaskAlreadyDone(r + 1, validationInfo, existingLogs)) {
+                    skippedDone++;
                     System.out.printf("[SKIP] Row %d (%s, %s) cmdSet=%s%n",
                             (r + 1), deviceName, ip, cmdSet.trim());
                     continue;
@@ -1612,7 +1633,89 @@ public class BotGetLog_DTAC {
                 list.add(task);
             }
         }
+        if (enabledRows == 0) {
+            System.out.printf("[WARN] DTAC found no Y in column A. First column samples: %s%n",
+                    sampleFirstColumnValues(sheet, Math.min(lastRow, 8)));
+        }
+        System.out.printf("[INFO] DTAC selection scan: sheet=%s rows=%d enabledY=%d missingDeviceOrIp=%d commandCells=%d skippedDone=%d queued=%d scannedCols=%d%n",
+                DEVICE_SHEET, lastRow, enabledRows, missingIdentityRows, commandCells, skippedDone, list.size(), maxScannedCol);
         return list;
+    }
+
+    private static String sampleFirstColumnValues(Sheet sheet, int maxDataRows) {
+        if (sheet == null || maxDataRows <= 0) return "[]";
+
+        List<String> samples = new ArrayList<>();
+        int last = Math.min(sheet.getLastRowNum(), maxDataRows);
+        for (int r = 1; r <= last; r++) {
+            Row row = sheet.getRow(r);
+            Cell cell = row == null ? null : row.getCell(0);
+            String value = getCellString(cell);
+            String type = cell == null ? "null" : cell.getCellType().name();
+            samples.add("row " + (r + 1) + "=" + (value == null ? "<null>" : "'" + value + "'") + "/" + type);
+        }
+        return samples.toString();
+    }
+
+    private static FormulaEvaluator getFormulaEvaluator(Cell cell) {
+        if (cell == null || cell.getSheet() == null || cell.getSheet().getWorkbook() == null) {
+            return null;
+        }
+
+        Workbook workbook = cell.getSheet().getWorkbook();
+        FormulaEvaluator evaluator = FORMULA_EVALUATORS.get(workbook);
+        if (evaluator == null) {
+            evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            FORMULA_EVALUATORS.put(workbook, evaluator);
+        }
+        return evaluator;
+    }
+
+    private static String numericCellString(Cell cell, double value) {
+        if (cell != null && DateUtil.isCellDateFormatted(cell)) {
+            return cell.getDateCellValue().toString();
+        }
+        long whole = (long) value;
+        return (value == (double) whole) ? String.valueOf(whole) : String.valueOf(value);
+    }
+
+    private static String formulaCellString(Cell cell) {
+        try {
+            FormulaEvaluator evaluator = getFormulaEvaluator(cell);
+            CellValue value = evaluator == null ? null : evaluator.evaluate(cell);
+            if (value != null) {
+                switch (value.getCellType()) {
+                    case STRING:
+                        return value.getStringValue();
+                    case NUMERIC:
+                        return numericCellString(cell, value.getNumberValue());
+                    case BOOLEAN:
+                        return String.valueOf(value.getBooleanValue());
+                    case BLANK:
+                        return "";
+                    default:
+                        break;
+                }
+            }
+        } catch (Exception ignore) {
+        }
+
+        try {
+            switch (cell.getCachedFormulaResultType()) {
+                case STRING:
+                    return cell.getStringCellValue();
+                case NUMERIC:
+                    return numericCellString(cell, cell.getNumericCellValue());
+                case BOOLEAN:
+                    return String.valueOf(cell.getBooleanCellValue());
+                case BLANK:
+                    return "";
+                default:
+                    return cell.getCellFormula();
+            }
+        } catch (Exception ex) {
+            return cell.getCellFormula();
+        }
     }
 
     private static String getCellString(Cell cell) {
@@ -1621,15 +1724,11 @@ public class BotGetLog_DTAC {
             case STRING:
                 return cell.getStringCellValue();
             case NUMERIC:
-                if (DateUtil.isCellDateFormatted(cell))
-                    return cell.getDateCellValue().toString();
-                double d = cell.getNumericCellValue();
-                long l = (long) d;
-                return (d == (double) l) ? String.valueOf(l) : String.valueOf(d);
+                return numericCellString(cell, cell.getNumericCellValue());
             case BOOLEAN:
                 return String.valueOf(cell.getBooleanCellValue());
             case FORMULA:
-                return cell.getCellFormula();
+                return formulaCellString(cell);
             default:
                 return null;
         }
