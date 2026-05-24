@@ -411,6 +411,7 @@ public class Telnet_Multi {
     private static final int PROMPT_STABILIZE_DELAY_MS = 150;
     private static final int POST_LOGIN_FINAL_DELAY_MS = 500;
     private static final String[] PRELOGIN_STOP_TOKENS = new String[]{"username:", "user name:", "login:", "password:", "ogin:"};
+    private static final String ZTE_ENABLE_PASSWORD = "zxr10";
     private static final String[] CHECKLOGIN_BANNER_NOISE_TOKENS = new String[]{
         "authorised users only", "prohibited", "monitored", "stelnet",
         "protocol", "escape character", "press any key", "banner", "device is prohibited"
@@ -4391,6 +4392,93 @@ public class Telnet_Multi {
         return null;
     }
 
+    private String currentPromptTokenFromState() {
+        String promptToken = cleanPromptToken(extractPromptToken(s));
+        if (isInteractivePromptToken(promptToken)) {
+            return promptToken;
+        }
+
+        if (LOG != null && LOG.length() > 0) {
+            promptToken = cleanPromptToken(extractPromptToken(LOG));
+            if (isInteractivePromptToken(promptToken)) {
+                return promptToken;
+            }
+        }
+        return "";
+    }
+
+    private void rememberPromptTokenFromResponse(String response) {
+        String promptToken = cleanPromptToken(extractPromptToken(response));
+        if (isInteractivePromptToken(promptToken)) {
+            s = promptToken;
+        }
+    }
+
+    private boolean failZteEnable(String Loopback, String Device, String cmdSet, int Num_row, String reason) {
+        String consolePrefix = buildConsoleNodePrefix(Num_row, Loopback, Device);
+        String message = "[ZTE-ENABLE-FAIL]" + consolePrefix + " " + reason;
+        System.out.println(message);
+        logwork(message + "\n");
+        recordSessionFailureOnce(Num_row, Loopback, Device, cmdSet, "_[ZTE enable failed]");
+        failedAfterPassword = true;
+        disconnect();
+        return false;
+    }
+
+    private boolean ensureZtePrivilegedMode(String cmdSet, String Loopback, String Device, int Num_row) {
+        String promptToken = currentPromptTokenFromState();
+        if (!isSingleSidedGreaterPromptToken(promptToken)) {
+            return true;
+        }
+
+        String consolePrefix = buildConsoleNodePrefix(Num_row, Loopback, Device);
+        System.out.println("[ZTE-ENABLE]" + consolePrefix + " " + promptToken + " -> enable");
+        logwork("[ZTE-ENABLE] Detected ZTE user prompt " + promptToken
+                + "; sending enable before command set " + cmdSet + "\n");
+
+        write("enable");
+        String enableResp = readUntilAny("ssword:", "#");
+        if (enableResp != null) {
+            LOG.append(enableResp);
+        }
+        rememberPromptTokenFromResponse(enableResp);
+        logwork("[ZTE-ENABLE] enable response: "
+                + summarizeResponseForLog(enableResp, ZTE_ENABLE_PASSWORD) + "\n");
+
+        if (isTimeoutResponse(enableResp) || containsLoginFailureText(enableResp)) {
+            return failZteEnable(Loopback, Device, cmdSet, Num_row,
+                    "enable did not reach Password/# prompt");
+        }
+
+        if (containsAuthPromptText(enableResp)) {
+            write_NoShow(ZTE_ENABLE_PASSWORD);
+            String passwordResp = readUntilAny("#", ">");
+            if (passwordResp != null) {
+                LOG.append(passwordResp);
+            }
+            rememberPromptTokenFromResponse(passwordResp);
+            logwork("[ZTE-ENABLE] password response: "
+                    + summarizeResponseForLog(passwordResp, ZTE_ENABLE_PASSWORD) + "\n");
+
+            if (isTimeoutResponse(passwordResp)
+                    || containsLoginFailureText(passwordResp)
+                    || (containsAuthPromptText(passwordResp) && !hasInteractivePromptToken(passwordResp))) {
+                return failZteEnable(Loopback, Device, cmdSet, Num_row,
+                        "enable password was not accepted");
+            }
+        }
+
+        String finalPrompt = currentPromptTokenFromState();
+        if (finalPrompt.endsWith("#")) {
+            return true;
+        }
+        if (isSingleSidedGreaterPromptToken(finalPrompt)) {
+            return failZteEnable(Loopback, Device, cmdSet, Num_row,
+                    "prompt stayed in user mode after enable");
+        }
+        return true;
+    }
+
     private boolean checkEnvCommand(String cmdSet, String Loopback, String Device, int Num_row) {
         boolean vendorError = false;
         String promptChar = "#";
@@ -4404,6 +4492,9 @@ public class Telnet_Multi {
             promptChar = "#";
             envCmd = "environment no more";
         } else if (cmdSet.charAt(0) == 'Z') {
+            if (!ensureZtePrivilegedMode(cmdSet, Loopback, Device, Num_row)) {
+                return false;
+            }
             promptChar = "#";
             envCmd = "terminal length 0";
         } else {
@@ -4762,6 +4853,36 @@ public class Telnet_Multi {
         return value.toUpperCase();
     }
 
+    private static boolean isHuaweiAnglePromptToken(String promptToken) {
+        String token = cleanPromptToken(promptToken);
+        return token.length() > 2 && token.startsWith("<") && token.endsWith(">");
+    }
+
+    private static boolean isSingleSidedGreaterPromptToken(String promptToken) {
+        String token = cleanPromptToken(promptToken);
+        if (token.length() < 2 || !token.endsWith(">") || token.startsWith("<")) {
+            return false;
+        }
+
+        String nodeName = token.substring(0, token.length() - 1).trim();
+        return nodeName.matches("[A-Za-z0-9._:-]+");
+    }
+
+    private static boolean containsSingleSidedGreaterPromptLine(String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+
+        String[] lines = text.split("\\r?\\n");
+        for (String line : lines) {
+            String trimmed = line == null ? "" : line.trim();
+            if (trimmed.matches("(?i)^[A-Za-z0-9._:-]+>.*")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String detectVendorFromText(String text, String fallbackVendor) {
         String fallback = (fallbackVendor == null || fallbackVendor.trim().isEmpty())
                 ? "HW"
@@ -4769,6 +4890,11 @@ public class Telnet_Multi {
 
         if (text == null || text.trim().isEmpty()) {
             return fallback;
+        }
+
+        String promptVendor = detectVendorFromPrompt(text, fallback, false);
+        if (!promptVendor.equals(fallback)) {
+            return promptVendor;
         }
 
         if ("N".equals(fallback)) {
@@ -4793,7 +4919,13 @@ public class Telnet_Multi {
         if (!promptToken.isEmpty()) {
             char lastChar = promptToken.charAt(promptToken.length() - 1);
             if (lastChar == '>') {
-                return "HW";
+                if (isHuaweiAnglePromptToken(promptToken)) {
+                    return "HW";
+                }
+                if (isSingleSidedGreaterPromptToken(promptToken)) {
+                    return "ZTE";
+                }
+                return fallback;
             }
             if (lastChar == '#') {
                 return promptToken.contains(":") ? "N" : "ZTE";
@@ -4804,8 +4936,11 @@ public class Telnet_Multi {
         if (low.matches("(?s).*:[^\\r\\n]*#.*")) {
             return "N";
         }
-        if (low.matches("(?s).*<[^\\r\\n>]+>.*") || low.contains(">")) {
+        if (low.matches("(?s).*<[^\\r\\n>]+>.*")) {
             return "HW";
+        }
+        if (containsSingleSidedGreaterPromptLine(text)) {
+            return "ZTE";
         }
         if (low.contains("#")) {
             return "ZTE";
@@ -4833,6 +4968,9 @@ public class Telnet_Multi {
         }
         if (trimmed.matches("^<[^\\r\\n>]+>.*")) {
             return "HW";
+        }
+        if (trimmed.matches("(?i)^[A-Za-z0-9._:-]+>.*")) {
+            return "ZTE";
         }
         if (trimmed.matches("(?i)^[^\\s<:][^\\r\\n#]*#.*")) {
             return "ZTE";

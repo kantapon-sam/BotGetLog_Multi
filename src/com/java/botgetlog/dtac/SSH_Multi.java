@@ -44,6 +44,8 @@ private static final String CMDSET_SHEET = "cmdSet";
 private static final Object CONSOLE_LOG_LOCK = new Object();
 private static final DateTimeFormatter LOG_DATE_TAG_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 private static final DateTimeFormatter LOG_COLLISION_TAG_FORMATTER = DateTimeFormatter.ofPattern("HHmmssSSS");
+private static final String ZTE_ENABLE_PASSWORD = "zxr10";
+private static final long ZTE_ENABLE_TIMEOUT_MS = 30000L;
 private static final Map<String, List<String>> CMDSET_CACHE = new ConcurrentHashMap<>();
 private static final Object CMDSET_CACHE_LOCK = new Object();
 private static final Set<String> ACTIVE_LOG_SESSIONS = ConcurrentHashMap.newKeySet();
@@ -376,12 +378,11 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         String prompt = sanitizePromptLine(line);
         if (prompt.isEmpty()) return null;
 
-        if (prompt.matches("^[A-Za-z0-9._:-]+#$")) {
+        if (prompt.matches("^[A-Za-z0-9._:-]+[>#]$")) {
             return "ZTE";
         }
 
-        if (prompt.matches("^[A-Za-z0-9._:-]+>$")
-                || prompt.matches("^<[A-Za-z0-9._:-]+>$")
+        if (prompt.matches("^<[A-Za-z0-9._:-]+>$")
                 || prompt.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:-]+(?:-[^\\]]+)?\\]$")) {
             return "HW";
         }
@@ -502,6 +503,13 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             long commandMaxWaitMs = getCommandMaxWaitMs();
             long commandIdleTimeoutMs = getCommandIdleTimeoutMs();
             long commandPromptSettleMs = getCommandPromptSettleMs();
+
+            if (isZteCmdSet(cmdSetUsed)
+                    && !ensureZtePrivilegedMode(in, out, window, buf, streamLog,
+                            promptMatchHint, host, cmdSetUsed)) {
+                return new RunResult(vendor, cmdSetUsed, "", logFile);
+            }
+
             boolean stopCommandLoop = false;
             for (String cmd : commands) {
                 if (cmd == null || cmd.trim().isEmpty()) continue;
@@ -627,6 +635,130 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         }
         streamLog.write(text);
         streamLog.flush();
+    }
+
+    private boolean isZteCmdSet(String cmdSetName) {
+        return cmdSetName != null
+                && cmdSetName.trim().toUpperCase(Locale.ROOT).startsWith("ZTE-");
+    }
+
+    private boolean isSingleSidedGreaterPromptLine(String line) {
+        String prompt = sanitizePromptLine(line);
+        return prompt.matches("^[A-Za-z0-9._:-]+>$");
+    }
+
+    private char promptTerminatorFromWindow(String text, String promptHint) {
+        if (text == null || text.isEmpty()) return '\0';
+
+        String tail = (text.length() > PROMPT_WINDOW_CHARS)
+                ? text.substring(text.length() - PROMPT_WINDOW_CHARS)
+                : text;
+        String[] lines = tail.split("\r?\n");
+        String hint = (promptHint != null) ? promptHint.trim() : "";
+
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = sanitizePromptLine(lines[i]);
+            if (line.isEmpty()) continue;
+
+            if (!hint.isEmpty()) {
+                if (line.equals(hint + "#")) return '#';
+                if (line.equals(hint + ">")) return '>';
+                continue;
+            }
+
+            if (line.matches("^[A-Za-z0-9._:-]+#$")) return '#';
+            if (isSingleSidedGreaterPromptLine(line)) return '>';
+        }
+
+        return '\0';
+    }
+
+    private boolean containsSingleSidedGreaterPrompt(String text, String promptHint) {
+        return promptTerminatorFromWindow(text, promptHint) == '>';
+    }
+
+    private String waitForZteEnableState(InputStream in,
+                                         StringBuilder window,
+                                         byte[] buf,
+                                         Writer streamLog,
+                                         String promptHint,
+                                         boolean allowPasswordPrompt) throws IOException {
+        long start = System.currentTimeMillis();
+        long lastData = start;
+
+        while (System.currentTimeMillis() - start < ZTE_ENABLE_TIMEOUT_MS) {
+            boolean got = readAvailable(in, null, window, buf, streamLog);
+            if (got) {
+                lastData = System.currentTimeMillis();
+
+                String lower = window == null ? "" : window.toString().toLowerCase(Locale.ROOT);
+                if (allowPasswordPrompt && (lower.contains("password:") || lower.contains("ssword:"))) {
+                    return "PASSWORD";
+                }
+
+                char terminator = promptTerminatorFromWindow(window == null ? "" : window.toString(), promptHint);
+                if (terminator == '#') return "PRIVILEGED";
+                if (terminator == '>') return "USER";
+            }
+
+            if (System.currentTimeMillis() - lastData > ZTE_ENABLE_TIMEOUT_MS) {
+                break;
+            }
+
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return "TIMEOUT";
+            }
+        }
+
+        return "TIMEOUT";
+    }
+
+    private boolean ensureZtePrivilegedMode(InputStream in,
+                                            OutputStream out,
+                                            StringBuilder window,
+                                            byte[] buf,
+                                            Writer streamLog,
+                                            String promptHint,
+                                            String host,
+                                            String cmdSetUsed) throws IOException {
+        if (!containsSingleSidedGreaterPrompt(window == null ? "" : window.toString(), promptHint)) {
+            return true;
+        }
+
+        String hintForLog = (promptHint == null || promptHint.trim().isEmpty())
+                ? "ZTE"
+                : promptHint.trim();
+        logwork("[ZTE-ENABLE] DTAC " + host + " prompt=" + hintForLog
+                + "> -> enable before " + cmdSetUsed + "\n");
+        writeStreamLog(streamLog, "\n[ZTE-ENABLE] enable\n");
+
+        window.setLength(0);
+        out.write("enable\n".getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        String state = waitForZteEnableState(in, window, buf, streamLog, promptHint, true);
+        if ("PASSWORD".equals(state)) {
+            writeStreamLog(streamLog, "\n[ZTE-ENABLE] Password: ********\n");
+            window.setLength(0);
+            out.write((ZTE_ENABLE_PASSWORD + "\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            state = waitForZteEnableState(in, window, buf, streamLog, promptHint, false);
+        }
+
+        if ("PRIVILEGED".equals(state)) {
+            logwork("[ZTE-ENABLE] DTAC " + host + " privileged prompt ready\n");
+            return true;
+        }
+
+        String reason = "USER".equals(state)
+                ? "prompt stayed in user mode after enable"
+                : "enable timed out before privileged prompt";
+        logwork("[ZTE-ENABLE-FAIL] DTAC " + host + " " + reason + "\n");
+        writeStreamLog(streamLog, "\n[ERROR] ZTE enable failed: " + reason + "\n");
+        return false;
     }
 
     private boolean waitForStablePromptAndDrain(InputStream in,

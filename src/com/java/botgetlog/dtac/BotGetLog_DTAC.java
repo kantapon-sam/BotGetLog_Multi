@@ -499,8 +499,11 @@ public class BotGetLog_DTAC {
             return "ZTE";
         }
 
-        if (sanitized.matches("^[A-Za-z0-9._:-]+>(?:\\s*.*)?$")
-                || sanitized.matches("^<[A-Za-z0-9._:-]+>(?:\\s*.*)?$")
+        if (sanitized.matches("^[A-Za-z0-9._:-]+>(?:\\s*.*)?$")) {
+            return "ZTE";
+        }
+
+        if (sanitized.matches("^<[A-Za-z0-9._:-]+>(?:\\s*.*)?$")
                 || sanitized.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:-]+(?:-[^\\]]+)?\\](?:\\s*.*)?$")) {
             return "HW";
         }
