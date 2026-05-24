@@ -80,6 +80,9 @@ public class BotGetLog_DTAC {
     private static volatile int normalThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
     private static volatile int currentThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
     private static volatile boolean turboMode = false;
+    private static volatile CredentialInput rerunCredentials = new CredentialInput("", "");
+    private static final Object RERUN_TASK_LOCK = new Object();
+    private static final AtomicInteger ACTIVE_RERUN_TASKS = new AtomicInteger(0);
     private static final Map<Workbook, FormulaEvaluator> FORMULA_EVALUATORS
             = Collections.synchronizedMap(new WeakHashMap<Workbook, FormulaEvaluator>());
 
@@ -816,6 +819,242 @@ public class BotGetLog_DTAC {
                 "Task finished without a known result", maxAttempts, null);
     }
 
+    public static synchronized boolean prepareRerunSession(int[] rowNums, String[] loopbacks,
+                                                           String[] devices, String[] cmdSets) {
+        try {
+            if (stopRequested) {
+                stopRequested = false;
+                alarmEnabled = true;
+            }
+
+            CredentialInput cached = rerunCredentials;
+            if (cached != null && !cached.username.isEmpty() && !cached.password.isEmpty()) {
+                return true;
+            }
+
+            List<DeviceTask> validationTasks = new ArrayList<>();
+            try (Workbook workbook = openInputWorkbookWithRetry()) {
+                int count = rowNums == null ? 0 : rowNums.length;
+                for (int i = 0; i < count; i++) {
+                    DeviceTask task = buildRerunTask(
+                            workbook,
+                            rowNums[i],
+                            valueAt(loopbacks, i),
+                            valueAt(devices, i),
+                            valueAt(cmdSets, i));
+                    if (task != null) {
+                        validationTasks.add(task);
+                    }
+                }
+            }
+
+            if (validationTasks.isEmpty()) {
+                System.out.println("[RE-RUN][DTAC] No valid row prepared for DTAC login validation.");
+                return false;
+            }
+
+            CredentialInput entered = promptForValidatedCredentials("", "", validationTasks);
+            if (entered == null) {
+                System.out.println("[RE-RUN][DTAC] DTAC login validation cancelled.");
+                return false;
+            }
+
+            rerunCredentials = entered;
+            totalTasks = Math.max(totalTasks, validationTasks.size());
+            System.out.printf("[RE-RUN][DTAC] SSH login ready for %d row(s).%n", validationTasks.size());
+            return true;
+        } catch (Exception e) {
+            System.out.println("[RE-RUN][DTAC] Login preparation failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static boolean waitForRerunTasksToFinish(long timeoutMs) {
+        long safeTimeoutMs = Math.max(0L, timeoutMs);
+        long deadline = System.currentTimeMillis() + safeTimeoutMs;
+        synchronized (RERUN_TASK_LOCK) {
+            while (ACTIVE_RERUN_TASKS.get() > 0) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0L) {
+                    return false;
+                }
+                try {
+                    RERUN_TASK_LOCK.wait(Math.min(remaining, 1000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private static void finishRerunTask() {
+        int active = ACTIVE_RERUN_TASKS.decrementAndGet();
+        if (active < 0) {
+            ACTIVE_RERUN_TASKS.set(0);
+        }
+        synchronized (RERUN_TASK_LOCK) {
+            RERUN_TASK_LOCK.notifyAll();
+        }
+    }
+
+    public static void RerunNode(int rowNum, String loopback, String device, String cmdSet) {
+        try {
+            if (stopRequested) {
+                stopRequested = false;
+                alarmEnabled = true;
+            }
+
+            System.out.printf("[RE-RUN][DTAC] Row %d | %s | %s | %s%n",
+                    rowNum, loopback, device, cmdSet);
+
+            DeviceTask task;
+            try (Workbook workbook = openInputWorkbookWithRetry()) {
+                task = buildRerunTask(workbook, rowNum, loopback, device, cmdSet);
+            }
+
+            if (task == null) {
+                System.out.printf("[RE-RUN][DTAC] Skip row %d because rerun task could not be prepared%n", rowNum);
+                return;
+            }
+
+            CredentialInput credentials = getRerunCredentials(Collections.singletonList(task));
+            if (credentials == null) {
+                System.out.printf("[RE-RUN][DTAC] Skip row %d because DTAC login was cancelled%n", rowNum);
+                return;
+            }
+
+            if (totalTasks <= 0) {
+                totalTasks = 1;
+            }
+
+            final DeviceTask finalTask = task;
+            final CredentialInput finalCredentials = credentials;
+            Runnable rerunTask = () -> {
+                TaskRunResult result = TaskRunResult.stopped(finalTask, 0);
+                try {
+                    if (!stopRequested) {
+                        result = runTaskWithCompletionCheck(
+                                finalTask,
+                                finalCredentials.username,
+                                finalCredentials.password);
+                    }
+                } catch (Exception e) {
+                    result = TaskRunResult.failure(
+                            finalTask,
+                            FailureType.UNKNOWN,
+                            e.getMessage(),
+                            0,
+                            null);
+                } finally {
+                    registerTaskResult(result);
+                    int done = completedTasks.incrementAndGet();
+                    System.out.printf("[RE-RUN][DTAC] Finished %d : [%d]%s (%s) cmdSet=%s result=%s attempts=%d reason=%s%n",
+                            done,
+                            finalTask.rowNum,
+                            finalTask.deviceName,
+                            finalTask.ip,
+                            finalTask.cmdSet,
+                            result == null ? "UNKNOWN" : result.statusLabel(),
+                            result == null ? 0 : result.attempts,
+                            result == null ? "-" : result.message);
+                    finishRerunTask();
+                }
+            };
+
+            ThreadPoolExecutor execNow = executor;
+            ACTIVE_RERUN_TASKS.incrementAndGet();
+            boolean scheduled = false;
+            try {
+                if (execNow != null && !execNow.isShutdown()) {
+                    execNow.submit(rerunTask);
+                    scheduled = true;
+                } else {
+                    Thread thread = new Thread(rerunTask, "DTAC-ReRun-" + rowNum);
+                    thread.start();
+                    scheduled = true;
+                }
+            } finally {
+                if (!scheduled) {
+                    finishRerunTask();
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[RE-RUN][DTAC] [WARN] Error rerunning node: " + e.getMessage());
+        }
+    }
+
+    private static String valueAt(String[] values, int index) {
+        if (values == null || index < 0 || index >= values.length || values[index] == null) {
+            return "";
+        }
+        return values[index].trim();
+    }
+
+    private static DeviceTask buildRerunTask(Workbook workbook, int rowNum,
+                                             String loopback, String device, String cmdSet) {
+        String safeCmdSet = cmdSet == null ? "" : cmdSet.trim();
+        if (rowNum <= 0 || safeCmdSet.isEmpty()) {
+            return null;
+        }
+
+        String group = "";
+        String deviceName = device == null ? "" : device.trim();
+        String ip = loopback == null ? "" : loopback.trim();
+
+        Sheet sheet = workbook == null ? null : workbook.getSheet(DEVICE_SHEET);
+        Row row = sheet == null ? null : sheet.getRow(rowNum - 1);
+        if (row != null) {
+            if (!shouldRunDeviceRow(row)) {
+                System.out.printf("[RE-RUN][DTAC] Skip row %d because deviceList_DTAC column A is not Y%n", rowNum);
+                return null;
+            }
+
+            String sheetGroup = getCellString(row.getCell(1));
+            String sheetDevice = getCellString(row.getCell(2));
+            String sheetIp = getCellString(row.getCell(3));
+            if (sheetGroup != null && !sheetGroup.trim().isEmpty()) {
+                group = sheetGroup.trim();
+            }
+            if (sheetDevice != null && !sheetDevice.trim().isEmpty()) {
+                deviceName = sheetDevice.trim();
+            }
+            if (sheetIp != null && !sheetIp.trim().isEmpty()) {
+                ip = sheetIp.trim();
+            }
+        }
+
+        if (deviceName.isEmpty() || ip.isEmpty()) {
+            System.out.printf("[RE-RUN][DTAC] Skip row %d because device/ip is empty%n", rowNum);
+            return null;
+        }
+
+        TaskValidationInfo validationInfo = buildTaskValidationInfo(safeCmdSet, workbook);
+        return new DeviceTask(
+                rowNum,
+                group,
+                deviceName,
+                ip,
+                safeCmdSet,
+                validationInfo.cmdSetCandidates,
+                validationInfo.firstCommands,
+                validationInfo.lastCommands);
+    }
+
+    private static synchronized CredentialInput getRerunCredentials(List<DeviceTask> validationTasks) {
+        CredentialInput cached = rerunCredentials;
+        if (cached != null && !cached.username.isEmpty() && !cached.password.isEmpty()) {
+            return cached;
+        }
+
+        CredentialInput entered = promptForValidatedCredentials("", "", validationTasks);
+        if (entered != null) {
+            rerunCredentials = entered;
+        }
+        return entered;
+    }
+
     private static void resetRunState() {
         completedTasks.set(0);
         successTaskCount.set(0);
@@ -835,6 +1074,7 @@ public class BotGetLog_DTAC {
         turboMode = false;
         currentThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
         normalThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
+        rerunCredentials = new CredentialInput("", "");
     }
 
     private static void registerTaskResult(TaskRunResult result) {

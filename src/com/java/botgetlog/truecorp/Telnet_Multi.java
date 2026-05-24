@@ -5770,6 +5770,7 @@ public class Telnet_Multi {
 
 //  Background Thread  Wrong Vendor - 2 -
     private static volatile boolean backgroundMonitorsActive = true;
+    private static volatile boolean backgroundMonitorsSuppressed = false;
     private static Thread wrongVendorMonitorThread = null;
     private static final Map<String, Long> completedLogCache = new java.util.concurrent.ConcurrentHashMap<>();
     private static final Set<String> activeLogSessions = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -5994,6 +5995,13 @@ public class Telnet_Multi {
         connFailMonitorThread = null;
     }
 
+    public static synchronized void setBackgroundMonitorsSuppressed(boolean suppressed) {
+        backgroundMonitorsSuppressed = suppressed;
+        if (suppressed) {
+            stopBackgroundMonitors();
+        }
+    }
+
     private static void interruptMonitorThread(Thread thread) {
         if (thread != null && thread.isAlive()) {
             thread.interrupt();
@@ -6001,6 +6009,9 @@ public class Telnet_Multi {
     }
 
     public static synchronized void startWrongVendorMonitor(PathFile fileInput) {
+        if (backgroundMonitorsSuppressed) {
+            return;
+        }
         backgroundMonitorsActive = true;
         if (wrongVendorMonitorThread != null && wrongVendorMonitorThread.isAlive()) {
             return;
@@ -6148,6 +6159,9 @@ public class Telnet_Multi {
     private static Thread commandMonitorThread = null;
 
     public static synchronized void startCommandCompletionMonitor(PathFile fileInput) {
+        if (backgroundMonitorsSuppressed) {
+            return;
+        }
         backgroundMonitorsActive = true;
         if (commandMonitorThread != null && commandMonitorThread.isAlive()) {
             return;
@@ -6464,6 +6478,9 @@ public class Telnet_Multi {
     private static Thread connFailMonitorThread = null;
 
     public static synchronized void startConnectionFailMonitor(PathFile fileInput) {
+        if (backgroundMonitorsSuppressed) {
+            return;
+        }
         backgroundMonitorsActive = true;
         //  
         if (connFailMonitorThread != null && connFailMonitorThread.isAlive()) {

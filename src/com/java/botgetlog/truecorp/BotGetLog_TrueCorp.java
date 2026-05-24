@@ -40,6 +40,8 @@ import javax.swing.JTextField;
 
 public class BotGetLog_TrueCorp {
     private static final Set<String> rerunOncePerRunKeys = ConcurrentHashMap.newKeySet();
+    private static final Object RERUN_TASK_LOCK = new Object();
+    private static final AtomicInteger ACTIVE_RERUN_TASKS = new AtomicInteger(0);
 
     //  [Thread Configuration Section]
     boolean isFocusMode = false; //  (Work Mode)
@@ -508,6 +510,11 @@ public class BotGetLog_TrueCorp {
     private static void updateCachedSettings(String server, String userServer, String pwServer,
             String userCLLS, String pwCLLS, String userL2, String pwL2) {
         cachedSettings = new CachedSettings(server, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
+    }
+
+    private static String preferNonEmpty(String preferred, String fallback) {
+        String value = safeValue(preferred);
+        return value.isEmpty() ? safeValue(fallback) : value;
     }
 
     private static String normalizeSettingKey(String key) {
@@ -2999,6 +3006,103 @@ public class BotGetLog_TrueCorp {
         }
     }
 
+    public static synchronized boolean prepareRerunSession(int[] rowNums, String[] loopbacks,
+            String[] devices, String[] cmdSets) {
+        try {
+            Telnet_Multi.setBackgroundMonitorsSuppressed(true);
+            PathFile fileInput = new PathFile();
+            File excelFile = new File(fileInput.getUserInterface_Input());
+            if (!excelFile.exists()) {
+                System.out.println("[RE-RUN] [FAIL] Excel file not found: " + excelFile.getAbsolutePath());
+                return false;
+            }
+
+            CachedSettings settings = getCachedSettings();
+            String server = settings.server;
+            String userServer = settings.userServer;
+            String pwServer = settings.pwServer;
+            String userCLLS = settings.userCLLS;
+            String pwCLLS = settings.pwCLLS;
+            String userL2 = settings.userL2;
+            String pwL2 = settings.pwL2;
+            List<ValidationTarget> validationTargets;
+
+            try ( Workbook workbook = openWorkbookReadOnly(excelFile)) {
+                Sheet setSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
+                Sheet deviceSheet = getSheetAny(workbook, TRUE_DEVICE_SHEET, LEGACY_DEVICE_SHEET);
+                rebuildExcelCacheForSelection(workbook,
+                        deviceSheet != null ? deviceSheet.getSheetName() : TRUE_DEVICE_SHEET);
+
+                if (setSheet != null) {
+                    CachedSettings loadedSettings = loadSettingsFromSheet(setSheet);
+                    server = loadedSettings.server;
+                    userServer = loadedSettings.userServer;
+                    pwServer = loadedSettings.pwServer;
+                    userCLLS = preferNonEmpty(loadedSettings.userCLLS, userCLLS);
+                    pwCLLS = preferNonEmpty(loadedSettings.pwCLLS, pwCLLS);
+                    userL2 = preferNonEmpty(loadedSettings.userL2, userL2);
+                    pwL2 = preferNonEmpty(loadedSettings.pwL2, pwL2);
+                } else if (!settings.isConfigured()) {
+                    System.out.println("[RE-RUN] [FAIL] Missing '" + TRUE_SETTING_SHEET + "' sheet.");
+                    return false;
+                }
+
+                validationTargets = collectValidationTargets(deviceSheet);
+            }
+
+            CredentialInput credentials = promptForValidatedCllsCredentials(
+                    server,
+                    userServer,
+                    pwServer,
+                    userCLLS,
+                    pwCLLS,
+                    validationTargets);
+            if (credentials == null) {
+                System.out.println("[RE-RUN] TRUE CLLS login validation cancelled.");
+                return false;
+            }
+
+            updateCachedSettings(server, userServer, pwServer,
+                    credentials.username, credentials.password, userL2, pwL2);
+            System.out.printf("[RE-RUN] TRUE CLLS login ready for %d row(s).%n",
+                    rowNums == null ? 0 : rowNums.length);
+            return true;
+        } catch (Exception e) {
+            System.out.println("[RE-RUN] [WARN] TRUE rerun login preparation failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static boolean waitForRerunTasksToFinish(long timeoutMs) {
+        long safeTimeoutMs = Math.max(0L, timeoutMs);
+        long deadline = System.currentTimeMillis() + safeTimeoutMs;
+        synchronized (RERUN_TASK_LOCK) {
+            while (ACTIVE_RERUN_TASKS.get() > 0) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0L) {
+                    return false;
+                }
+                try {
+                    RERUN_TASK_LOCK.wait(Math.min(remaining, 1000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private static void finishRerunTask() {
+        int active = ACTIVE_RERUN_TASKS.decrementAndGet();
+        if (active < 0) {
+            ACTIVE_RERUN_TASKS.set(0);
+        }
+        synchronized (RERUN_TASK_LOCK) {
+            RERUN_TASK_LOCK.notifyAll();
+        }
+    }
+
 //   node  monitor ()
     public static void RerunNode(int rowNum, String loopback, String device, String cmdSet) {
         try {
@@ -3052,10 +3156,10 @@ public class BotGetLog_TrueCorp {
                         server = loadedSettings.server;
                         userServer = loadedSettings.userServer;
                         pwServer = loadedSettings.pwServer;
-                        userCLLS = loadedSettings.userCLLS;
-                        pwCLLS = loadedSettings.pwCLLS;
-                        userL2 = loadedSettings.userL2;
-                        pwL2 = loadedSettings.pwL2;
+                        userCLLS = preferNonEmpty(loadedSettings.userCLLS, userCLLS);
+                        pwCLLS = preferNonEmpty(loadedSettings.pwCLLS, pwCLLS);
+                        userL2 = preferNonEmpty(loadedSettings.userL2, userL2);
+                        pwL2 = preferNonEmpty(loadedSettings.pwL2, pwL2);
                         updateCachedSettings(server, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
                     } else if (refreshedSettings.isConfigured()) {
                         server = refreshedSettings.server;
@@ -3091,6 +3195,26 @@ public class BotGetLog_TrueCorp {
             if (cmd.isEmpty()) {
                 System.out.printf("[RE-RUN]  Skip row %d because cmdSet is empty%n", rowNum);
                 return;
+            }
+
+            if (safeValue(userCLLS).isEmpty() || safeValue(pwCLLS).isEmpty()) {
+                if (!prepareRerunSession(
+                        new int[]{rowNum},
+                        new String[]{ip},
+                        new String[]{devName},
+                        new String[]{cmd})) {
+                    System.out.printf("[RE-RUN]  Skip row %d because CLLS login was cancelled or validation failed%n", rowNum);
+                    return;
+                }
+
+                CachedSettings preparedSettings = getCachedSettings();
+                server = preparedSettings.server;
+                userServer = preparedSettings.userServer;
+                pwServer = preparedSettings.pwServer;
+                userCLLS = preparedSettings.userCLLS;
+                pwCLLS = preparedSettings.pwCLLS;
+                userL2 = preparedSettings.userL2;
+                pwL2 = preparedSettings.pwL2;
             }
 
             if (Telnet_Multi.hasActiveLogSessionFor(rowNum, ip, cmd)) {
@@ -3177,13 +3301,24 @@ public class BotGetLog_TrueCorp {
                     if (telnetPermitAcquired) {
                         Telnet_Multi.TELNET_LIMIT.release();
                     }
+                    finishRerunTask();
                 }
             };
 
-            if (exec != null && !exec.isShutdown()) {
-                exec.submit(reRunTask);
-            } else if (!isShutdownRequested()) {
-                new Thread(reRunTask, "DirectReRun-" + devName).start();
+            ACTIVE_RERUN_TASKS.incrementAndGet();
+            boolean scheduled = false;
+            try {
+                if (exec != null && !exec.isShutdown()) {
+                    exec.submit(reRunTask);
+                    scheduled = true;
+                } else if (!isShutdownRequested()) {
+                    new Thread(reRunTask, "DirectReRun-" + devName).start();
+                    scheduled = true;
+                }
+            } finally {
+                if (!scheduled) {
+                    finishRerunTask();
+                }
             }
 
         } catch (Exception e) {
