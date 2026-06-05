@@ -223,6 +223,12 @@ public class BotGetLog_TrueCorp {
     private static final int FIRST_COMMAND_HEAD_LINES_TO_SCAN = 160;
     private static final int LAST_COMMAND_TAIL_BYTES_TO_SCAN = 128 * 1024;
     private static final int LAST_COMMAND_TAIL_LINES_TO_SCAN = 240;
+    static final String N_MPLS_LSP_CMDSET = "N-MPLS_LSP";
+    private static final Pattern NOKIA_MPLS_LSP_SUMMARY_COMMAND_LINE_PATTERN = Pattern.compile(
+            "(?im)^.*\\bshow\\s+router\\s+mpls\\s+lsp\\s*$");
+    private static final Pattern NOKIA_MPLS_LSP_ROW_PATTERN = Pattern.compile(
+            "^\\s*(\\S+)\\s+\\d+\\s+(?:Yes|No)\\s+\\S+\\s+\\S+\\s*$",
+            Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
     private static final List<String> PREFERRED_CLLS_VALIDATION_IPS = Collections.unmodifiableList(Arrays.asList(
             "10.163.0.113",
             "10.165.0.173",
@@ -2522,8 +2528,94 @@ public class BotGetLog_TrueCorp {
             return false;
         }
 
-        return containsPromptPlusFirstCommand(logFile, safeFirstCommand)
+        boolean commandBoundariesComplete = containsPromptPlusFirstCommand(logFile, safeFirstCommand)
                 && containsPromptPlusLastCommand(logFile, safeLastCommand);
+        if (!commandBoundariesComplete) {
+            return false;
+        }
+
+        if (isNokiaMplsLspCmdSet(safeCmdSet)) {
+            return hasNokiaMplsLspPathDetailsForAllSummaryLsps(logFile);
+        }
+        return true;
+    }
+
+    static boolean isNokiaMplsLspCmdSet(String cmdSet) {
+        return N_MPLS_LSP_CMDSET.equalsIgnoreCase(safeValue(cmdSet));
+    }
+
+    static List<String> extractNokiaMplsLspNamesFromLog(File logFile) {
+        if (logFile == null || !logFile.isFile()) {
+            return Collections.emptyList();
+        }
+
+        try {
+            String text = new String(Files.readAllBytes(logFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            return extractNokiaMplsLspNames(text);
+        } catch (Exception e) {
+            System.out.println("[N-MPLS_LSP] Cannot parse LSP summary from "
+                    + logFile.getName() + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static List<String> extractNokiaMplsLspNames(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String normalizedText = text.replace("\r\n", "\n").replace('\r', '\n');
+        int markerIndex = -1;
+        Matcher commandMatcher = NOKIA_MPLS_LSP_SUMMARY_COMMAND_LINE_PATTERN.matcher(normalizedText);
+        while (commandMatcher.find()) {
+            markerIndex = commandMatcher.start();
+        }
+        String section = markerIndex >= 0 ? normalizedText.substring(markerIndex) : normalizedText;
+
+        Matcher endMatcher = Pattern.compile("(?im)^\\s*LSPs\\s*:\\s*\\d+\\s*$").matcher(section);
+        if (endMatcher.find()) {
+            section = section.substring(0, endMatcher.start());
+        }
+
+        LinkedHashSet<String> uniqueNames = new LinkedHashSet<>();
+        Matcher rowMatcher = NOKIA_MPLS_LSP_ROW_PATTERN.matcher(section);
+        while (rowMatcher.find()) {
+            String name = safeValue(rowMatcher.group(1));
+            if (!name.isEmpty()) {
+                uniqueNames.add(name);
+            }
+        }
+        return new ArrayList<>(uniqueNames);
+    }
+
+    private static boolean hasNokiaMplsLspPathDetailsForAllSummaryLsps(File logFile) {
+        List<String> lspNames = extractNokiaMplsLspNamesFromLog(logFile);
+        if (lspNames.isEmpty()) {
+            return true;
+        }
+
+        String logText;
+        try {
+            logText = new String(Files.readAllBytes(logFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.out.println("[N-MPLS_LSP] Cannot verify path detail commands in "
+                    + logFile.getName() + ": " + e.getMessage());
+            return false;
+        }
+
+        String lowerLog = logText.toLowerCase(Locale.ROOT);
+        for (String lspName : lspNames) {
+            String expectedCommand = buildNokiaMplsLspPathDetailCommand(lspName).toLowerCase(Locale.ROOT);
+            if (!lowerLog.contains(expectedCommand)) {
+                System.out.println("[N-MPLS_LSP] Missing path detail command in log: " + expectedCommand);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static String buildNokiaMplsLspPathDetailCommand(String lspName) {
+        return "show router mpls lsp \"" + safeValue(lspName).replace("\"", "\\\"") + "\" path detail";
     }
 
     private static boolean containsPromptPlusFirstCommand(File logFile, String firstCommand) {

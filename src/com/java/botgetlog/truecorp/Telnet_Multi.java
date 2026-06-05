@@ -2500,6 +2500,10 @@ public class Telnet_Multi {
                         } catch (Exception e) {
                             System.out.println("[ERROR] ISIS-cost phase failed: " + e.getMessage());
                         }
+                    } else if (i == r - 2 && BotGetLog_TrueCorp.isNokiaMplsLspCmdSet(cmdSet)) {
+                        if (!executeNokiaMplsLspPathDetailCommands(Loopback, Device, cmdSet, Num_row)) {
+                            return;
+                        }
                     } else if (i == r - 2 && (cmdSet.equals("N-ARP"))) {
                         try {
                             Thread.sleep(300); //  log 
@@ -5585,6 +5589,39 @@ public class Telnet_Multi {
         failedAfterPassword = true;
         disconnect();
         return false;
+    }
+
+    private boolean executeNokiaMplsLspPathDetailCommands(String Loopback, String Device, String cmdSet, int Num_row) {
+        try {
+            Thread.sleep(300);
+
+            String fileName = buildDailyLogFileName(Loopback, Device, cmdSet, Num_row);
+            File logFile = new File(FileInput.getLog(), fileName);
+
+            if (!logFile.exists()) {
+                System.out.println("[N-MPLS_LSP] Log file not found: " + logFile.getAbsolutePath());
+                return true;
+            }
+
+            List<String> lspNames = BotGetLog_TrueCorp.extractNokiaMplsLspNamesFromLog(logFile);
+            if (lspNames.isEmpty()) {
+                System.out.println("[N-MPLS_LSP] No LSP name found after 'show router mpls lsp'.");
+                return true;
+            }
+
+            System.out.println("[N-MPLS_LSP] Found " + lspNames.size() + " LSPs -> sending path detail commands...");
+            for (String lspName : lspNames) {
+                String detailCmd = BotGetLog_TrueCorp.buildNokiaMplsLspPathDetailCommand(lspName);
+                System.out.println("[N-MPLS_LSP CMD] " + detailCmd);
+                if (!executeCommandWithReconnect(Loopback, Device, cmdSet, Num_row, detailCmd)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            System.out.println("[ERROR] N-MPLS_LSP phase failed: " + e.getMessage());
+            return true;
+        }
     }
 
     private void recordSessionFailureOnce(int Num_row, String Loopback, String Device, String cmdSet, String reason) {
