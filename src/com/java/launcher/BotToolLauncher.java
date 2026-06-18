@@ -65,9 +65,9 @@ public class BotToolLauncher {
     private static final String SEGMENT_ROUTING_PREFIX_JAR_NAME = "Segment_Routing_Prefix.jar";
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.20: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.1.20.
-    private static final String FALLBACK_VERSION = "1.1.20";
+    // Version 1.1.21: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.21.
+    private static final String FALLBACK_VERSION = "1.1.21";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -299,7 +299,7 @@ public class BotToolLauncher {
         text.append("   Export Nokia MPLS LSP actual-hop paths from N-MPLS_LSP logs.").append(lineBreak);
         text.append(lineBreak);
         text.append("7. Segment Routing Prefix").append(lineBreak);
-        text.append("   Export Huawei Segment Routing Prefix forwarding rows from HW-Segment_routing_prefix logs.").append(lineBreak);
+        text.append("   Export Huawei Segment Routing Prefix forwarding rows from HW-SID logs.").append(lineBreak);
         text.append(lineBreak);
         text.append("8. Deleted Log Check").append(lineBreak);
         text.append("   Check Deleted_Log rows against Total_Log and skip connect-fail checks when a row exists.").append(lineBreak);
