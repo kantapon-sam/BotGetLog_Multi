@@ -62,11 +62,12 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String MPLS_LSP_JAR_NAME = "MPLS_LSP.jar";
+    private static final String SEGMENT_ROUTING_PREFIX_JAR_NAME = "Segment_Routing_Prefix.jar";
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.19: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.1.19.
-    private static final String FALLBACK_VERSION = "1.1.19";
+    // Version 1.1.20: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.20.
+    private static final String FALLBACK_VERSION = "1.1.20";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -143,6 +144,7 @@ public class BotToolLauncher {
     private JButton arpButton;
     private JButton ptpButton;
     private JButton mplsLspButton;
+    private JButton segmentRoutingPrefixButton;
     private JButton deletedLogCheckerButton;
     private JButton connectVpnButton;
     private JButton resetButton;
@@ -191,6 +193,7 @@ public class BotToolLauncher {
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
         mplsLspButton = new LauncherButton("MPLS LSP");
+        segmentRoutingPrefixButton = new LauncherButton("Segment Routing Prefix");
         deletedLogCheckerButton = new LauncherButton("Deleted Log Check");
         connectVpnButton = new LauncherButton("Open Pulse VPN");
         resetButton = new LauncherButton("Reset");
@@ -203,6 +206,7 @@ public class BotToolLauncher {
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
         mplsLspButton.addActionListener(e -> launchMplsLspJar());
+        segmentRoutingPrefixButton.addActionListener(e -> launchSegmentRoutingPrefixJar());
         deletedLogCheckerButton.addActionListener(e -> launchDeletedLogCheckerJar());
         connectVpnButton.addActionListener(e -> connectPulseVpn());
         resetButton.addActionListener(e -> resetGeneratedFiles());
@@ -214,6 +218,7 @@ public class BotToolLauncher {
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
         styleToolButton(mplsLspButton);
+        styleToolButton(segmentRoutingPrefixButton);
         styleToolButton(deletedLogCheckerButton);
         styleToolButton(connectVpnButton);
         styleSecondaryButton(resetButton);
@@ -233,6 +238,7 @@ public class BotToolLauncher {
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
         actionButtonsPanel.add(mplsLspButton);
+        actionButtonsPanel.add(segmentRoutingPrefixButton);
         actionButtonsPanel.add(deletedLogCheckerButton);
         actionButtonsPanel.add(connectVpnButton);
         actionButtonsPanel.add(resetButton);
@@ -292,16 +298,19 @@ public class BotToolLauncher {
         text.append("6. MPLS LSP").append(lineBreak);
         text.append("   Export Nokia MPLS LSP actual-hop paths from N-MPLS_LSP logs.").append(lineBreak);
         text.append(lineBreak);
-        text.append("7. Deleted Log Check").append(lineBreak);
+        text.append("7. Segment Routing Prefix").append(lineBreak);
+        text.append("   Export Huawei Segment Routing Prefix forwarding rows from HW-Segment_routing_prefix logs.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("8. Deleted Log Check").append(lineBreak);
         text.append("   Check Deleted_Log rows against Total_Log and skip connect-fail checks when a row exists.").append(lineBreak);
         text.append(lineBreak);
-        text.append("8. Open Pulse VPN").append(lineBreak);
+        text.append("9. Open Pulse VPN").append(lineBreak);
         text.append("   Open Pulse Secure and bring its window to the front so you can click Connect there.").append(lineBreak);
         text.append(lineBreak);
-        text.append("9. Reset").append(lineBreak);
+        text.append("10. Reset").append(lineBreak);
         text.append("   Delete generated files in _output\\Total_Log and _output\\Deleted_Log.").append(lineBreak);
         text.append(lineBreak);
-        text.append("10. Exit").append(lineBreak);
+        text.append("11. Exit").append(lineBreak);
         text.append("   Close this launcher.").append(lineBreak);
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
@@ -1095,6 +1104,11 @@ public class BotToolLauncher {
         launchProgram(findMplsLspJar(), MPLS_LSP_JAR_NAME, mplsLspButton);
     }
 
+    private void launchSegmentRoutingPrefixJar() {
+        segmentRoutingPrefixButton.setEnabled(false);
+        launchProgram(findSegmentRoutingPrefixJar(), SEGMENT_ROUTING_PREFIX_JAR_NAME, segmentRoutingPrefixButton);
+    }
+
     private void launchDeletedLogCheckerJar() {
         deletedLogCheckerButton.setEnabled(false);
         launchProgram(findDeletedLogCheckerJar(), DELETED_LOG_CHECKER_JAR_NAME, deletedLogCheckerButton);
@@ -1578,6 +1592,21 @@ public class BotToolLauncher {
         File[] candidates = new File[]{
             new File(appDir, MPLS_LSP_JAR_NAME),
             new File(appDir, "dist\\" + MPLS_LSP_JAR_NAME)
+        };
+
+        for (File candidate : candidates) {
+            if (candidate.isFile()) {
+                return candidate;
+            }
+        }
+        return candidates[candidates.length - 1];
+    }
+
+    private static File findSegmentRoutingPrefixJar() {
+        File appDir = getAppDirectory();
+        File[] candidates = new File[]{
+            new File(appDir, SEGMENT_ROUTING_PREFIX_JAR_NAME),
+            new File(appDir, "dist\\" + SEGMENT_ROUTING_PREFIX_JAR_NAME)
         };
 
         for (File candidate : candidates) {

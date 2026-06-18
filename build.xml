@@ -193,6 +193,22 @@
             </fileset>
         </jar>
 
+        <jar destfile="${dist.dir}/Segment_Routing_Prefix.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.tools.segmentroutingprefix.SegmentRoutingPrefix"/>
+                <attribute name="Implementation-Title" value="Segment_Routing_Prefix"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/AppConsole.class"/>
+                <include name="com/java/shared/AppConsole$ConsoleOutputStream.class"/>
+                <include name="com/java/launcher/LauncherGate.class"/>
+                <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
+                <include name="com/java/tools/segmentroutingprefix/**/*.class"/>
+            </fileset>
+        </jar>
+
         <jar destfile="${dist.dir}/Deleted_Log_Checker.jar">
             <manifest>
                 <attribute name="Main-Class" value="com.java.tools.deletedlogcheck.DeletedLogChecker"/>

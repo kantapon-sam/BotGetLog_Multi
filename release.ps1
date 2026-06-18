@@ -355,6 +355,7 @@ function Assert-RequiredReleaseArtifacts {
         "Link_Optical.jar",
         "ARP.jar",
         "PTP.jar",
+        "Segment_Routing_Prefix.jar",
         "Deleted_Log_Checker.jar",
         "README.TXT",
         "defaults\UserInterface_Input.xlsx",
