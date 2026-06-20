@@ -13,6 +13,7 @@ import java.awt.PointerInfo;
 import java.awt.Point;
 import java.awt.Toolkit;
 import java.io.*;
+import java.nio.file.DirectoryStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -235,12 +236,21 @@ public class BotGetLog_DTAC {
     // ======================================================
     private static Set<String> loadExistingLogNames() {
         Set<String> names = new HashSet<>();
-        File dir = new File(fileInput.getLog());
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isFile()) names.add(f.getName());
+        Path dir = Paths.get(fileInput.getLog());
+        if (!Files.isDirectory(dir)) {
+            return names;
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path path : stream) {
+                if (path == null || !Files.isRegularFile(path)) continue;
+                Path fileName = path.getFileName();
+                if (fileName != null) {
+                    names.add(fileName.toString());
+                }
             }
+        } catch (IOException | SecurityException e) {
+            System.out.println("[WARN] Cannot scan existing DTAC logs: " + e.getMessage());
         }
         return names;
     }
@@ -700,38 +710,49 @@ public class BotGetLog_DTAC {
         return String.valueOf(originalName) + "_deleted_" + ts + "_" + safeReason;
     }
 
-    private static List<File> findMatchingLogFiles(int excelRow, List<String> cmdSetCandidates) {
-        List<File> matches = new ArrayList<>();
-        if (cmdSetCandidates == null || cmdSetCandidates.isEmpty()) return matches;
+    private interface MatchingLogAction {
+        void accept(File file);
+    }
 
-        File dir = new File(fileInput.getLog());
-        File[] files = dir.listFiles();
-        if (files == null) return matches;
+    private static void forEachMatchingLogFile(int excelRow, List<String> cmdSetCandidates,
+                                               MatchingLogAction action) {
+        if (cmdSetCandidates == null || cmdSetCandidates.isEmpty() || action == null) return;
+
+        Path dir = Paths.get(fileInput.getLog());
+        if (!Files.isDirectory(dir)) return;
 
         String prefix = "[" + excelRow + "]";
-        for (File file : files) {
-            if (file == null || !file.isFile()) continue;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path path : stream) {
+                if (path == null || !Files.isRegularFile(path)) continue;
 
-            String name = file.getName();
-            if (!name.startsWith(prefix)) continue;
-            if (!matchesAnyCmdSetName(name, cmdSetCandidates)) continue;
+                Path fileName = path.getFileName();
+                if (fileName == null) continue;
+                String name = fileName.toString();
+                if (!name.startsWith(prefix)) continue;
+                if (!matchesAnyCmdSetName(name, cmdSetCandidates)) continue;
 
-            matches.add(file);
+                action.accept(path.toFile());
+            }
+        } catch (IOException | SecurityException e) {
+            System.out.println("[WARN] Cannot scan matching DTAC logs: " + e.getMessage());
         }
-
-        matches.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
-        return matches;
     }
 
     private static File findLatestMatchingLogFile(int excelRow, List<String> cmdSetCandidates) {
-        List<File> matches = findMatchingLogFiles(excelRow, cmdSetCandidates);
-        return matches.isEmpty() ? null : matches.get(0);
+        final File[] latest = new File[1];
+        forEachMatchingLogFile(excelRow, cmdSetCandidates, file -> {
+            File current = latest[0];
+            if (current == null || file.lastModified() > current.lastModified()) {
+                latest[0] = file;
+            }
+        });
+        return latest[0];
     }
 
     private static void deleteMatchingLogFiles(int excelRow, List<String> cmdSetCandidates, String reason) {
-        for (File file : findMatchingLogFiles(excelRow, cmdSetCandidates)) {
-            deleteLogFileQuietly(file, reason);
-        }
+        forEachMatchingLogFile(excelRow, cmdSetCandidates,
+                file -> deleteLogFileQuietly(file, reason));
     }
 
     private static TaskRunResult runTaskWithCompletionCheck(DeviceTask task, String sshUser, String sshPass) {
