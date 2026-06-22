@@ -68,6 +68,56 @@ private static volatile boolean CMDSET_CACHE_READY = false;
         }
     }
 
+    private static final class PasswordKeyboardInteractiveUserInfo implements UserInfo, UIKeyboardInteractive {
+        private final String password;
+
+        PasswordKeyboardInteractiveUserInfo(String password) {
+            this.password = password == null ? "" : password;
+        }
+
+        @Override
+        public String getPassphrase() {
+            return null;
+        }
+
+        @Override
+        public String getPassword() {
+            return password;
+        }
+
+        @Override
+        public boolean promptPassword(String message) {
+            return true;
+        }
+
+        @Override
+        public boolean promptPassphrase(String message) {
+            return false;
+        }
+
+        @Override
+        public boolean promptYesNo(String message) {
+            return true;
+        }
+
+        @Override
+        public void showMessage(String message) {
+            // Non-interactive bot session.
+        }
+
+        @Override
+        public String[] promptKeyboardInteractive(String destination, String name,
+                                                  String instruction, String[] prompt,
+                                                  boolean[] echo) {
+            if (prompt == null) {
+                return new String[0];
+            }
+            String[] responses = new String[prompt.length];
+            Arrays.fill(responses, password);
+            return responses;
+        }
+    }
+
     // ====== STATIC BLOCK: init BouncyCastle + dhgex ======
 static {
     try {
@@ -75,37 +125,113 @@ static {
             Security.insertProviderAt(new BouncyCastleProvider(), 1);
         }
 
-        String kex =
-                "diffie-hellman-group-exchange-sha1," +
-                "diffie-hellman-group14-sha1," +
-                "diffie-hellman-group1-sha1," +
-                "diffie-hellman-group-exchange-sha256," +
-                "diffie-hellman-group14-sha256," +
-                "curve25519-sha256,curve25519-sha256@libssh.org," +
-                "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521";
-        JSch.setConfig("kex", kex);
-
-        String ciphers =
-                "aes128-ctr,aes192-ctr,aes256-ctr," +
-                "aes128-cbc,3des-cbc,des-cbc";
-
-        JSch.setConfig("cipher.c2s", ciphers);
-        JSch.setConfig("cipher.s2c", ciphers);
-
-        String current = JSch.getConfig("server_host_key");
-        if (current == null || current.isEmpty()) {
-            current = "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384," +
-                      "ecdsa-sha2-nistp521,rsa-sha2-512,rsa-sha2-256";
-        }
-        String updated = current + ",ssh-rsa,ssh-dss";
-        JSch.setConfig("server_host_key", updated);
+        configureWideSshCompatibility();
 
     } catch (Throwable t) {
-        System.out.println("[WARN] Cannot init BouncyCastle / kex/cipher: " + t);
+        System.out.println("[WARN] Cannot init BouncyCastle / SSH compatibility: " + t);
     }
 }
 
 // =====================================================
+
+    private static void configureWideSshCompatibility() {
+        appendJschConfigValues("kex",
+                "mlkem768x25519-sha256",
+                "curve25519-sha256", "curve25519-sha256@libssh.org",
+                "ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp521",
+                "diffie-hellman-group-exchange-sha256",
+                "diffie-hellman-group16-sha512",
+                "diffie-hellman-group18-sha512",
+                "diffie-hellman-group14-sha256",
+                "diffie-hellman-group-exchange-sha1",
+                "diffie-hellman-group14-sha1",
+                "diffie-hellman-group1-sha1");
+
+        appendJschConfigValues("cipher.c2s",
+                "chacha20-poly1305@openssh.com",
+                "aes128-gcm@openssh.com", "aes256-gcm@openssh.com",
+                "aes128-ctr", "aes192-ctr", "aes256-ctr",
+                "aes128-cbc", "aes192-cbc", "aes256-cbc",
+                "3des-cbc", "blowfish-cbc",
+                "arcfour256", "arcfour128", "arcfour");
+        appendJschConfigValues("cipher.s2c",
+                "chacha20-poly1305@openssh.com",
+                "aes128-gcm@openssh.com", "aes256-gcm@openssh.com",
+                "aes128-ctr", "aes192-ctr", "aes256-ctr",
+                "aes128-cbc", "aes192-cbc", "aes256-cbc",
+                "3des-cbc", "blowfish-cbc",
+                "arcfour256", "arcfour128", "arcfour");
+
+        appendJschConfigValues("mac.c2s",
+                "hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com",
+                "hmac-sha1-etm@openssh.com", "hmac-md5-etm@openssh.com",
+                "hmac-sha2-256", "hmac-sha2-512", "hmac-sha1",
+                "hmac-sha1-96", "hmac-md5", "hmac-md5-96");
+        appendJschConfigValues("mac.s2c",
+                "hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com",
+                "hmac-sha1-etm@openssh.com", "hmac-md5-etm@openssh.com",
+                "hmac-sha2-256", "hmac-sha2-512", "hmac-sha1",
+                "hmac-sha1-96", "hmac-md5", "hmac-md5-96");
+
+        appendJschConfigValues("server_host_key",
+                "ssh-ed25519",
+                "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+                "rsa-sha2-512", "rsa-sha2-256", "ssh-rsa", "ssh-dss");
+        appendJschConfigValues("PubkeyAcceptedAlgorithms",
+                "ssh-ed25519",
+                "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+                "rsa-sha2-512", "rsa-sha2-256", "ssh-rsa", "ssh-dss");
+        appendJschConfigValues("PubkeyAcceptedKeyTypes",
+                "ssh-ed25519",
+                "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+                "rsa-sha2-512", "rsa-sha2-256", "ssh-rsa", "ssh-dss");
+
+        if (JSch.getConfig("ssh-dss") == null || JSch.getConfig("ssh-dss").trim().isEmpty()) {
+            JSch.setConfig("ssh-dss", "com.jcraft.jsch.jce.SignatureDSA");
+        }
+    }
+
+    private static void appendJschConfigValues(String key, String... values) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        String current = JSch.getConfig(key);
+        if (current != null && !current.trim().isEmpty()) {
+            String[] parts = current.split("\\s*,\\s*");
+            for (String part : parts) {
+                if (part != null && !part.trim().isEmpty()) {
+                    merged.add(part.trim());
+                }
+            }
+        }
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && !value.trim().isEmpty()) {
+                    merged.add(value.trim());
+                }
+            }
+        }
+        if (!merged.isEmpty()) {
+            JSch.setConfig(key, joinCsv(merged));
+        }
+    }
+
+    private static String joinCsv(Collection<String> values) {
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(value);
+        }
+        return sb.toString();
+    }
+
+    private static Properties buildSessionConfig() {
+        Properties config = new Properties();
+        config.put("StrictHostKeyChecking", "no");
+        config.put("PreferredAuthentications", "password,keyboard-interactive,publickey");
+        config.put("NumberOfPasswordPrompts", "1");
+        return config;
+    }
 
     // =====================================================
 
@@ -133,11 +259,8 @@ static {
 
             testSession = jsch.getSession(targetUser, targetHost, SSH_PORT);
             testSession.setPassword(pass);
-
-            Properties config = new Properties();
-            config.put("StrictHostKeyChecking", "no");
-            config.put("PreferredAuthentications", "password,keyboard-interactive,publickey");
-            testSession.setConfig(config);
+            testSession.setUserInfo(new PasswordKeyboardInteractiveUserInfo(pass));
+            testSession.setConfig(buildSessionConfig());
 
             testSession.connect(CONNECT_TIMEOUT_MS);
             testSession.setTimeout(SESSION_SOCKET_TIMEOUT_MS);
@@ -334,13 +457,8 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 
     session = jsch.getSession(user, host, port);
     session.setPassword(pass);
-
-    Properties config = new Properties();
-    config.put("StrictHostKeyChecking", "no");
-
-    config.put("PreferredAuthentications", "password,keyboard-interactive,publickey");
-
-    session.setConfig(config);
+    session.setUserInfo(new PasswordKeyboardInteractiveUserInfo(pass));
+    session.setConfig(buildSessionConfig());
 
     logwork("[DEBUG] Try SSH " + host + " user=" + user +
             " auth=" + session.getConfig("PreferredAuthentications") + "\n");
