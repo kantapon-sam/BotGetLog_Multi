@@ -247,6 +247,7 @@ public class BotGetLog_TrueCorp {
             "10.163.10.181"
     ));
     private static volatile CachedSettings cachedSettings = CachedSettings.empty();
+    private static volatile GatewayPool currentGatewayPool;
     private static volatile long lastProgressConsoleUpdateMs = 0L;
     private static final int GATEWAY_SSH_PORT = 22;
     private static final int GATEWAY_TELNET_PORT = 23;
@@ -263,6 +264,7 @@ public class BotGetLog_TrueCorp {
 
     private static final class CachedSettings {
         final String server;
+        final List<String> gatewayServers;
         final String userServer;
         final String pwServer;
         final String userCLLS;
@@ -272,7 +274,15 @@ public class BotGetLog_TrueCorp {
 
         CachedSettings(String server, String userServer, String pwServer,
                 String userCLLS, String pwCLLS, String userL2, String pwL2) {
-            this.server = safeValue(server);
+            this(singletonGatewayServer(server), userServer, pwServer,
+                    userCLLS, pwCLLS, userL2, pwL2);
+        }
+
+        CachedSettings(List<String> gatewayServers, String userServer, String pwServer,
+                String userCLLS, String pwCLLS, String userL2, String pwL2) {
+            List<String> normalizedServers = normalizeGatewayServers(gatewayServers);
+            this.gatewayServers = Collections.unmodifiableList(normalizedServers);
+            this.server = normalizedServers.isEmpty() ? "" : normalizedServers.get(0);
             this.userServer = safeValue(userServer);
             this.pwServer = safeValue(pwServer);
             this.userCLLS = safeValue(userCLLS);
@@ -287,6 +297,128 @@ public class BotGetLog_TrueCorp {
 
         boolean isConfigured() {
             return !server.isEmpty();
+        }
+    }
+
+    private static final class GatewayPool {
+        private final List<GatewaySlot> slots;
+        private final Semaphore available;
+        private final AtomicInteger nextSlot = new AtomicInteger(0);
+
+        GatewayPool(List<String> servers, int totalSessionCapacity) {
+            List<String> normalizedServers = normalizeGatewayServers(servers);
+            if (normalizedServers.isEmpty()) {
+                throw new IllegalArgumentException("At least one gatewayHost is required.");
+            }
+            int totalCapacity = Math.max(1, totalSessionCapacity);
+            int activeGatewayCount = Math.min(normalizedServers.size(), totalCapacity);
+            int baseCapacity = totalCapacity / activeGatewayCount;
+            int remainder = totalCapacity % activeGatewayCount;
+            List<GatewaySlot> configuredSlots = new ArrayList<>();
+            for (int i = 0; i < activeGatewayCount; i++) {
+                int gatewayCapacity = baseCapacity + (i < remainder ? 1 : 0);
+                configuredSlots.add(new GatewaySlot(normalizedServers.get(i), gatewayCapacity));
+            }
+            this.slots = Collections.unmodifiableList(configuredSlots);
+            this.available = new Semaphore(totalCapacity, true);
+        }
+
+        GatewayLease acquire() throws InterruptedException {
+            available.acquire();
+            boolean assigned = false;
+            try {
+                int start = Math.floorMod(nextSlot.getAndIncrement(), slots.size());
+                for (int offset = 0; offset < slots.size(); offset++) {
+                    GatewaySlot slot = slots.get((start + offset) % slots.size());
+                    if (slot.permits.tryAcquire()) {
+                        int active = slot.active.incrementAndGet();
+                        assigned = true;
+                        return new GatewayLease(this, slot, active);
+                    }
+                }
+                throw new IllegalStateException("Gateway capacity was reserved but no gateway slot was available.");
+            } finally {
+                if (!assigned) {
+                    available.release();
+                }
+            }
+        }
+
+        int totalCapacity() {
+            return available.availablePermits() + activeCount();
+        }
+
+        int activeCount() {
+            int active = 0;
+            for (GatewaySlot slot : slots) {
+                active += slot.active.get();
+            }
+            return active;
+        }
+
+        String describe() {
+            List<String> descriptions = new ArrayList<>();
+            for (GatewaySlot slot : slots) {
+                descriptions.add(Telnet_Multi.extractGatewayHost(slot.server)
+                        + " max=" + slot.maxSessions);
+            }
+            return String.join(", ", descriptions);
+        }
+
+        private void release(GatewaySlot slot) {
+            slot.active.decrementAndGet();
+            slot.permits.release();
+            available.release();
+        }
+    }
+
+    private static final class GatewaySlot {
+        final String server;
+        final int maxSessions;
+        final Semaphore permits;
+        final AtomicInteger active = new AtomicInteger(0);
+
+        GatewaySlot(String server, int maxSessions) {
+            this.server = server;
+            this.maxSessions = maxSessions;
+            this.permits = new Semaphore(maxSessions, true);
+        }
+    }
+
+    private static final class GatewayLease implements AutoCloseable {
+        private final GatewayPool pool;
+        private final GatewaySlot slot;
+        private final int activeAtAcquire;
+        private boolean closed;
+
+        GatewayLease(GatewayPool pool, GatewaySlot slot, int activeAtAcquire) {
+            this.pool = pool;
+            this.slot = slot;
+            this.activeAtAcquire = activeAtAcquire;
+        }
+
+        String getServer() {
+            return slot.server;
+        }
+
+        String getHost() {
+            return Telnet_Multi.extractGatewayHost(slot.server);
+        }
+
+        int getActiveAtAcquire() {
+            return activeAtAcquire;
+        }
+
+        int getMaxSessions() {
+            return slot.maxSessions;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                closed = true;
+                pool.release(slot);
+            }
         }
     }
 
@@ -515,7 +647,24 @@ public class BotGetLog_TrueCorp {
 
     private static void updateCachedSettings(String server, String userServer, String pwServer,
             String userCLLS, String pwCLLS, String userL2, String pwL2) {
-        cachedSettings = new CachedSettings(server, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
+        List<String> existingServers = cachedSettings.gatewayServers;
+        if (existingServers.isEmpty() || !safeValue(server).equals(existingServers.get(0))) {
+            existingServers = singletonGatewayServer(server);
+        }
+        updateCachedSettings(existingServers, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
+    }
+
+    private static void updateCachedSettings(List<String> gatewayServers, String userServer, String pwServer,
+            String userCLLS, String pwCLLS, String userL2, String pwL2) {
+        cachedSettings = new CachedSettings(gatewayServers, userServer, pwServer,
+                userCLLS, pwCLLS, userL2, pwL2);
+    }
+
+    private static synchronized GatewayPool getOrCreateGatewayPool(List<String> gatewayServers, int totalCapacity) {
+        if (currentGatewayPool == null) {
+            currentGatewayPool = new GatewayPool(gatewayServers, totalCapacity);
+        }
+        return currentGatewayPool;
     }
 
     private static String preferNonEmpty(String preferred, String fallback) {
@@ -685,6 +834,42 @@ public class BotGetLog_TrueCorp {
         return normalizedHost;
     }
 
+    private static List<String> singletonGatewayServer(String server) {
+        String value = safeValue(server);
+        if (value.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(Collections.singletonList(value));
+    }
+
+    private static List<String> normalizeGatewayServers(List<String> servers) {
+        LinkedHashSet<String> uniqueServers = new LinkedHashSet<>();
+        if (servers != null) {
+            for (String server : servers) {
+                String value = safeValue(server);
+                if (!value.isEmpty()) {
+                    uniqueServers.add(value);
+                }
+            }
+        }
+        return new ArrayList<>(uniqueServers);
+    }
+
+    private static List<String> buildGatewayServerValues(String hostValues, String portValue) {
+        List<String> servers = new ArrayList<>();
+        String rawHosts = safeValue(hostValues);
+        if (rawHosts.isEmpty()) {
+            return servers;
+        }
+        for (String host : rawHosts.split("[,;\\r\\n]+")) {
+            String server = buildGatewayServerValue(host, portValue);
+            if (!server.isEmpty() && !servers.contains(server)) {
+                servers.add(server);
+            }
+        }
+        return servers;
+    }
+
     private static CachedSettings loadSettingsFromSheet(Sheet sheet) {
         if (sheet == null) {
             throw new IllegalArgumentException("Missing '" + TRUE_SETTING_SHEET + "' sheet.");
@@ -693,17 +878,17 @@ public class BotGetLog_TrueCorp {
         Map<String, String> settings = readSettingValues(sheet);
         String legacyServer = firstSettingValue(settings, "server");
         String legacySshHost = firstSettingValue(settings, "sshHost");
-        String gatewayHost = firstSettingValue(settings, "gatewayHost", "sshHost", "server");
+        String gatewayHost = firstSettingValue(settings, "gatewayHosts", "gatewayHost", "sshHost", "server");
         String gatewayPort = firstSettingValue(settings, "gatewayPort");
 
-        String server = buildGatewayServerValue(gatewayHost, gatewayPort);
-        if (server.isEmpty()) {
-            server = buildGatewayServerValue(legacyServer, "");
+        List<String> gatewayServers = buildGatewayServerValues(gatewayHost, gatewayPort);
+        if (gatewayServers.isEmpty()) {
+            gatewayServers = buildGatewayServerValues(legacyServer, "");
         }
-        if (server.isEmpty() && !legacySshHost.isEmpty()) {
-            server = "ssh://" + stripGatewayScheme(legacySshHost);
+        if (gatewayServers.isEmpty() && !legacySshHost.isEmpty()) {
+            gatewayServers.add("ssh://" + stripGatewayScheme(legacySshHost));
         }
-        if (server.isEmpty()) {
+        if (gatewayServers.isEmpty()) {
             throw new IllegalArgumentException("Missing 'gatewayHost' in " + TRUE_SETTING_SHEET + " sheet.");
         }
 
@@ -723,7 +908,7 @@ public class BotGetLog_TrueCorp {
             System.out.println("[INFO] Default gatewayPassword applied: ********");
         }
 
-        return new CachedSettings(server, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
+        return new CachedSettings(gatewayServers, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
     }
 
     public static int copyCachedCommands(String cmdSet, String[] targetCommand) {
@@ -966,6 +1151,12 @@ public class BotGetLog_TrueCorp {
     }
 
     private static CredentialInput loadStartupCllsCredentials(PathFile fileInput) {
+        TrueCllsCredentialStore.StoredCredential storedCredential = TrueCllsCredentialStore.load();
+        if (storedCredential.isComplete()) {
+            System.out.println("[INFO] Loaded CLLS credentials from encrypted local store.");
+            return new CredentialInput(storedCredential.username, storedCredential.password);
+        }
+
         if (fileInput == null) {
             return new CredentialInput("", "");
         }
@@ -984,11 +1175,23 @@ public class BotGetLog_TrueCorp {
             Map<String, String> settings = readSettingValues(settingSheet);
             String username = firstSettingValue(settings, "cllsUsername", "userCLLS");
             String password = firstSettingValue(settings, "cllsPassword", "pwCLLS");
+            if (!username.isEmpty() && !password.isEmpty()) {
+                System.out.println("[INFO] Loaded CLLS credentials from Excel settings.");
+            }
             return new CredentialInput(username, password);
         } catch (Exception e) {
             System.out.println("[WARN] Cannot preload CLLS credentials from Excel: " + e.getMessage());
             return new CredentialInput("", "");
         }
+    }
+
+    private static CredentialInput rememberCllsCredentials(String username, String password) {
+        CredentialInput credentials = new CredentialInput(username, password);
+        if (TrueCllsCredentialStore.save(credentials.username, credentials.password)) {
+            System.out.println("[INFO] Saved TRUE CLLS credentials to encrypted local store: "
+                    + TrueCllsCredentialStore.getStoreFile().getAbsolutePath());
+        }
+        return credentials;
     }
 
     private static Workbook openWorkbookReadOnly(File excelFile) throws IOException {
@@ -1040,7 +1243,7 @@ public class BotGetLog_TrueCorp {
             }
 
             if (validationTargets == null || validationTargets.isEmpty()) {
-                return new CredentialInput(currentUsername, currentPassword);
+                return rememberCllsCredentials(currentUsername, currentPassword);
             }
 
             List<String> retryableMessages = new ArrayList<>();
@@ -1063,7 +1266,7 @@ public class BotGetLog_TrueCorp {
                 );
 
                 if (result.isSuccess()) {
-                    return new CredentialInput(currentUsername, currentPassword);
+                    return rememberCllsCredentials(currentUsername, currentPassword);
                 }
 
                 if (result.isInvalidCredentials()) {
@@ -1082,6 +1285,10 @@ public class BotGetLog_TrueCorp {
             }
 
             if (invalidCredentials) {
+                if (java.awt.GraphicsEnvironment.isHeadless()) {
+                    System.out.println("[ERROR] TRUE CLLS username/password rejected during validation.");
+                    return null;
+                }
                 JOptionPane.showMessageDialog(
                         null,
                         "Username or Password is incorrect.\nPlease try again.",
@@ -1095,7 +1302,15 @@ public class BotGetLog_TrueCorp {
 
             if (gatewayConfirmationOnlyFailures && retryableMessages.size() >= 3) {
                 System.out.println("[INFO] CLLS validation could not confirm the gateway prompt; continuing with the supplied credentials.");
-                return new CredentialInput(currentUsername, currentPassword);
+                return rememberCllsCredentials(currentUsername, currentPassword);
+            }
+
+            if (java.awt.GraphicsEnvironment.isHeadless()) {
+                System.out.println("[WARN] CLLS validation could not fully confirm this login; continuing in headless mode.");
+                for (String message : retryableMessages) {
+                    System.out.println("[WARN] " + safeValue(message));
+                }
+                return rememberCllsCredentials(currentUsername, currentPassword);
             }
 
             int choice = showValidationRecoveryDialog(retryableMessages);
@@ -1104,71 +1319,83 @@ public class BotGetLog_TrueCorp {
                 continue;
             }
             if (choice == 1) {
-                return new CredentialInput(currentUsername, currentPassword);
+                return rememberCllsCredentials(currentUsername, currentPassword);
             }
             return null;
         }
     }
     public static void main(String[] args) {
         AppConsole.install();
-        if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
+        final boolean headlessAutoRun = TrueLinkOpticalAutoMode.isEnabled(args)
+                && java.awt.GraphicsEnvironment.isHeadless();
+        if (!AppMetadata.isRunningFromIde()
+                && !headlessAutoRun
+                && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
         backgroundWorkersActive = true;
 
         //   Sleep +  beep - 5 -
-        antiSleepTimer = new java.util.Timer("anti-sleep", true);
-        antiSleepTimer.schedule(new TimerTask() {
-            Robot robot;
-            int toggle = 1;
+        if (!headlessAutoRun) {
+            antiSleepTimer = new java.util.Timer("anti-sleep", true);
+            antiSleepTimer.schedule(new TimerTask() {
+                Robot robot;
+                int toggle = 1;
 
-            {
-                try {
-                    robot = new Robot();
-                } catch (Exception e) {
-                    System.out.println("[WARN] Cannot initialize Robot: " + e.getMessage());
-                }
-            }
-
-            @Override
-            public void run() {
-                if (!shouldBackgroundWorkersRun()) {
-                    return;
-                }
-                try {
-                    if (robot != null) {
-                        //  
-                        Point p = MouseInfo.getPointerInfo().getLocation();
-                        robot.mouseMove(p.x + toggle, p.y + toggle);
-                        robot.mouseMove(p.x, p.y);
-                        toggle = -toggle;
-
-                        if (BotGetLog_TrueCorp.isAlarmEnabled()) {
-                            Toolkit.getDefaultToolkit().beep();
-                        }
-
-                        System.out.println("[ANTI-SLEEP] Mouse moved & beeped at "
-                                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                {
+                    try {
+                        robot = new Robot();
+                    } catch (Exception e) {
+                        System.out.println("[WARN] Cannot initialize Robot: " + e.getMessage());
                     }
-                } catch (Exception ignored) {
                 }
-            }
-        }, 0, 5000); //  - 5 -
+
+                @Override
+                public void run() {
+                    if (!shouldBackgroundWorkersRun()) {
+                        return;
+                    }
+                    try {
+                        if (robot != null) {
+                            //
+                            Point p = MouseInfo.getPointerInfo().getLocation();
+                            robot.mouseMove(p.x + toggle, p.y + toggle);
+                            robot.mouseMove(p.x, p.y);
+                            toggle = -toggle;
+
+                            if (BotGetLog_TrueCorp.isAlarmEnabled()) {
+                                Toolkit.getDefaultToolkit().beep();
+                            }
+
+                            System.out.println("[ANTI-SLEEP] Mouse moved & beeped at "
+                                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }, 0, 5000); //  - 5 -
+        }
 
         //   GUI  Event Dispatch Thread
-        SwingUtilities.invokeLater(StopProgram::new);
+        if (!headlessAutoRun) {
+            SwingUtilities.invokeLater(StopProgram::new);
+        }
 
         //   Thread   GUI
         new Thread(() -> {
-            while (StopProgram.getInstance() == null) {
-                try {
-                    Thread.sleep(200);
-                } catch (InterruptedException ignored) {
+            if (!headlessAutoRun) {
+                while (StopProgram.getInstance() == null) {
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException ignored) {
+                    }
                 }
             }
             System.out.println("[STARTUP] BotGetLog Multithread initialized");
 
-            Dialog.setLAF();
+            if (!headlessAutoRun) {
+                Dialog.setLAF();
+            }
             Dialog D = new Dialog();
             PathFile FileInput = new PathFile();
             //   Log 
@@ -1177,6 +1404,12 @@ public class BotGetLog_TrueCorp {
 
             CredentialInput startupCllsCredentials = loadStartupCllsCredentials(FileInput);
             if (startupCllsCredentials.username.isEmpty() || startupCllsCredentials.password.isEmpty()) {
+                if (headlessAutoRun) {
+                    realOut.println("[ERROR] Missing TRUE CLLS credentials for headless auto mode. "
+                            + "Run TrueCllsCredentialCli on this server first.");
+                    requestImmediateShutdown("Missing TRUE CLLS credentials", 1);
+                    return;
+                }
                 startupCllsCredentials = promptForRequiredCllsCredentials(
                         startupCllsCredentials.username,
                         startupCllsCredentials.password);
@@ -1186,7 +1419,7 @@ public class BotGetLog_TrueCorp {
                     return;
                 }
             } else {
-                System.out.println("[INFO] Loaded CLLS credentials from Excel settings.");
+                System.out.println("[INFO] Loaded CLLS credentials from saved settings.");
             }
 
             int Num_row = 2; //  -- 2  ( header)
@@ -1197,6 +1430,22 @@ public class BotGetLog_TrueCorp {
                 File excelFile = new File(FileInput.getUserInterface_Input());
                 if (!excelFile.exists()) {
                     throw new FileNotFoundException(" Excel file not found: " + excelFile.getAbsolutePath());
+                }
+                if (TrueLinkOpticalAutoMode.isEnabled(args)) {
+                    File dataQualityFile = resolveLldpDataQualityFile(args);
+                    if (dataQualityFile != null && dataQualityFile.isFile()) {
+                        TrueLinkOpticalInputUpdater.UpdateResult dataQualityUpdate
+                                = TrueLinkOpticalInputUpdater.updateFromDataQualityFile(FileInput, dataQualityFile);
+                        realOut.printf("[AUTO-INPUT] LLDP data quality import: added=%d duplicateIp=%d duplicateDevice=%d duplicateInRun=%d file=%s%n",
+                                dataQualityUpdate.added,
+                                dataQualityUpdate.duplicateIp,
+                                dataQualityUpdate.duplicateDevice,
+                                dataQualityUpdate.duplicateInRun,
+                                dataQualityFile.getAbsolutePath());
+                    } else if (dataQualityFile != null) {
+                        realOut.printf("[AUTO-INPUT] LLDP data quality file not found, skip import: %s%n",
+                                dataQualityFile.getAbsolutePath());
+                    }
                 }
 
                 File tempCopy = new File(System.getProperty("java.io.tmpdir"),
@@ -1226,6 +1475,7 @@ public class BotGetLog_TrueCorp {
                 }
 
                 String server = "", User_server = "", PW_server = "";
+                List<String> gatewayServers = new ArrayList<>();
                 String User_CLLS = "", PW_CLLS = "";
                 String User_L2 = "", PW_L2 = "";
 
@@ -1234,6 +1484,29 @@ public class BotGetLog_TrueCorp {
                 Map<String, String> trueSettings = readSettingValues(trueSettingSheet);
                 int configuredThreadPoolSize = firstSettingInt(trueSettings, DEFAULT_THREAD_POOL_SIZE,
                         "threadPoolSize", "thread", "threads", "maxThreads");
+                TrueLinkOpticalAutoMode.Selection linkOpticalSelection
+                        = TrueLinkOpticalAutoMode.resolveSelection(args, trueDeviceSheet);
+                if (linkOpticalSelection == null) {
+                    realOut.println("[INFO] TRUE Link Optical Auto cancelled before running tasks.");
+                    requestImmediateShutdown("TRUE Link Optical Auto cancelled", 0);
+                    return;
+                }
+                if (linkOpticalSelection.isEnabled()) {
+                    realOut.printf("[AUTO-LINK] TRUE Link Optical mode selected: %s | sites=%d | commands=%d%n",
+                            linkOpticalSelection.getModeName(),
+                            linkOpticalSelection.getSiteCount(),
+                            linkOpticalSelection.getCommandCount());
+                    if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
+                        int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
+                                new File(FileInput.getLog()), linkOpticalSelection);
+                        String cleanupMode = linkOpticalSelection.isIncremental()
+                                ? "Incremental down rerun"
+                                : "Manual selected rerun";
+                        realOut.printf("[AUTO-LINK] %s cleanup: moved %d old selected log file(s) to Deleted_Log.%n",
+                                cleanupMode, movedLogs);
+                    }
+                    TrueDeviceInventoryUpdater.reset();
+                }
 
                 for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
                     Sheet sheet = workbook.getSheetAt(i);
@@ -1243,11 +1516,17 @@ public class BotGetLog_TrueCorp {
                         try {
                             loadedSettings = loadSettingsFromSheet(sheet);
                         } catch (IllegalArgumentException e) {
-                            D.Error(e.getMessage());
+                            if (headlessAutoRun) {
+                                realOut.println("[ERROR] " + e.getMessage());
+                                requestImmediateShutdown("TRUE setting error", 1);
+                            } else {
+                                D.Error(e.getMessage());
+                            }
                             return;
                         }
 
                         server = loadedSettings.server;
+                        gatewayServers = loadedSettings.gatewayServers;
                         User_server = loadedSettings.userServer;
                         PW_server = loadedSettings.pwServer;
                         User_CLLS = loadedSettings.userCLLS;
@@ -1258,7 +1537,12 @@ public class BotGetLog_TrueCorp {
                         PW_CLLS = startupCllsCredentials.password;
 
 //  CLLS credentials
-                        List<ValidationTarget> validationTargets = collectValidationTargets(null);
+                        List<ValidationTarget> validationTargets = shouldSkipCllsValidation(args)
+                                ? Collections.<ValidationTarget>emptyList()
+                                : collectValidationTargets(null);
+                        if (validationTargets.isEmpty()) {
+                            realOut.println("[WARN] TRUE CLLS pre-validation skipped.");
+                        }
                         CredentialInput enteredCredentials = promptForValidatedCllsCredentials(
                                 server, User_server, PW_server,
                                 User_CLLS, PW_CLLS,
@@ -1279,7 +1563,8 @@ public class BotGetLog_TrueCorp {
                         if (PW_L2 == null) {
                             PW_L2 = "";
                         }
-                        updateCachedSettings(server, User_server, PW_server, User_CLLS, PW_CLLS, User_L2, PW_L2);
+                        updateCachedSettings(gatewayServers, User_server, PW_server,
+                                User_CLLS, PW_CLLS, User_L2, PW_L2);
                         System.out.println("[INFO] Fast Mode removed: all safety monitors are always active.");
 
                         if (trueDeviceSheet == null) {
@@ -1289,7 +1574,8 @@ public class BotGetLog_TrueCorp {
                         trueDeviceSheetName = trueDeviceSheet.getSheetName();
                         rebuildExcelCacheForSelection(workbook, trueDeviceSheetName);
 
-                        try {
+                        if (!headlessAutoRun) {
+                            try {
                                 final String pingTarget = Telnet_Multi.extractGatewayHost(server);
                                 final int PING_INTERVAL_MS = 5000;   // ping - 5 
                                 final int RETRY_INTERVAL_MS = 5000;  // retry - 5 
@@ -1447,13 +1733,14 @@ public class BotGetLog_TrueCorp {
                                 pingThread.start();
                             } catch (Exception e) {
                                 System.out.println("[WARN] Unable to start ping thread: " + e.getMessage());
+                            }
                         }
 
                     } else if (trueDeviceSheetName.equals(sheet.getSheetName())) {
                         List<Integer> indexRowList = new ArrayList<>();
                         for (Row row : sheet) {
                             try {
-                                if (shouldRunDeviceRow(row)
+                                if (TrueLinkOpticalAutoMode.shouldRunRow(linkOpticalSelection, row)
                                         && !getCell(row, 2).isEmpty()
                                         && !getCell(row, 3).isEmpty()
                                         && Num_row <= row.getRowNum() + 1) {
@@ -1469,16 +1756,17 @@ public class BotGetLog_TrueCorp {
                         Map<Integer, List<NodeCommandTask>> cmdSetBatches = new LinkedHashMap<>();
                         for (int rowIdx : indexRowList) {
                             Row row = sheet.getRow(rowIdx);
-                            if (!shouldRunDeviceRow(row)) {
+                            if (!TrueLinkOpticalAutoMode.shouldRunRow(linkOpticalSelection, row)) {
                                 continue;
                             }
                             String device = getCell(row, 2);
                             String loopback = getCell(row, 3);
-                            for (int k = 4; k < row.getLastCellNum(); k++) {
-                                String cmdSet = getCell(row, k).trim();
+                            List<String> selectedCmdSets = TrueLinkOpticalAutoMode.getCmdSetsForRow(linkOpticalSelection, row);
+                            for (int k = 0; k < selectedCmdSets.size(); k++) {
+                                String cmdSet = selectedCmdSets.get(k).trim();
                                 if (!cmdSet.isEmpty()) {
                                     totalCmdSets++;
-                                    int cmdSetOrder = k - 3;
+                                    int cmdSetOrder = k + 1;
                                     cmdSetBatches
                                             .computeIfAbsent(cmdSetOrder, key -> new ArrayList<>())
                                             .add(new NodeCommandTask(rowIdx + 1, device, loopback, cmdSet, cmdSetOrder));
@@ -1491,12 +1779,11 @@ public class BotGetLog_TrueCorp {
                         realOut.printf("[INFO] Total commands to process: %d%n", totalNodes);
 
                         if (totalNodes == 0) {
-                            realOut.println(" No command marked as Y in Excel.");
-                            return;
-                        }
-
-                        if (totalNodes == 0) {
-                            realOut.println(" No device marked as Y in Excel.");
+                            if (linkOpticalSelection.isEnabled()) {
+                                realOut.println(" No TRUE Link Optical command selected.");
+                            } else {
+                                realOut.println(" No command marked as Y in Excel.");
+                            }
                             return;
                         }
 //   background monitor  (- Telnet)
@@ -1509,6 +1796,10 @@ public class BotGetLog_TrueCorp {
                         Telnet_Multi.configureNormalTelnetLimit(initialThreads);
                         realOut.printf("[INFO] Thread pool size: %d (configured=%d, max=%d)%n",
                                 initialThreads, configuredThreadPoolSize, MAX_THREAD_POOL_SIZE);
+                        final GatewayPool runGatewayPool = new GatewayPool(gatewayServers, initialThreads);
+                        currentGatewayPool = runGatewayPool;
+                        realOut.printf("[GATEWAY-POOL] %s | total sessions=%d%n",
+                                runGatewayPool.describe(), runGatewayPool.totalCapacity());
 
                         ThreadPoolExecutor exec = new ThreadPoolExecutor(
                                 initialThreads, //  Core - permit 
@@ -1606,10 +1897,7 @@ public class BotGetLog_TrueCorp {
                                             for (File f : logFiles) {
                                                 String fileName = f.getName();
 
-                                                //  -  Device/Loopback
-                                                //  [row] + cmdSet
-                                                if (fileName.startsWith("[" + rowNum + "]")
-                                                        && isEquivalentCmdSet(cmdSet, extractCmdSetFromLogName(fileName))) {
+                                                if (isMatchingCurrentNodeLogName(fileName, rowNum, Loopback, cmdSet)) {
                                                     matchedLogList.add(f);
                                                 }
                                             }
@@ -1618,6 +1906,12 @@ public class BotGetLog_TrueCorp {
                                                 Collections.sort(matchedLogList, new Comparator<File>() {
                                                     @Override
                                                     public int compare(File f1, File f2) {
+                                                        boolean f1Complete = isLogCompleteForLogFileCmdSet(f1, cmdSet);
+                                                        boolean f2Complete = isLogCompleteForLogFileCmdSet(f2, cmdSet);
+                                                        int completeCmp = Boolean.compare(f2Complete, f1Complete);
+                                                        if (completeCmp != 0) {
+                                                            return completeCmp;
+                                                        }
                                                         return compareLogPriority(f1, f2);
                                                     }
                                                 });
@@ -1691,7 +1985,7 @@ public class BotGetLog_TrueCorp {
                                 final String fCmd = cmdSet;
                                 final int fRowNum = rowNum;
                                 final PathFile fFile = FileInput;
-                                final String fServer = server, fUsrS = User_server, fPwdS = PW_server;
+                                final String fUsrS = User_server, fPwdS = PW_server;
                                 final String fUsrC = User_CLLS, fPwdC = PW_CLLS;
                                 final String fUsrL2 = User_L2, fPwdL2 = PW_L2;
                                 final String fFirstCommand = firstCommand;
@@ -1701,6 +1995,7 @@ public class BotGetLog_TrueCorp {
                                     batchFutures.add(exec.submit(() -> {
                                     ACTIVE_TASKS.incrementAndGet();
                                     boolean telnetPermitAcquired = false;
+                                    GatewayLease gatewayLease = null;
                                     boolean countProgress = false;
                                     try {
                                         if (isShutdownRequested()) {
@@ -1713,6 +2008,7 @@ public class BotGetLog_TrueCorp {
                                         //  - Telnet ( concurrent)
                                         Telnet_Multi.TELNET_LIMIT.acquire();
                                         telnetPermitAcquired = true;
+                                        gatewayLease = runGatewayPool.acquire();
 
                                         if (isShutdownRequested()) {
                                             realOut.printf("[STOP] Skip Row %d %s [%s] after TELNET permit because shutdown was requested%n",
@@ -1726,6 +2022,9 @@ public class BotGetLog_TrueCorp {
                                                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                                         realOut.printf("\n[RUN] Row %d  %s (%s) [%s]%n",
                                                 fRowNum, fDev, fLoop, fCmd);
+                                        realOut.printf("[GATEWAY] Row %d -> %s (%d/%d sessions)%n",
+                                                fRowNum, gatewayLease.getHost(),
+                                                gatewayLease.getActiveAtAcquire(), gatewayLease.getMaxSessions());
                                         logwork("[START] " + fRowNum + " " + fDev + " [" + fLoop + "] " + now + "\n",
                                                 fFile.getLogWork());
 
@@ -1742,7 +2041,7 @@ public class BotGetLog_TrueCorp {
                                             }
 
                                             Telnet_Multi telnetObj = new Telnet_Multi(
-                                                    fServer, fUsrS, fPwdS,
+                                                    gatewayLease.getServer(), fUsrS, fPwdS,
                                                     fLoop, fUsrC, fPwdC,
                                                     fCmd, fDev, fRowNum,
                                                     fUsrL2, fPwdL2
@@ -1800,6 +2099,9 @@ public class BotGetLog_TrueCorp {
                                         BotGetLog_TrueCorp.recordTaskFailure(e);
                                     } finally {
                                         //  - ()
+                                        if (gatewayLease != null) {
+                                            gatewayLease.close();
+                                        }
                                         if (telnetPermitAcquired) {
                                             Telnet_Multi.TELNET_LIMIT.release();
                                         }
@@ -1853,6 +2155,15 @@ public class BotGetLog_TrueCorp {
 
                         if (executorDrained) {
                             cleanDuplicateLogs(new File(FileInput.getLog()));
+                            if (linkOpticalSelection.isEnabled()) {
+                                TrueDeviceInventoryUpdater.InventoryUpdateResult inventoryUpdate
+                                        = TrueDeviceInventoryUpdater.applyPendingUpdates(FileInput);
+                                realOut.printf("[AUTO-INPUT] Inventory Excel sync: rowsChanged=%d namesChanged=%d vendorsChanged=%d pending=%d%n",
+                                        inventoryUpdate.rowsChanged,
+                                        inventoryUpdate.namesChanged,
+                                        inventoryUpdate.vendorsChanged,
+                                        inventoryUpdate.pendingUpdates);
+                            }
                         } else {
                             realOut.println("[WARN] Skip duplicate cleanup because some re-run/log tasks are still active.");
                         }
@@ -1875,7 +2186,21 @@ public class BotGetLog_TrueCorp {
                             StopProgram.updateProgressFromBot(100, totalNodes, totalNodes);
                             stopBackgroundWorkers();
                             realOut.println("[INFO] Background workers stopped before success dialog.");
-                            D.ShowSuccess("All Devices Completed");
+                            if (linkOpticalSelection.isEnabled()) {
+                                logwork("[AUTO-LINK] Starting Link Optical export.\n", FileInput.getLogWork());
+                                TrueLinkOpticalAutoMode.runLinkOpticalExport(FileInput, linkOpticalSelection);
+                                if (headlessAutoRun) {
+                                    realOut.println("[OK] All Devices Completed - Link Optical Auto Finished");
+                                } else {
+                                    D.ShowSuccess("All Devices Completed\nLink Optical Auto Finished");
+                                }
+                            } else {
+                                if (headlessAutoRun) {
+                                    realOut.println("[OK] All Devices Completed");
+                                } else {
+                                    D.ShowSuccess("All Devices Completed");
+                                }
+                            }
                         }
                         //   log - Total_Log  rerun 
                     }
@@ -1884,7 +2209,11 @@ public class BotGetLog_TrueCorp {
             } catch (Exception ex) {
                 realOut.println(" Exception: " + ex);
                 logwork("[ERROR] " + ex + "\n", FileInput.getLogWork());
-                RunBatch(FileInput.getCurrentFolder());
+                if (headlessAutoRun) {
+                    requestImmediateShutdown("Headless TRUE Link Optical Auto failed", 1);
+                } else {
+                    RunBatch(FileInput.getCurrentFolder());
+                }
             } finally {
                 if (workbook != null) try {
                     workbook.close();
@@ -1900,7 +2229,7 @@ public class BotGetLog_TrueCorp {
     //  Utility Functions
     private static synchronized void logwork(String logWork, String file) {
         String fileName = BOT_LOG_DAY_FORMAT.format(LocalDateTime.now()) + ".txt";
-        String logPath = file + "\\" + fileName;
+        String logPath = new File(file, fileName).getPath();
         synchronized (BOT_LOG_LOCK) {
             try {
                 BufferedWriter log = getBotLogWriter(logPath);
@@ -1913,6 +2242,46 @@ public class BotGetLog_TrueCorp {
                 realOut.println(ex);
             }
         }
+    }
+
+    private static boolean shouldSkipCllsValidation(String[] args) {
+        if ("true".equalsIgnoreCase(safeValue(System.getenv("TRUE_CLLS_SKIP_VALIDATION")))) {
+            return true;
+        }
+        if (args == null) {
+            return false;
+        }
+        for (String arg : args) {
+            if ("--skip-clls-validation".equalsIgnoreCase(safeValue(arg))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static File resolveLldpDataQualityFile(String[] args) {
+        String path = firstArgValue(args, "--lldp-data-quality-file=");
+        if (path.isEmpty()) {
+            path = safeValue(System.getenv("LLDP_DATA_QUALITY_FILE"));
+        }
+        if (path.isEmpty()) {
+            return null;
+        }
+        return new File(path);
+    }
+
+    private static String firstArgValue(String[] args, String prefix) {
+        if (args == null || prefix == null) {
+            return "";
+        }
+        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
+        for (String arg : args) {
+            String value = safeValue(arg);
+            if (value.toLowerCase(Locale.ROOT).startsWith(lowerPrefix)) {
+                return value.substring(prefix.length()).trim();
+            }
+        }
+        return "";
     }
 
     static String getCellValue(Cell cell) {
@@ -1997,6 +2366,30 @@ public class BotGetLog_TrueCorp {
         } catch (Exception ignored) {
         }
         return fallback;
+    }
+
+    private static boolean isLogFileForToday(File file) {
+        if (file == null) {
+            return false;
+        }
+        return isLogFileForToday(file.getName());
+    }
+
+    private static boolean isLogFileForToday(String fileName) {
+        if (fileName == null) {
+            return false;
+        }
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("_(\\d{4}-\\d{2}-\\d{2})(?:\\.txt)?$")
+                    .matcher(fileName);
+            if (m.find()) {
+                String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                return today.equals(m.group(1));
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private static boolean hasValidDuplicateLogHead(File file) {
@@ -2974,6 +3367,17 @@ public class BotGetLog_TrueCorp {
         return normalizeCmdSetFamily(left).equals(normalizeCmdSetFamily(right));
     }
 
+    private static boolean isMatchingCurrentNodeLogName(String fileName, int rowNum, String loopback, String cmdSet) {
+        if (fileName == null || loopback == null || cmdSet == null) {
+            return false;
+        }
+        String safeLoopback = loopback.trim();
+        if (safeLoopback.isEmpty() || !fileName.startsWith("[" + rowNum + "]" + safeLoopback + "_")) {
+            return false;
+        }
+        return isEquivalentCmdSet(cmdSet, extractCmdSetFromLogName(fileName));
+    }
+
 
     private static String extractCmdSetFromLogName(String fileName) {
         try {
@@ -3111,6 +3515,7 @@ public class BotGetLog_TrueCorp {
 
             CachedSettings settings = getCachedSettings();
             String server = settings.server;
+            List<String> gatewayServers = settings.gatewayServers;
             String userServer = settings.userServer;
             String pwServer = settings.pwServer;
             String userCLLS = settings.userCLLS;
@@ -3128,6 +3533,7 @@ public class BotGetLog_TrueCorp {
                 if (setSheet != null) {
                     CachedSettings loadedSettings = loadSettingsFromSheet(setSheet);
                     server = loadedSettings.server;
+                    gatewayServers = loadedSettings.gatewayServers;
                     userServer = loadedSettings.userServer;
                     pwServer = loadedSettings.pwServer;
                     userCLLS = preferNonEmpty(loadedSettings.userCLLS, userCLLS);
@@ -3154,7 +3560,7 @@ public class BotGetLog_TrueCorp {
                 return false;
             }
 
-            updateCachedSettings(server, userServer, pwServer,
+            updateCachedSettings(gatewayServers, userServer, pwServer,
                     credentials.username, credentials.password, userL2, pwL2);
             System.out.printf("[RE-RUN] TRUE CLLS login ready for %d row(s).%n",
                     rowNums == null ? 0 : rowNums.length);
@@ -3215,6 +3621,7 @@ public class BotGetLog_TrueCorp {
             String lastCommand = getCachedLastCommand(cmdSet);
 
             String server = settings.server;
+            List<String> gatewayServers = settings.gatewayServers;
             String userServer = settings.userServer;
             String pwServer = settings.pwServer;
             String userCLLS = settings.userCLLS;
@@ -3246,13 +3653,15 @@ public class BotGetLog_TrueCorp {
                     if (setSheet != null) {
                         CachedSettings loadedSettings = loadSettingsFromSheet(setSheet);
                         server = loadedSettings.server;
+                        gatewayServers = loadedSettings.gatewayServers;
                         userServer = loadedSettings.userServer;
                         pwServer = loadedSettings.pwServer;
                         userCLLS = preferNonEmpty(loadedSettings.userCLLS, userCLLS);
                         pwCLLS = preferNonEmpty(loadedSettings.pwCLLS, pwCLLS);
                         userL2 = preferNonEmpty(loadedSettings.userL2, userL2);
                         pwL2 = preferNonEmpty(loadedSettings.pwL2, pwL2);
-                        updateCachedSettings(server, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
+                        updateCachedSettings(gatewayServers, userServer, pwServer,
+                                userCLLS, pwCLLS, userL2, pwL2);
                     } else if (refreshedSettings.isConfigured()) {
                         server = refreshedSettings.server;
                         userServer = refreshedSettings.userServer;
@@ -3301,6 +3710,7 @@ public class BotGetLog_TrueCorp {
 
                 CachedSettings preparedSettings = getCachedSettings();
                 server = preparedSettings.server;
+                gatewayServers = preparedSettings.gatewayServers;
                 userServer = preparedSettings.userServer;
                 pwServer = preparedSettings.pwServer;
                 userCLLS = preparedSettings.userCLLS;
@@ -3333,7 +3743,6 @@ public class BotGetLog_TrueCorp {
             final String finalDevName = devName;
             final String finalIp = ip;
             final String finalCmd = cmd;
-            final String finalServer = server;
             final String finalUserServer = userServer;
             final String finalPwServer = pwServer;
             final String finalUserCLLS = userCLLS;
@@ -3341,10 +3750,13 @@ public class BotGetLog_TrueCorp {
             final String finalUserL2 = userL2;
             final String finalPwL2 = pwL2;
             final String finalLastCommand = lastCommand;
+            final GatewayPool rerunGatewayPool = getOrCreateGatewayPool(
+                    gatewayServers, Telnet_Multi.getNormalTelnetLimit());
 
             ThreadPoolExecutor exec = getExecutor();
             Runnable reRunTask = () -> {
                 boolean telnetPermitAcquired = false;
+                GatewayLease gatewayLease = null;
                 try {
                     if (isShutdownRequested()) {
                         System.out.printf("[RE-RUN]  Skip Row %d | %s | %s because shutdown is in progress%n",
@@ -3369,6 +3781,7 @@ public class BotGetLog_TrueCorp {
 
                     Telnet_Multi.TELNET_LIMIT.acquire();
                     telnetPermitAcquired = true;
+                    gatewayLease = rerunGatewayPool.acquire();
 
                     if (isShutdownRequested()) {
                         System.out.printf("[RE-RUN]  Skip Row %d | %s | %s after TELNET permit because shutdown is in progress%n",
@@ -3376,9 +3789,11 @@ public class BotGetLog_TrueCorp {
                         return;
                     }
 
-                    System.out.printf("[RE-RUN]  Starting re-run Telnet for %s (%s) [%s]%n", finalDevName, finalIp, finalCmd);
+                    System.out.printf("[RE-RUN]  Starting re-run Telnet for %s (%s) [%s] via %s (%d/%d sessions)%n",
+                            finalDevName, finalIp, finalCmd, gatewayLease.getHost(),
+                            gatewayLease.getActiveAtAcquire(), gatewayLease.getMaxSessions());
                     new Telnet_Multi(
-                            finalServer, finalUserServer, finalPwServer,
+                            gatewayLease.getServer(), finalUserServer, finalPwServer,
                             finalIp, finalUserCLLS, finalPwCLLS,
                             finalCmd, finalDevName, rowNum,
                             finalUserL2, finalPwL2
@@ -3390,6 +3805,9 @@ public class BotGetLog_TrueCorp {
                 } catch (Exception e) {
                     System.out.println("[RE-RUN] [WARN] Error: " + e.getMessage());
                 } finally {
+                    if (gatewayLease != null) {
+                        gatewayLease.close();
+                    }
                     if (telnetPermitAcquired) {
                         Telnet_Multi.TELNET_LIMIT.release();
                     }

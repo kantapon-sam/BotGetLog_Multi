@@ -1827,6 +1827,7 @@ public class Telnet_Multi {
                                 + " (reloaded commands rows=" + r + ")\n");
                         System.out.println("[INFO] Auto vendor detect adjusted cmdSet: " + beforeCmdSet + " -> " + cmdSet
                                 + " (reloaded commands rows=" + r + ")");
+                        TrueDeviceInventoryUpdater.recordVendorAdjustment(Num_row, Loopback, Device, beforeCmdSet, cmdSet);
                     } else {
                         logwork("[WARN] Auto vendor detect adjusted cmdSet: " + beforeCmdSet + " -> " + cmdSet
                                 + " but no cmdSet column found; keep original command list\n");
@@ -2984,6 +2985,10 @@ public class Telnet_Multi {
     }
 
     private static boolean matchesDailyLogTarget(String fileName, int numRow, String loopback, String cmdSet) {
+        return matchesDailyLogTargetForDate(fileName, numRow, loopback, cmdSet, null);
+    }
+
+    private static boolean matchesDailyLogTargetForDate(String fileName, int numRow, String loopback, String cmdSet, String requiredDateTag) {
         if (fileName == null || fileName.isEmpty()) {
             return false;
         }
@@ -2996,9 +3001,19 @@ public class Telnet_Multi {
         String fileRow = safeTrim(matcher.group(1));
         String fileLoopback = safeTrim(matcher.group(2));
         String fileCmdSet = safeTrim(matcher.group(4));
-        return String.valueOf(numRow).equals(fileRow)
+        String fileDateTag = safeTrim(matcher.group(5));
+        boolean targetMatches = String.valueOf(numRow).equals(fileRow)
                 && safeTrim(loopback).equals(fileLoopback)
                 && isEquivalentCmdSet(cmdSet, fileCmdSet);
+        if (!targetMatches) {
+            return false;
+        }
+        String dateTag = safeTrim(requiredDateTag);
+        return dateTag.isEmpty() || dateTag.equals(fileDateTag);
+    }
+
+    private static String currentDailyLogDateTag() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
     }
 
     private static List<String> readPromptCandidatesFromLog(File logFile, String device, String cmdSet) {
@@ -4783,6 +4798,7 @@ public class Telnet_Multi {
                 || runtimeName.equals(configuredName)) {
             return logFile;
         }
+        TrueDeviceInventoryUpdater.recordDeviceName(Num_row, Loopback, configuredName, runtimeName);
 
         Matcher matcher = DAILY_LOG_FILE_PATTERN.matcher(logFile.getName());
         String dateTag = activeLogDateTag;
@@ -5180,7 +5196,7 @@ public class Telnet_Multi {
             });
 
             for (File file : files) {
-                if (!matchesDailyLogTarget(file.getName(), numRow, loopback, cmdSet)) {
+                if (!matchesDailyLogTargetForDate(file.getName(), numRow, loopback, cmdSet, currentDailyLogDateTag())) {
                     continue;
                 }
                 if (isCompleteExistingLog(file)) {
@@ -5347,7 +5363,10 @@ public class Telnet_Multi {
                 for (File oldFile : duplicateFiles) {
                     if (!oldFile.getAbsolutePath().equals(logFile.getAbsolutePath())) {
                         if (isCompleteExistingLog(oldFile)) {
-                            System.out.println("[PRE-KEEP] Keep old completed duplicate: " + oldFile.getName());
+                            boolean deleted = deleteLogIfSafe(oldFile, "old completed duplicate before new run");
+                            if (deleted) {
+                                System.out.println("[PRE-DELETE] Removed old completed duplicate: " + oldFile.getName());
+                            }
                             continue;
                         }
 

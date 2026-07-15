@@ -63,10 +63,13 @@ public class BotToolLauncher {
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String MPLS_LSP_JAR_NAME = "MPLS_LSP.jar";
     private static final String SEGMENT_ROUTING_PREFIX_JAR_NAME = "Segment_Routing_Prefix.jar";
+    private static final String ISIS_PEER_JAR_NAME = "ISIS_Peer.jar";
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
-    // Version 1.1.22: Add log analysis tools and harden DTAC log scanning
-    private static final String FALLBACK_VERSION = "1.1.22";
+    private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
+    // Version 1.1.23: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.23.
+    private static final String FALLBACK_VERSION = "1.1.23";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -138,12 +141,14 @@ public class BotToolLauncher {
     private JFrame frame;
     private JTextArea textArea;
     private JButton launchBotButton;
+    private JButton trueLinkOpticalAutoButton;
     private JButton launchDtacButton;
     private JButton linkOpticalButton;
     private JButton arpButton;
     private JButton ptpButton;
     private JButton mplsLspButton;
     private JButton segmentRoutingPrefixButton;
+    private JButton isisPeerButton;
     private JButton deletedLogCheckerButton;
     private JButton connectVpnButton;
     private JButton resetButton;
@@ -187,12 +192,14 @@ public class BotToolLauncher {
         textArea.setText(buildLauncherText());
 
         launchBotButton = new LauncherButton("BotGetLog [TRUE]");
+        trueLinkOpticalAutoButton = new LauncherButton("TRUE Link Optical Auto");
         launchDtacButton = new LauncherButton("BotGetLog [DTAC]");
         linkOpticalButton = new LauncherButton("Link Optical");
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
         mplsLspButton = new LauncherButton("MPLS LSP");
         segmentRoutingPrefixButton = new LauncherButton("Segment Routing Prefix");
+        isisPeerButton = new LauncherButton("ISIS Peer");
         deletedLogCheckerButton = new LauncherButton("Deleted Log Check");
         connectVpnButton = new LauncherButton("Open Pulse VPN");
         resetButton = new LauncherButton("Reset");
@@ -200,24 +207,28 @@ public class BotToolLauncher {
         refreshLinksButton = new LauncherButton("Refresh Links");
 
         launchBotButton.addActionListener(e -> launchBotJar());
+        trueLinkOpticalAutoButton.addActionListener(e -> launchTrueLinkOpticalAutoJar());
         launchDtacButton.addActionListener(e -> launchDtacJar());
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
         mplsLspButton.addActionListener(e -> launchMplsLspJar());
         segmentRoutingPrefixButton.addActionListener(e -> launchSegmentRoutingPrefixJar());
+        isisPeerButton.addActionListener(e -> launchIsisPeerJar());
         deletedLogCheckerButton.addActionListener(e -> launchDeletedLogCheckerJar());
         connectVpnButton.addActionListener(e -> connectPulseVpn());
         resetButton.addActionListener(e -> resetGeneratedFiles());
         exitButton.addActionListener(e -> frame.dispose());
         refreshLinksButton.addActionListener(e -> refreshWebLinksAsync());
         styleToolButton(launchBotButton, TRUE_BUTTON_BACKGROUND);
+        styleToolButton(trueLinkOpticalAutoButton, new Color(20, 132, 114));
         styleToolButton(launchDtacButton, DTAC_BUTTON_BACKGROUND);
         styleToolButton(linkOpticalButton);
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
         styleToolButton(mplsLspButton);
         styleToolButton(segmentRoutingPrefixButton);
+        styleToolButton(isisPeerButton);
         styleToolButton(deletedLogCheckerButton);
         styleToolButton(connectVpnButton);
         styleSecondaryButton(resetButton);
@@ -232,12 +243,14 @@ public class BotToolLauncher {
         JPanel actionButtonsPanel = new JPanel(new GridLayout(0, 1, 0, 8));
         actionButtonsPanel.setOpaque(false);
         actionButtonsPanel.add(launchBotButton);
+        actionButtonsPanel.add(trueLinkOpticalAutoButton);
         actionButtonsPanel.add(launchDtacButton);
         actionButtonsPanel.add(linkOpticalButton);
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
         actionButtonsPanel.add(mplsLspButton);
         actionButtonsPanel.add(segmentRoutingPrefixButton);
+        actionButtonsPanel.add(isisPeerButton);
         actionButtonsPanel.add(deletedLogCheckerButton);
         actionButtonsPanel.add(connectVpnButton);
         actionButtonsPanel.add(resetButton);
@@ -282,34 +295,40 @@ public class BotToolLauncher {
         text.append("1. BotGetLog [TRUE]").append(lineBreak);
         text.append("   Run the TRUE bot directly without extra menu.").append(lineBreak);
         text.append(lineBreak);
-        text.append("2. BotGetLog [DTAC]").append(lineBreak);
+        text.append("2. TRUE Link Optical Auto").append(lineBreak);
+        text.append("   TRUE only: collect LLDP-Link_OPTIC logs for one site or all sites, then export Link Optical CSV files.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("3. BotGetLog [DTAC]").append(lineBreak);
         text.append("   Run the DTAC SSH bot directly without extra menu.").append(lineBreak);
         text.append(lineBreak);
-        text.append("3. Link Optical").append(lineBreak);
+        text.append("4. Link Optical").append(lineBreak);
         text.append("   Open the built-in Link_Optical tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("4. ARP").append(lineBreak);
+        text.append("5. ARP").append(lineBreak);
         text.append("   Open the built-in ARP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("5. PTP").append(lineBreak);
+        text.append("6. PTP").append(lineBreak);
         text.append("   Open the built-in PTP tool from this project.").append(lineBreak);
         text.append(lineBreak);
-        text.append("6. MPLS LSP").append(lineBreak);
+        text.append("7. MPLS LSP").append(lineBreak);
         text.append("   Export Nokia MPLS LSP actual-hop paths from N-MPLS_LSP logs.").append(lineBreak);
         text.append(lineBreak);
-        text.append("7. Segment Routing Prefix").append(lineBreak);
+        text.append("8. Segment Routing Prefix").append(lineBreak);
         text.append("   Export Huawei Segment Routing Prefix forwarding rows from HW-SID logs.").append(lineBreak);
         text.append(lineBreak);
-        text.append("8. Deleted Log Check").append(lineBreak);
+        text.append("9. ISIS Peer").append(lineBreak);
+        text.append("   Export Huawei ISIS peer rows and interface costs from HW-ISIS_Peer logs.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("10. Deleted Log Check").append(lineBreak);
         text.append("   Check Deleted_Log rows against Total_Log and skip connect-fail checks when a row exists.").append(lineBreak);
         text.append(lineBreak);
-        text.append("9. Open Pulse VPN").append(lineBreak);
+        text.append("11. Open Pulse VPN").append(lineBreak);
         text.append("   Open Pulse Secure and bring its window to the front so you can click Connect there.").append(lineBreak);
         text.append(lineBreak);
-        text.append("10. Reset").append(lineBreak);
+        text.append("12. Reset").append(lineBreak);
         text.append("   Delete generated files in _output\\Total_Log and _output\\Deleted_Log.").append(lineBreak);
         text.append(lineBreak);
-        text.append("11. Exit").append(lineBreak);
+        text.append("13. Exit").append(lineBreak);
         text.append("   Close this launcher.").append(lineBreak);
         text.append(lineBreak);
         text.append("[PATH] ").append(getAppDirectory().getAbsolutePath()).append(lineBreak);
@@ -1078,6 +1097,12 @@ public class BotToolLauncher {
         launchProgram(findBotJar(), BOT_JAR_NAME, launchBotButton);
     }
 
+    private void launchTrueLinkOpticalAutoJar() {
+        trueLinkOpticalAutoButton.setEnabled(false);
+        launchProgram(findBotJar(), "TRUE Link Optical Auto", trueLinkOpticalAutoButton,
+                TRUE_LINK_OPTICAL_AUTO_ARG);
+    }
+
     private void launchDtacJar() {
         launchDtacButton.setEnabled(false);
         launchProgram(findDtacJar(), BOT_DTAC_JAR_NAME, launchDtacButton);
@@ -1106,6 +1131,11 @@ public class BotToolLauncher {
     private void launchSegmentRoutingPrefixJar() {
         segmentRoutingPrefixButton.setEnabled(false);
         launchProgram(findSegmentRoutingPrefixJar(), SEGMENT_ROUTING_PREFIX_JAR_NAME, segmentRoutingPrefixButton);
+    }
+
+    private void launchIsisPeerJar() {
+        isisPeerButton.setEnabled(false);
+        launchProgram(findIsisPeerJar(), ISIS_PEER_JAR_NAME, isisPeerButton);
     }
 
     private void launchDeletedLogCheckerJar() {
@@ -1149,7 +1179,7 @@ public class BotToolLauncher {
         }, "pulse-vpn-connect").start();
     }
 
-    private void launchProgram(File jarFile, String displayName, JButton sourceButton) {
+    private void launchProgram(File jarFile, String displayName, JButton sourceButton, String... programArgs) {
         if (jarFile == null || !jarFile.isFile()) {
             if (sourceButton != null) {
                 sourceButton.setEnabled(true);
@@ -1165,15 +1195,22 @@ public class BotToolLauncher {
 
         appendLine("[RUN] Starting " + jarFile.getName());
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    getJavaLauncher(),
-                    JAVA_INITIAL_HEAP,
-                    JAVA_MAX_HEAP,
-                    JAVA_GC_OPTION,
-                    "-D" + LauncherGate.INVOKED_BY_LAUNCHER_PROPERTY + "=true",
-                    "-jar",
-                    jarFile.getAbsolutePath()
-            );
+            List<String> command = new ArrayList<String>();
+            command.add(getJavaLauncher());
+            command.add(JAVA_INITIAL_HEAP);
+            command.add(JAVA_MAX_HEAP);
+            command.add(JAVA_GC_OPTION);
+            command.add("-D" + LauncherGate.INVOKED_BY_LAUNCHER_PROPERTY + "=true");
+            command.add("-jar");
+            command.add(jarFile.getAbsolutePath());
+            if (programArgs != null) {
+                for (String programArg : programArgs) {
+                    if (programArg != null && !programArg.trim().isEmpty()) {
+                        command.add(programArg.trim());
+                    }
+                }
+            }
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
             File workingDir = jarFile.getParentFile();
             if (workingDir != null) {
                 processBuilder.directory(workingDir);
@@ -1606,6 +1643,21 @@ public class BotToolLauncher {
         File[] candidates = new File[]{
             new File(appDir, SEGMENT_ROUTING_PREFIX_JAR_NAME),
             new File(appDir, "dist\\" + SEGMENT_ROUTING_PREFIX_JAR_NAME)
+        };
+
+        for (File candidate : candidates) {
+            if (candidate.isFile()) {
+                return candidate;
+            }
+        }
+        return candidates[candidates.length - 1];
+    }
+
+    private static File findIsisPeerJar() {
+        File appDir = getAppDirectory();
+        File[] candidates = new File[]{
+            new File(appDir, ISIS_PEER_JAR_NAME),
+            new File(appDir, "dist\\" + ISIS_PEER_JAR_NAME)
         };
 
         for (File candidate : candidates) {

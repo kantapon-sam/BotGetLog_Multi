@@ -10,7 +10,7 @@ import java.nio.file.StandardCopyOption;
 public class PathFile {
 
     private static final String USER_INPUT_FILE_NAME = "UserInterface_Input.xlsx";
-    private static final String DEFAULT_INPUT_RELATIVE_PATH = "defaults\\" + USER_INPUT_FILE_NAME;
+    private static final String DEFAULT_INPUT_RELATIVE_PATH = "defaults" + File.separator + USER_INPUT_FILE_NAME;
     private static final String LEGACY_LOG_WORK_RELATIVE_PATH = "JAR\\log";
 
     private String CurrentFolder;
@@ -29,11 +29,12 @@ public class PathFile {
             FolderCurrent = new File(CurrentFolder);
             FileBot = FolderCurrent.listFiles();
             UserInterface_Input = ensureUserInputWorkbook(FolderCurrent).getCanonicalPath();
-            Log = FolderCurrent.getCanonicalPath() + "\\_output\\Total_Log\\";
+            Log = new File(new File(FolderCurrent, "_output"), "Total_Log").getCanonicalPath()
+                    + File.separator;
             FileRow = new File(CurrentFolder);
             File logWorkDir = AppMetadata.getBotWorkLogDirectory().getCanonicalFile();
             migrateLegacyWorkLogs(FolderCurrent, logWorkDir);
-            LogWork = logWorkDir.getCanonicalPath() + "\\";
+            LogWork = logWorkDir.getCanonicalPath() + File.separator;
             new File(Log).mkdirs();
             logWorkDir.mkdirs();
 

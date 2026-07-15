@@ -45,6 +45,61 @@ public class Link_Optical {
         int reservedForOLT = 0;
     }
 
+    public static final class ProcessResult {
+
+        private final int totalFiles;
+        private final File fullLldpFile;
+        private final File neighborFile;
+        private final File portFile;
+        private final File descriptionFile;
+
+        private ProcessResult(int totalFiles, File fullLldpFile, File neighborFile,
+                File portFile, File descriptionFile) {
+            this.totalFiles = totalFiles;
+            this.fullLldpFile = fullLldpFile;
+            this.neighborFile = neighborFile;
+            this.portFile = portFile;
+            this.descriptionFile = descriptionFile;
+        }
+
+        public int getTotalFiles() {
+            return totalFiles;
+        }
+
+        public File getFullLldpFile() {
+            return fullLldpFile;
+        }
+
+        public File getNeighborFile() {
+            return neighborFile;
+        }
+
+        public File getPortFile() {
+            return portFile;
+        }
+
+        public File getDescriptionFile() {
+            return descriptionFile;
+        }
+
+        public List<File> getOutputFiles() {
+            List<File> outputs = new ArrayList<File>();
+            if (portFile != null) {
+                outputs.add(portFile);
+            }
+            if (descriptionFile != null) {
+                outputs.add(descriptionFile);
+            }
+            if (neighborFile != null) {
+                outputs.add(neighborFile);
+            }
+            if (fullLldpFile != null) {
+                outputs.add(fullLldpFile);
+            }
+            return outputs;
+        }
+    }
+
     private static boolean isAlphaNum7Mix(String s) {
         if (s == null) {
             return false;
@@ -122,16 +177,32 @@ public class Link_Optical {
     }
 
     public static void main(String[] args) {
-        AppConsole.install("Link Optical Console", "Link Optical - Console");
-        Dialog.setLAF();
+        boolean showDialogs = !hasArg(args, "--no-dialog");
+        if (!hasArg(args, "--no-console")) {
+            AppConsole.install("Link Optical Console", "Link Optical - Console");
+        }
+        if (showDialogs) {
+            Dialog.setLAF();
+        }
         System.out.println("[INFO] Link Optical started");
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
-
-        String file_fail = "";
         try {
-            int TotalFile = 0;
+            PathFile f = new PathFile();
+            File[] files = f.getFile().listFiles();
+            if (files == null) {
+                throw new Exception("Input folder not found or empty");
+            }
+            processFiles(files, new File(f.getLLDP()), showDialogs);
+        } catch (Exception ex) {
+            System.out.println(ex.toString());
+        }
+    }
 
+    public static ProcessResult processFiles(File[] inputFiles, File outputDir, boolean showDialogs) throws Exception {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
+        String file_fail = "";
+
+        try {
             String header = "Site code,"
                     + "IP loopback,"
                     + "Interface,"
@@ -153,37 +224,32 @@ public class Link_Optical {
                     + "Version,"
                     + "Equipment\n";
 
-            PathFile f = new PathFile();
-            File[] files = f.getFile().listFiles();
-            if (files == null) {
+            if (inputFiles == null) {
                 throw new Exception("Input folder not found or empty");
             }
-
-            Arrays.sort(files, new Comparator<File>() {
-                public int compare(File f1, File f2) {
-                    return Long.compare(f1.lastModified(), f2.lastModified());
-                }
-            });
-
-            for (int i = 0; i < files.length; i++) {
-                if (files[i].getName().contains("LLDP") && files[i].getName().toLowerCase().endsWith(".txt")) {
-                    TotalFile++;
-                }
-            }
+            List<File> lldpFiles = collectLldpLogFiles(inputFiles);
+            int TotalFile = lldpFiles.size();
             System.out.println("[INFO] Found " + TotalFile + " LLDP file(s) to process");
             if (TotalFile == 0) {
                 String message = "No LLDP input files found in _output\\Total_Log";
                 System.out.println("[WARN] " + message);
-                Dialog.Info(message);
-                return;
+                if (showDialogs) {
+                    Dialog.Info(message);
+                }
+                return new ProcessResult(0, null, null, null, null);
             }
+
+            if (outputDir == null) {
+                outputDir = new File(".\\_output\\LLDP_Neighbor");
+            }
+            outputDir.mkdirs();
 
             // =========================
             // =========================
             LocalDateTime now1 = LocalDateTime.now();
             String formattedDateTime1 = now1.format(formatter);
             String output_LLDP = "DataLLDP_Neighbor_" + formattedDateTime1 + ".csv";
-            File fullFile = new File(f.getLLDP() + "\\" + output_LLDP);
+            File fullFile = new File(outputDir, output_LLDP);
             if (fullFile.getParentFile() != null) {
                 fullFile.getParentFile().mkdirs();
             }
@@ -191,20 +257,18 @@ public class Link_Optical {
             FileWriter fwAll = new FileWriter(fullFile, false);
             fwAll.write(header);
 
-            for (int i = 0; i < files.length; i++) {
-                if (files[i].getName().contains("LLDP") && files[i].getName().toLowerCase().endsWith(".txt")) {
-                    if (files.length > 1) {
-                        file_fail = files[i].getName();
-                    }
-                    System.out.println("[PROCESS] Reading " + files[i].getName());
-
-                    BufferedReader br = new BufferedReader(new FileReader(files[i]));
-                    String pathOutput = files[i].getName().split(".txt")[0];
-
-                    String chunk = Check_Link_Optical.Sub(br, pathOutput);
-                    fwAll.write(chunk);
-                    br.close();
+            for (File lldpFile : lldpFiles) {
+                if (TotalFile > 1) {
+                    file_fail = lldpFile.getName();
                 }
+                System.out.println("[PROCESS] Reading " + lldpFile.getName());
+
+                BufferedReader br = new BufferedReader(new FileReader(lldpFile));
+                String pathOutput = stripTxtExtension(lldpFile.getName());
+
+                String chunk = Check_Link_Optical.Sub(br, pathOutput);
+                fwAll.write(chunk);
+                br.close();
             }
             fwAll.close();
             System.out.println("[INFO] Generated " + output_LLDP);
@@ -219,7 +283,7 @@ public class Link_Optical {
             }
 
             String output_LLDP_2 = "DataLLDP_Neighbor_" + formattedDateTime2 + ".csv";
-            File filteredFile = new File(f.getLLDP() + "\\" + output_LLDP_2);
+            File filteredFile = new File(outputDir, output_LLDP_2);
             if (filteredFile.getParentFile() != null) {
                 filteredFile.getParentFile().mkdirs();
             }
@@ -274,7 +338,7 @@ public class Link_Optical {
             }
 
             String output_PORT = "DataPort_" + formattedDateTime3 + ".csv";
-            File portFile = new File(f.getLLDP() + "\\" + output_PORT);
+            File portFile = new File(outputDir, output_PORT);
             if (portFile.getParentFile() != null) {
                 portFile.getParentFile().mkdirs();
             }
@@ -411,7 +475,7 @@ public class Link_Optical {
                 formattedDateTime4 = now4.format(formatter);
             }
 
-            File descriptionFile = DescriptionChecker.process(fullFile, new File(f.getLLDP()), formattedDateTime4);
+            File descriptionFile = DescriptionChecker.process(fullFile, outputDir, formattedDateTime4);
             String output_DESCRIPTION = descriptionFile.getName();
 
             System.out.println(output_PORT);
@@ -419,18 +483,75 @@ public class Link_Optical {
             System.out.println(output_LLDP_2);
             System.out.println(output_LLDP);
             System.out.println(TotalFile + " Node");
-            Dialog.Success(
-                    "Generated 4 Link Optical file(s)\n"
-                    + output_PORT + "\n"
-                    + output_DESCRIPTION + "\n"
-                    + output_LLDP_2 + "\n"
-                    + output_LLDP,
-                    TotalFile
-            );
+            if (showDialogs) {
+                Dialog.Success(
+                        "Generated 4 Link Optical file(s)\n"
+                        + output_PORT + "\n"
+                        + output_DESCRIPTION + "\n"
+                        + output_LLDP_2 + "\n"
+                        + output_LLDP,
+                        TotalFile
+                );
+            }
+
+            return new ProcessResult(TotalFile, fullFile, filteredFile, portFile, descriptionFile);
 
         } catch (Exception ex) {
-            System.out.println(ex.toString() + file_fail);
+            if (file_fail == null || file_fail.trim().isEmpty()) {
+                throw ex;
+            }
+            throw new Exception(ex.toString() + " " + file_fail, ex);
         }
+    }
+
+    private static boolean hasArg(String[] args, String expected) {
+        if (args == null || expected == null) {
+            return false;
+        }
+        for (String arg : args) {
+            if (expected.equalsIgnoreCase(arg == null ? "" : arg.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<File> collectLldpLogFiles(File[] inputFiles) {
+        List<File> files = new ArrayList<File>();
+        if (inputFiles == null) {
+            return files;
+        }
+        for (File inputFile : inputFiles) {
+            if (isLldpLogFile(inputFile)) {
+                files.add(inputFile);
+            }
+        }
+        File[] sorted = files.toArray(new File[0]);
+        Arrays.sort(sorted, new Comparator<File>() {
+            public int compare(File f1, File f2) {
+                return Long.compare(f1.lastModified(), f2.lastModified());
+            }
+        });
+        return new ArrayList<File>(Arrays.asList(sorted));
+    }
+
+    private static boolean isLldpLogFile(File file) {
+        if (file == null || !file.isFile()) {
+            return false;
+        }
+        String name = file.getName();
+        return name.contains("LLDP") && name.toLowerCase().endsWith(".txt");
+    }
+
+    private static String stripTxtExtension(String name) {
+        if (name == null) {
+            return "";
+        }
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".txt")) {
+            return name.substring(0, name.length() - 4);
+        }
+        return name;
     }
 
     private static String[] splitCsvLineSimple(String line) {

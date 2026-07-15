@@ -209,6 +209,20 @@
             </fileset>
         </jar>
 
+        <jar destfile="${dist.dir}/ISIS_Peer.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.tools.isispeer.IsisPeer"/>
+                <attribute name="Implementation-Title" value="ISIS_Peer"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/AppConsole.class"/>
+                <include name="com/java/shared/AppConsole$ConsoleOutputStream.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
+                <include name="com/java/tools/isispeer/**/*.class"/>
+            </fileset>
+        </jar>
+
         <jar destfile="${dist.dir}/Deleted_Log_Checker.jar">
             <manifest>
                 <attribute name="Main-Class" value="com.java.tools.deletedlogcheck.DeletedLogChecker"/>
