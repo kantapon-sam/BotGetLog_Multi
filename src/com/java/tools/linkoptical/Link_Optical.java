@@ -22,6 +22,8 @@ public class Link_Optical {
     private static final Pattern P_NODE_PREFIXED = Pattern.compile(
             "(?i)\\b((?:CPE|PN\\d?|PN|DN\\d?|DN|RN\\d?|RN|AGN\\d?|AGN|AN\\d?|AN)-[A-Z0-9-]+)\\b");
     private static final Pattern P_ALNUM7_ANY = Pattern.compile("(?i)(?<![A-Z0-9])([A-Z0-9]{7})(?![A-Z0-9])");
+    private static final Pattern P_NOKIA_CONNECTOR_PORT = Pattern.compile(
+            "(?i)^(\\d+/\\d+/c\\d+)(?:/\\d+)?$");
 
     static class PortSummary {
 
@@ -43,6 +45,25 @@ public class Link_Optical {
 
         int reservedForRehoming = 0;
         int reservedForOLT = 0;
+
+        final Map<String, NokiaConnectorUsage> nokiaConnectorPorts
+                = new LinkedHashMap<String, NokiaConnectorUsage>();
+    }
+
+    static class NokiaConnectorUsage {
+
+        boolean used = false;
+        boolean reserved = false;
+        boolean reservedForRehoming = false;
+        boolean reservedForOLT = false;
+
+        void merge(boolean rowUsed, boolean rowReservedForRehoming,
+                boolean rowReservedForOLT, boolean rowReserved) {
+            used = used || rowUsed;
+            reservedForRehoming = reservedForRehoming || rowReservedForRehoming;
+            reservedForOLT = reservedForOLT || rowReservedForOLT;
+            reserved = reserved || rowReserved;
+        }
     }
 
     public static final class ProcessResult {
@@ -401,56 +422,26 @@ public class Link_Optical {
 
                 String d = description == null ? "" : description.toLowerCase();
 
-                boolean isUsed
-                        = !d.isEmpty()
-                        && !d.contains("huawei")
-                        && !d.contains("ethernet");
                 boolean isRehoming = d.contains("reser") && d.contains("rehom");
                 boolean isOLT = d.contains("reser") && d.contains("olt");
                 boolean isReserved = d.contains("reser") && !isRehoming && !isOLT;
-
-                if (maxBW.equals("1G")) {
-                    ps.total1G++;
-                    if (isUsed) {
-                        ps.used1G++;
-                    }
-                    if (isRehoming) {
-                        ps.reservedForRehoming++;
-                    } else if (isOLT) {
-                        ps.reservedForOLT++;
-                    } else if (isReserved) {
-                        ps.reserved1G++;
-                    }
-                } else if (maxBW.equals("10G")) {
-                    ps.total10G++;
-                    if (isUsed) {
-                        ps.used10G++;
-                    }
-                    if (isRehoming) {
-                        ps.reservedForRehoming++;
-                    } else if (isOLT) {
-                        ps.reservedForOLT++;
-                    } else if (isReserved) {
-                        ps.reserved10G++;
-                    }
-                } else if (maxBW.equals("100G")) {
-                    ps.total100G++;
-                    if (isUsed) {
-                        ps.used100G++;
-                    }
-                    if (isRehoming) {
-                        ps.reservedForRehoming++;
-                    } else if (isOLT) {
-                        ps.reservedForOLT++;
-                    } else if (isReserved) {
-                        ps.reserved100G++;
-                    }
+                boolean isUsed;
+                if (isNokiaConnectorPort(iface)) {
+                    isUsed = isNokiaConnectorUsed(currentState, description)
+                            || isRehoming || isOLT || isReserved;
+                } else {
+                    isUsed = !d.isEmpty()
+                            && !d.contains("huawei")
+                            && !d.contains("ethernet");
                 }
+
+                recordFreePort(ps, iface, maxBW, isUsed, isRehoming, isOLT, isReserved);
             }
 
             portReader.close();
 
             for (PortSummary ps : portMap.values()) {
+                flushNokiaConnectorPorts(ps);
                 int free1G = ps.total1G - ps.used1G;
                 int free10G = ps.total10G - ps.used10G;
                 int free100G = ps.total100G - ps.used100G;
@@ -638,7 +629,117 @@ public class Link_Optical {
 
     return "";
 }
-    private static String normalizeBW(String iface, String bw) {
+    static String normalizeFreePortInterface(String iface) {
+        String value = nz(iface);
+        if (value.startsWith("'")) {
+            value = value.substring(1).trim();
+        }
+
+        Matcher matcher = P_NOKIA_CONNECTOR_PORT.matcher(value);
+        if (matcher.matches()) {
+            return matcher.group(1).toLowerCase(java.util.Locale.ENGLISH);
+        }
+        return value;
+    }
+
+    static boolean isNokiaConnectorPort(String iface) {
+        String value = nz(iface);
+        if (value.startsWith("'")) {
+            value = value.substring(1).trim();
+        }
+        return P_NOKIA_CONNECTOR_PORT.matcher(value).matches();
+    }
+
+    static boolean isNokiaConnectorUsed(String currentState, String description) {
+        if ("up".equalsIgnoreCase(nz(currentState))) {
+            return true;
+        }
+
+        String value = nz(description).toLowerCase(java.util.Locale.ENGLISH);
+        if (value.isEmpty() || "connector".equals(value) || value.endsWith(" connector")) {
+            return false;
+        }
+        return !value.contains("huawei") && !value.contains("ethernet");
+    }
+
+    static void recordFreePort(PortSummary ps, String iface, String maxBW,
+            boolean isUsed, boolean isRehoming, boolean isOLT, boolean isReserved) {
+        if (ps == null) {
+            return;
+        }
+
+        if (isNokiaConnectorPort(iface)) {
+            String connector = normalizeFreePortInterface(iface)
+                    .toLowerCase(java.util.Locale.ENGLISH);
+            NokiaConnectorUsage usage = ps.nokiaConnectorPorts.get(connector);
+            if (usage == null) {
+                usage = new NokiaConnectorUsage();
+                ps.nokiaConnectorPorts.put(connector, usage);
+            }
+            usage.merge(isUsed, isRehoming, isOLT, isReserved);
+            return;
+        }
+
+        countFreePortUsage(ps, maxBW, isUsed, isRehoming, isOLT, isReserved);
+    }
+
+    static void flushNokiaConnectorPorts(PortSummary ps) {
+        if (ps == null || ps.nokiaConnectorPorts.isEmpty()) {
+            return;
+        }
+        for (NokiaConnectorUsage usage : ps.nokiaConnectorPorts.values()) {
+            countFreePortUsage(ps, "100G", usage.used, usage.reservedForRehoming,
+                    usage.reservedForOLT, usage.reserved);
+        }
+        ps.nokiaConnectorPorts.clear();
+    }
+
+    private static void countFreePortUsage(PortSummary ps, String maxBW,
+            boolean isUsed, boolean isRehoming, boolean isOLT, boolean isReserved) {
+        if ("1G".equals(maxBW)) {
+            ps.total1G++;
+            if (isUsed) {
+                ps.used1G++;
+            }
+            if (isRehoming) {
+                ps.reservedForRehoming++;
+            } else if (isOLT) {
+                ps.reservedForOLT++;
+            } else if (isReserved) {
+                ps.reserved1G++;
+            }
+        } else if ("10G".equals(maxBW)) {
+            ps.total10G++;
+            if (isUsed) {
+                ps.used10G++;
+            }
+            if (isRehoming) {
+                ps.reservedForRehoming++;
+            } else if (isOLT) {
+                ps.reservedForOLT++;
+            } else if (isReserved) {
+                ps.reserved10G++;
+            }
+        } else if ("100G".equals(maxBW)) {
+            ps.total100G++;
+            if (isUsed) {
+                ps.used100G++;
+            }
+            if (isRehoming) {
+                ps.reservedForRehoming++;
+            } else if (isOLT) {
+                ps.reservedForOLT++;
+            } else if (isReserved) {
+                ps.reserved100G++;
+            }
+        }
+    }
+
+    static String normalizeBW(String iface, String bw) {
+        if (isNokiaConnectorPort(iface)) {
+            return "100G";
+        }
+
         String ifx = iface == null ? "" : iface.trim().toLowerCase();
         if (ifx.startsWith("gei-")) {
             return "1G";

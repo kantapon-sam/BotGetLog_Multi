@@ -1492,6 +1492,20 @@ public class BotGetLog_TrueCorp {
                     return;
                 }
                 if (linkOpticalSelection.isEnabled()) {
+                    Integer threadPoolSizeOverride;
+                    try {
+                        threadPoolSizeOverride = TrueLinkOpticalAutoMode.getThreadPoolSizeOverride(args);
+                    } catch (IllegalArgumentException ex) {
+                        realOut.println("[ERROR] " + ex.getMessage());
+                        requestImmediateShutdown("Invalid TRUE Link Optical thread override", 1);
+                        return;
+                    }
+                    if (threadPoolSizeOverride != null) {
+                        int excelThreadPoolSize = configuredThreadPoolSize;
+                        configuredThreadPoolSize = threadPoolSizeOverride;
+                        realOut.printf("[AUTO-LINK] Thread pool override: %d (Excel setting remains %d).%n",
+                                configuredThreadPoolSize, excelThreadPoolSize);
+                    }
                     realOut.printf("[AUTO-LINK] TRUE Link Optical mode selected: %s | sites=%d | commands=%d%n",
                             linkOpticalSelection.getModeName(),
                             linkOpticalSelection.getSiteCount(),
