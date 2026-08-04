@@ -1135,7 +1135,7 @@ Pattern pHasNeighbor = Pattern.compile(
                         if (next.isEmpty() || next.startsWith("System Name") || next.startsWith("System Description")) {
                             break;
                         }
-                        descBlock.append(" ").append(next);
+                        appendNokiaWrappedText(descBlock, next);
                         j++;
                     }
                     String descText = descBlock.toString();
@@ -1261,12 +1261,7 @@ Pattern pHasNeighbor = Pattern.compile(
                             break;
                         }
 
-                        if (!next.isEmpty()) {
-                            if (descBlock.length() > 0) {
-                                descBlock.append(" ");
-                            }
-                            descBlock.append(next);
-                        }
+                        appendNokiaWrappedText(descBlock, next);
                         j++;
                     }
 
@@ -1630,6 +1625,33 @@ Pattern pHasNeighbor = Pattern.compile(
         }
 
         return value.replace("\"", "").trim();
+    }
+
+    static void appendNokiaWrappedText(StringBuilder target, String continuation) {
+        if (target == null || continuation == null) {
+            return;
+        }
+
+        String next = continuation.trim();
+        if (next.isEmpty()) {
+            return;
+        }
+        if (target.length() == 0) {
+            target.append(next);
+            return;
+        }
+
+        char previous = target.charAt(target.length() - 1);
+        char first = next.charAt(0);
+        if (!isNokiaWrappedTokenBoundary(previous, first)) {
+            target.append(' ');
+        }
+        target.append(next);
+    }
+
+    private static boolean isNokiaWrappedTokenBoundary(char previous, char first) {
+        return ".-_/:([".indexOf(previous) >= 0
+                || ".-_/:,)]".indexOf(first) >= 0;
     }
 
     static String extractNokiaPortId(List<String> lines, int portIdLineIndex) {
