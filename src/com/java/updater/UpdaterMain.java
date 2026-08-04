@@ -30,6 +30,8 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
 
 public class UpdaterMain {
 
@@ -281,6 +283,7 @@ public class UpdaterMain {
         target.setPrintGridlines(source.isPrintGridlines());
         target.setFitToPage(source.getFitToPage());
         target.setAutobreaks(source.getAutobreaks());
+        copySheetTabColor(source, target);
 
         int maxColumn = 0;
         for (int rowIndex = 0; rowIndex <= source.getLastRowNum(); rowIndex++) {
@@ -308,6 +311,16 @@ public class UpdaterMain {
             CellRangeAddress region = source.getMergedRegion(i);
             target.addMergedRegion(new CellRangeAddress(region.getFirstRow(), region.getLastRow(),
                     region.getFirstColumn(), region.getLastColumn()));
+        }
+    }
+
+    private static void copySheetTabColor(Sheet source, Sheet target) {
+        if (!(source instanceof XSSFSheet) || !(target instanceof XSSFSheet)) {
+            return;
+        }
+        XSSFColor tabColor = ((XSSFSheet) source).getTabColor();
+        if (tabColor != null) {
+            ((XSSFSheet) target).setTabColor(tabColor);
         }
     }
 

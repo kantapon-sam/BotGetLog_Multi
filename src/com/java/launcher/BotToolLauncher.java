@@ -67,9 +67,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.33: Preserve cmdSet colors, cell styles, row heights, and column formatting
-    // during workbook updates
-    private static final String FALLBACK_VERSION = "1.1.33";
+    // Version 1.1.34: Preserve cmdSet tab color during updates and refresh the default command
+    // set
+    private static final String FALLBACK_VERSION = "1.1.34";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
