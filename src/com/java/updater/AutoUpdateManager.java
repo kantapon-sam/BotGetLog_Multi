@@ -5,6 +5,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -20,6 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public final class AutoUpdateManager {
 
@@ -139,12 +142,7 @@ public final class AutoUpdateManager {
 
     private static void launchUpdater(File downloadedZip) throws IOException {
         File appDir = AppMetadata.getAppDirectory();
-        File updaterJar = new File(appDir, "updater\\BotGetLog_Updater.jar");
-        if (!updaterJar.isFile()) {
-            throw new IOException("Updater jar not found: " + updaterJar.getAbsolutePath());
-        }
-        File tempUpdaterJar = File.createTempFile("botgetlog-updater-", ".jar");
-        Files.copy(updaterJar.toPath(), tempUpdaterJar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        File tempUpdaterJar = extractUpdaterJar(downloadedZip);
 
         File runningLocation = AppMetadata.getRunningLocation();
         List<String> command = new ArrayList<String>();
@@ -171,6 +169,32 @@ public final class AutoUpdateManager {
 
         logUpdate("Updater launched from " + tempUpdaterJar.getAbsolutePath());
         System.exit(0);
+    }
+
+    private static File extractUpdaterJar(File downloadedZip) throws IOException {
+        try (InputStream input = new BufferedInputStream(new FileInputStream(downloadedZip));
+                ZipInputStream zipInput = new ZipInputStream(input)) {
+            ZipEntry entry;
+            while ((entry = zipInput.getNextEntry()) != null) {
+                String entryName = entry.getName().replace('\\', '/');
+                if (!"updater/BotGetLog_Updater.jar".equals(entryName)) {
+                    zipInput.closeEntry();
+                    continue;
+                }
+
+                File tempUpdaterJar = File.createTempFile("botgetlog-updater-", ".jar");
+                try (FileOutputStream output = new FileOutputStream(tempUpdaterJar)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = zipInput.read(buffer)) != -1) {
+                        output.write(buffer, 0, bytesRead);
+                    }
+                }
+                zipInput.closeEntry();
+                return tempUpdaterJar;
+            }
+        }
+        throw new IOException("Updater jar is missing from the downloaded update package.");
     }
 
     private static HttpURLConnection openConnection(String urlValue) throws IOException {
