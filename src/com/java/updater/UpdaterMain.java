@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.Row;
@@ -273,6 +274,14 @@ public class UpdaterMain {
     }
 
     private static void copySheetContent(Sheet source, Sheet target) {
+        Map<Short, CellStyle> styleCache = new HashMap<Short, CellStyle>();
+        target.setDefaultColumnWidth(source.getDefaultColumnWidth());
+        target.setDefaultRowHeight(source.getDefaultRowHeight());
+        target.setDisplayGridlines(source.isDisplayGridlines());
+        target.setPrintGridlines(source.isPrintGridlines());
+        target.setFitToPage(source.getFitToPage());
+        target.setAutobreaks(source.getAutobreaks());
+
         int maxColumn = 0;
         for (int rowIndex = 0; rowIndex <= source.getLastRowNum(); rowIndex++) {
             Row sourceRow = source.getRow(rowIndex);
@@ -281,9 +290,13 @@ public class UpdaterMain {
             }
             Row targetRow = target.createRow(rowIndex);
             targetRow.setHeight(sourceRow.getHeight());
+            targetRow.setZeroHeight(sourceRow.getZeroHeight());
+            if (sourceRow.getRowStyle() != null) {
+                targetRow.setRowStyle(copyCellStyle(sourceRow.getRowStyle(), target.getWorkbook(), styleCache));
+            }
             int lastCell = sourceRow.getLastCellNum();
             for (int col = 0; col < lastCell; col++) {
-                copyCell(sourceRow, targetRow, col);
+                copyCell(sourceRow, targetRow, col, target.getWorkbook(), styleCache);
             }
             maxColumn = Math.max(maxColumn, lastCell);
         }
@@ -298,12 +311,14 @@ public class UpdaterMain {
         }
     }
 
-    private static void copyCell(Row sourceRow, Row targetRow, int col) {
+    private static void copyCell(Row sourceRow, Row targetRow, int col,
+            Workbook targetWorkbook, Map<Short, CellStyle> styleCache) {
         Cell sourceCell = sourceRow.getCell(col);
         if (sourceCell == null) {
             return;
         }
         Cell targetCell = targetRow.createCell(col);
+        targetCell.setCellStyle(copyCellStyle(sourceCell.getCellStyle(), targetWorkbook, styleCache));
         CellType type = sourceCell.getCellType();
         switch (type) {
             case STRING:
@@ -331,6 +346,18 @@ public class UpdaterMain {
                 targetCell.setCellValue(sourceCell.toString());
                 break;
         }
+    }
+
+    private static CellStyle copyCellStyle(CellStyle sourceStyle, Workbook targetWorkbook,
+            Map<Short, CellStyle> styleCache) {
+        Short styleIndex = Short.valueOf(sourceStyle.getIndex());
+        CellStyle targetStyle = styleCache.get(styleIndex);
+        if (targetStyle == null) {
+            targetStyle = targetWorkbook.createCellStyle();
+            targetStyle.cloneStyleFrom(sourceStyle);
+            styleCache.put(styleIndex, targetStyle);
+        }
+        return targetStyle;
     }
 
     private static Map<String, String> parseArgs(String[] args) {

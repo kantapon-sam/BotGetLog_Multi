@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.32",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.32/BotGetLog_Multi-dist-1.1.32.zip",
-    "sha256":  "a9214b89672a15f962a3f8cdc5e443fe7c4fa9970fd5842b1363330d82e0ab18",
-    "notes":  "Released 1.1.32: Fix updater library file locking by running from a temporary Java 8-compatible runtime and safely sync only the cmdSet sheet during update"
+    "version":  "1.1.33",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.33/BotGetLog_Multi-dist-1.1.33.zip",
+    "sha256":  "d394a281bc26dbea945cae12bfa0ee21775ac9ea28589565512488bff7947a91",
+    "notes":  "Released 1.1.33: Preserve cmdSet colors, cell styles, row heights, and column formatting during workbook updates"
 }
