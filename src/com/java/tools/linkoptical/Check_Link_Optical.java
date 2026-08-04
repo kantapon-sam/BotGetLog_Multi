@@ -1126,10 +1126,7 @@ Pattern pHasNeighbor = Pattern.compile(
                 } else if (l.startsWith("Chassis Id")) {
                     chassisId = l.split("Chassis Id")[1].trim();
                 } else if (l.startsWith("Port Id")) {
-                    if (i + 1 < lines.size() && lines.get(i + 1).trim().startsWith("\"")) {
-                        String nextLine = lines.get(i + 1).trim();
-                        portId = nextLine.replace("\"", "").trim();
-                    }
+                    portId = extractNokiaPortId(lines, i);
                 } else if (l.startsWith("Port Description")) {
                     StringBuilder descBlock = new StringBuilder(l);
                     int j = i + 1;
@@ -1635,16 +1632,89 @@ Pattern pHasNeighbor = Pattern.compile(
         return value.replace("\"", "").trim();
     }
 
-    private static String cleanNokiaNeighborPort(String portId, String portDescription) {
-        String value = portId == null ? "" : portId.trim();
+    static String extractNokiaPortId(List<String> lines, int portIdLineIndex) {
+        if (lines == null || portIdLineIndex < 0 || portIdLineIndex >= lines.size()) {
+            return "";
+        }
 
-        if (value.isEmpty() && portDescription != null) {
-            value = portDescription.trim();
-            int colon = value.indexOf(':');
-            if (colon >= 0) {
-                value = value.substring(colon + 1).trim();
+        StringBuilder valueBlock = new StringBuilder();
+        for (int i = portIdLineIndex; i < lines.size(); i++) {
+            String line = lines.get(i) == null ? "" : lines.get(i).trim();
+            if (i > portIdLineIndex && isNokiaPortIdBoundary(line)) {
+                break;
+            }
+
+            String value = line;
+            if (i == portIdLineIndex) {
+                int colon = line.indexOf(':');
+                value = colon >= 0 ? line.substring(colon + 1).trim() : "";
+            }
+            if (!value.isEmpty()) {
+                if (valueBlock.length() > 0) {
+                    valueBlock.append(' ');
+                }
+                valueBlock.append(value);
             }
         }
+
+        String block = valueBlock.toString().trim();
+        Matcher quotedValue = Pattern.compile("\"([^\"]+)\"").matcher(block);
+        String decodedDisplayValue = "";
+        while (quotedValue.find()) {
+            decodedDisplayValue = quotedValue.group(1).trim();
+        }
+        if (!decodedDisplayValue.isEmpty()) {
+            return decodedDisplayValue;
+        }
+
+        String decodedHexValue = decodeNokiaHexPortId(block);
+        if (!decodedHexValue.isEmpty()) {
+            return decodedHexValue;
+        }
+
+        return block.replace("\"", "").trim();
+    }
+
+    private static boolean isNokiaPortIdBoundary(String line) {
+        return line.isEmpty()
+                || line.startsWith("Port Description")
+                || line.startsWith("System Name")
+                || line.startsWith("System Description")
+                || line.startsWith("Age")
+                || line.startsWith("Remote Peer Index")
+                || line.startsWith("PortId Subtype")
+                || line.startsWith("Chassis Id")
+                || line.startsWith("Supported Caps")
+                || line.startsWith("Enabled Caps")
+                || line.startsWith("---")
+                || line.startsWith("===");
+    }
+
+    private static String decodeNokiaHexPortId(String value) {
+        String compact = value == null ? "" : value.replaceAll("\\s+", "");
+        if (!compact.matches("(?i)(?:[0-9a-f]{2}:)+[0-9a-f]{2}")) {
+            return "";
+        }
+
+        StringBuilder decoded = new StringBuilder();
+        String[] octets = compact.split(":");
+        for (String octet : octets) {
+            int codePoint;
+            try {
+                codePoint = Integer.parseInt(octet, 16);
+            } catch (NumberFormatException ex) {
+                return "";
+            }
+            if (codePoint < 0x20 || codePoint > 0x7e) {
+                return "";
+            }
+            decoded.append((char) codePoint);
+        }
+        return decoded.toString().trim();
+    }
+
+    static String cleanNokiaNeighborPort(String portId, String portDescription) {
+        String value = portId == null ? "" : portId.trim();
 
         if (value.contains(",")) {
             value = value.split(",", 2)[0].trim();
