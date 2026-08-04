@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.31",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.31/BotGetLog_Multi-dist-1.1.31.zip",
-    "sha256":  "21a71a2990650776556c32781cd6a4c7175a2f5add6f6c8e73c795d140648e90",
-    "notes":  "Released 1.1.31: Publish v1.1.31 update manifest"
+    "version":  "1.1.32",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.32/BotGetLog_Multi-dist-1.1.32.zip",
+    "sha256":  "a9214b89672a15f962a3f8cdc5e443fe7c4fa9970fd5842b1363330d82e0ab18",
+    "notes":  "Released 1.1.32: Fix updater library file locking by running from a temporary Java 8-compatible runtime and safely sync only the cmdSet sheet during update"
 }
