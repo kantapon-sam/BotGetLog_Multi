@@ -62,10 +62,6 @@ public class UpdaterMain {
             String javaCommand = requiredValue(options, "--java");
             String cleanupPath = optionalValue(options, "--cleanup");
 
-            if (cleanupPath != null && !cleanupPath.isEmpty()) {
-                new File(cleanupPath).deleteOnExit();
-            }
-
             log(targetDir, "Updater started for " + launchJar.getAbsolutePath());
             waitForFileToUnlock(launchJar, 30);
             Path stagingDir = Files.createTempDirectory("botgetlog-update-staging-");
@@ -77,6 +73,7 @@ public class UpdaterMain {
             deleteDirectory(stagingDir);
             relaunch(javaCommand, launchJar, targetDir);
             log(targetDir, "Update installed successfully. Launching the new version now.");
+            cleanupPath(cleanupPath);
         } catch (Exception e) {
             log(targetDir, "Update failed: " + e.getMessage());
             UpdatePromptDialog.showError("Update Error",
@@ -186,7 +183,22 @@ public class UpdaterMain {
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
-                });
+        });
+    }
+
+    private static void cleanupPath(String cleanupPath) {
+        if (cleanupPath == null || cleanupPath.trim().isEmpty()) {
+            return;
+        }
+        try {
+            Path path = new File(cleanupPath).toPath();
+            if (Files.isDirectory(path)) {
+                deleteDirectory(path);
+            } else {
+                Files.deleteIfExists(path);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private static void cleanupLegacyArtifacts(Path targetRoot) throws IOException {

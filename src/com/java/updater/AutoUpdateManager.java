@@ -14,6 +14,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -142,7 +143,9 @@ public final class AutoUpdateManager {
 
     private static void launchUpdater(File downloadedZip) throws IOException {
         File appDir = AppMetadata.getAppDirectory();
-        File tempUpdaterJar = extractUpdaterJar(downloadedZip);
+        File updaterRuntimeDir = extractUpdaterRuntime(downloadedZip);
+        File tempUpdaterJar = new File(updaterRuntimeDir,
+                "updater" + File.separator + "BotGetLog_Updater.jar");
 
         File runningLocation = AppMetadata.getRunningLocation();
         List<String> command = new ArrayList<String>();
@@ -150,7 +153,7 @@ public final class AutoUpdateManager {
         command.add("-cp");
         command.add(tempUpdaterJar.getAbsolutePath()
                 + File.pathSeparator
-                + new File(appDir, "lib" + File.separator + "*").getAbsolutePath());
+                + new File(updaterRuntimeDir, "lib" + File.separator + "*").getAbsolutePath());
         command.add("com.java.updater.UpdaterMain");
         command.add("--zip");
         command.add(downloadedZip.getAbsolutePath());
@@ -161,7 +164,7 @@ public final class AutoUpdateManager {
         command.add("--java");
         command.add(AppMetadata.getJavaExecutable());
         command.add("--cleanup");
-        command.add(tempUpdaterJar.getAbsolutePath());
+        command.add(updaterRuntimeDir.getAbsolutePath());
 
         new ProcessBuilder(command)
                 .directory(appDir)
@@ -171,30 +174,68 @@ public final class AutoUpdateManager {
         System.exit(0);
     }
 
-    private static File extractUpdaterJar(File downloadedZip) throws IOException {
+    private static File extractUpdaterRuntime(File downloadedZip) throws IOException {
+        File runtimeDir = Files.createTempDirectory("botgetlog-updater-runtime-").toFile();
+        Path runtimeRoot = runtimeDir.toPath().toAbsolutePath().normalize();
+        boolean updaterFound = false;
         try (InputStream input = new BufferedInputStream(new FileInputStream(downloadedZip));
                 ZipInputStream zipInput = new ZipInputStream(input)) {
             ZipEntry entry;
             while ((entry = zipInput.getNextEntry()) != null) {
                 String entryName = entry.getName().replace('\\', '/');
-                if (!"updater/BotGetLog_Updater.jar".equals(entryName)) {
+                if (!entryName.equals("updater/BotGetLog_Updater.jar")
+                        && !entryName.startsWith("lib/")) {
                     zipInput.closeEntry();
                     continue;
                 }
 
-                File tempUpdaterJar = File.createTempFile("botgetlog-updater-", ".jar");
-                try (FileOutputStream output = new FileOutputStream(tempUpdaterJar)) {
+                Path destination = runtimeRoot.resolve(entryName).normalize();
+                if (!destination.startsWith(runtimeRoot)) {
+                    throw new IOException("Blocked updater runtime entry: " + entryName);
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(destination);
+                    zipInput.closeEntry();
+                    continue;
+                }
+
+                Files.createDirectories(destination.getParent());
+                try (FileOutputStream output = new FileOutputStream(destination.toFile())) {
                     byte[] buffer = new byte[8192];
                     int bytesRead;
                     while ((bytesRead = zipInput.read(buffer)) != -1) {
                         output.write(buffer, 0, bytesRead);
                     }
                 }
+                if (entryName.equals("updater/BotGetLog_Updater.jar")) {
+                    updaterFound = true;
+                }
                 zipInput.closeEntry();
-                return tempUpdaterJar;
             }
+        } catch (IOException e) {
+            deleteDirectory(runtimeRoot);
+            throw e;
         }
-        throw new IOException("Updater jar is missing from the downloaded update package.");
+        if (!updaterFound) {
+            deleteDirectory(runtimeRoot);
+            throw new IOException("Updater jar is missing from the downloaded update package.");
+        }
+        return runtimeDir;
+    }
+
+    private static void deleteDirectory(Path directory) {
+        if (directory == null || !Files.exists(directory)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(directory)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                }
+            });
+        } catch (IOException ignored) {
+        }
     }
 
     private static HttpURLConnection openConnection(String urlValue) throws IOException {
