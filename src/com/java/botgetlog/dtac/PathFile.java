@@ -48,8 +48,6 @@ public class PathFile {
             // -------------------------------
             File userWorkbook = ensureUserInputWorkbook(FolderCurrent);
             UserInterface_Input = userWorkbook.getCanonicalPath();
-            synchronizeCmdSetSheet(userWorkbook, new File(FolderCurrent, DEFAULT_INPUT_RELATIVE_PATH));
-
             // -------------------------------
             // -------------------------------
             Log = CurrentFolder + "\\_output\\Total_Log\\";
@@ -130,6 +128,8 @@ public class PathFile {
                 return;
             }
 
+            File tempWorkbook = new File(userWorkbook.getParentFile(),
+                    userWorkbook.getName() + ".cmdset.tmp");
             try (Workbook targetWorkbook = WorkbookFactory.create(
                     new BufferedInputStream(new FileInputStream(userWorkbook)));
                     Workbook defaultWorkbookIn = WorkbookFactory.create(
@@ -152,15 +152,37 @@ public class PathFile {
 
                 copySheetContent(sourceSheet, targetSheet);
 
-                try (FileOutputStream out = new FileOutputStream(userWorkbook)) {
+                try (FileOutputStream out = new FileOutputStream(tempWorkbook)) {
                     targetWorkbook.write(out);
                 }
-                cmdSetSynced = true;
-                System.out.println("[AUTO-INPUT] Synchronized cmdSet sheet from defaults.");
             } catch (Exception e) {
                 System.out.println("[AUTO-INPUT] Failed to synchronize cmdSet sheet: " + e.getMessage());
+                tempWorkbook.delete();
+                return;
+            }
+
+            try {
+                backupUserWorkbook(userWorkbook);
+                Files.move(tempWorkbook.toPath(), userWorkbook.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                cmdSetSynced = true;
+                System.out.println("[AUTO-INPUT] Synchronized cmdSet sheet from defaults safely.");
+            } catch (Exception e) {
+                tempWorkbook.delete();
+                System.out.println("[AUTO-INPUT] Failed to replace UserInterface_Input.xlsx safely: "
+                        + e.getMessage());
             }
         }
+    }
+
+    private static void backupUserWorkbook(File userWorkbook) throws IOException {
+        File backupDir = new File(userWorkbook.getParentFile(),
+                "_output" + File.separator + "System_Log" + File.separator + "Input_Backup");
+        if (!backupDir.exists() && !backupDir.mkdirs() && !backupDir.isDirectory()) {
+            throw new IOException("Cannot create input backup directory: " + backupDir.getAbsolutePath());
+        }
+        File backup = new File(backupDir,
+                "UserInterface_Input_before_cmdSet_" + System.currentTimeMillis() + ".xlsx");
+        Files.copy(userWorkbook.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static void copySheetContent(Sheet source, Sheet target) {

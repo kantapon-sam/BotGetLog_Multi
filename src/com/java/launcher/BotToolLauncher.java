@@ -1,6 +1,5 @@
 package com.java.launcher;
 
-import com.java.botgetlog.truecorp.PathFile;
 import com.java.shared.AppMetadata;
 import com.java.updater.AutoUpdateManager;
 import java.awt.Desktop;
@@ -68,9 +67,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.28: Refresh build metadata, launcher release notes, and package artifacts for
-    // version 1.1.28.
-    private static final String FALLBACK_VERSION = "1.1.28";
+    // Version 1.1.29: Refresh build metadata, launcher release notes, and package artifacts for
+    // version 1.1.29.
+    private static final String FALLBACK_VERSION = "1.1.29";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -1715,16 +1714,7 @@ public class BotToolLauncher {
         if (!AppMetadata.isRunningFromIde() && AutoUpdateManager.checkForUpdatesAtStartup()) {
             return;
         }
-        synchronizeUserInputAtStartup();
         SwingUtilities.invokeLater(() -> new BotToolLauncher().show());
-    }
-
-    private static void synchronizeUserInputAtStartup() {
-        try {
-            new PathFile();
-        } catch (Exception e) {
-            System.out.println("[AUTO-INPUT] Startup cmdSet sync skipped: " + e.getMessage());
-        }
     }
 
     private static final class WebTarget {

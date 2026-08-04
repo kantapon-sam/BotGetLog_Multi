@@ -149,8 +149,11 @@ public final class AutoUpdateManager {
         File runningLocation = AppMetadata.getRunningLocation();
         List<String> command = new ArrayList<String>();
         command.add(AppMetadata.getJavaExecutable());
-        command.add("-jar");
-        command.add(tempUpdaterJar.getAbsolutePath());
+        command.add("-cp");
+        command.add(tempUpdaterJar.getAbsolutePath()
+                + File.pathSeparator
+                + new File(appDir, "lib" + File.separator + "*").getAbsolutePath());
+        command.add("com.java.updater.UpdaterMain");
         command.add("--zip");
         command.add(downloadedZip.getAbsolutePath());
         command.add("--target");
