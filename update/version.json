@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.35",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.35/BotGetLog_Multi-dist-1.1.35.zip",
-    "sha256":  "5c0015e153a7a4ee462633836e855cd27ec221ad219e42dff924e3a15112eabc",
-    "notes":  "Released 1.1.35: Improve TRUE Link Optical checkpoint runs with a changed-log pre-scan before thread 10 and one final full export."
+    "version":  "1.1.36",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.36/BotGetLog_Multi-dist-1.1.36.zip",
+    "sha256":  "ab3ce7f352cb3f47cda9ba2e495d53fec68d8695aeeefbcdda03d17eeb56e09a",
+    "notes":  "Released 1.1.36: Add CPU and memory monitoring support to the TRUE Link Optical workflow and prepare the automatic update package."
 }
