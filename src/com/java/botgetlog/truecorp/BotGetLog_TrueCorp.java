@@ -1493,11 +1493,13 @@ public class BotGetLog_TrueCorp {
                 }
                 if (linkOpticalSelection.isEnabled()) {
                     Integer threadPoolSizeOverride;
+                    TrueLinkOpticalAutoMode.ExportMode linkOpticalExportMode;
                     try {
                         threadPoolSizeOverride = TrueLinkOpticalAutoMode.getThreadPoolSizeOverride(args);
+                        linkOpticalExportMode = TrueLinkOpticalAutoMode.getExportMode(args);
                     } catch (IllegalArgumentException ex) {
                         realOut.println("[ERROR] " + ex.getMessage());
-                        requestImmediateShutdown("Invalid TRUE Link Optical thread override", 1);
+                        requestImmediateShutdown("Invalid TRUE Link Optical option", 1);
                         return;
                     }
                     if (threadPoolSizeOverride != null) {
@@ -1510,6 +1512,8 @@ public class BotGetLog_TrueCorp {
                             linkOpticalSelection.getModeName(),
                             linkOpticalSelection.getSiteCount(),
                             linkOpticalSelection.getCommandCount());
+                    realOut.printf("[AUTO-LINK] Export mode for this collection pass: %s%n",
+                            linkOpticalExportMode);
                     if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
                         int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
                                 new File(FileInput.getLog()), linkOpticalSelection);
@@ -2201,8 +2205,10 @@ public class BotGetLog_TrueCorp {
                             stopBackgroundWorkers();
                             realOut.println("[INFO] Background workers stopped before success dialog.");
                             if (linkOpticalSelection.isEnabled()) {
-                                logwork("[AUTO-LINK] Starting Link Optical export.\n", FileInput.getLogWork());
-                                TrueLinkOpticalAutoMode.runLinkOpticalExport(FileInput, linkOpticalSelection);
+                                logwork("[AUTO-LINK] Starting Link Optical post-collection processing.\n",
+                                        FileInput.getLogWork());
+                                TrueLinkOpticalAutoMode.runConfiguredLinkOpticalExport(
+                                        FileInput, linkOpticalSelection, args);
                                 if (headlessAutoRun) {
                                     realOut.println("[OK] All Devices Completed - Link Optical Auto Finished");
                                 } else {

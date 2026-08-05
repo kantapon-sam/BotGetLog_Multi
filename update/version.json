@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.34",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.34/BotGetLog_Multi-dist-1.1.34.zip",
-    "sha256":  "57e25f60f548ea6fb3921ad897b38d0bf4dfa2121cf18bfd622d736026059874",
-    "notes":  "Released 1.1.34: Preserve cmdSet tab color during updates and refresh the default command set"
+    "version":  "1.1.35",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.35/BotGetLog_Multi-dist-1.1.35.zip",
+    "sha256":  "5c0015e153a7a4ee462633836e855cd27ec221ad219e42dff924e3a15112eabc",
+    "notes":  "Released 1.1.35: Improve TRUE Link Optical checkpoint runs with a changed-log pre-scan before thread 10 and one final full export."
 }
