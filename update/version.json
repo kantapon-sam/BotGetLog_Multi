@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.36",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.36/BotGetLog_Multi-dist-1.1.36.zip",
-    "sha256":  "ab3ce7f352cb3f47cda9ba2e495d53fec68d8695aeeefbcdda03d17eeb56e09a",
-    "notes":  "Released 1.1.36: Add CPU and memory monitoring support to the TRUE Link Optical workflow and prepare the automatic update package."
+    "version":  "1.1.37",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.37/BotGetLog_Multi-dist-1.1.37.zip",
+    "sha256":  "248ba1827c1572a513dc1b78232941496649a0b0043728a4537cc7d8cd397707",
+    "notes":  "Released 1.1.37: Generate DataCPU_Memory directly from Link_Optical.jar with consistent Nokia, ZTE, and Huawei CPU and memory columns."
 }

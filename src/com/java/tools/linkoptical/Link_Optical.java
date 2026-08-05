@@ -73,14 +73,16 @@ public class Link_Optical {
         private final File neighborFile;
         private final File portFile;
         private final File descriptionFile;
+        private final File cpuMemoryFile;
 
         private ProcessResult(int totalFiles, File fullLldpFile, File neighborFile,
-                File portFile, File descriptionFile) {
+                File portFile, File descriptionFile, File cpuMemoryFile) {
             this.totalFiles = totalFiles;
             this.fullLldpFile = fullLldpFile;
             this.neighborFile = neighborFile;
             this.portFile = portFile;
             this.descriptionFile = descriptionFile;
+            this.cpuMemoryFile = cpuMemoryFile;
         }
 
         public int getTotalFiles() {
@@ -103,6 +105,10 @@ public class Link_Optical {
             return descriptionFile;
         }
 
+        public File getCpuMemoryFile() {
+            return cpuMemoryFile;
+        }
+
         public List<File> getOutputFiles() {
             List<File> outputs = new ArrayList<File>();
             if (portFile != null) {
@@ -110,6 +116,9 @@ public class Link_Optical {
             }
             if (descriptionFile != null) {
                 outputs.add(descriptionFile);
+            }
+            if (cpuMemoryFile != null) {
+                outputs.add(cpuMemoryFile);
             }
             if (neighborFile != null) {
                 outputs.add(neighborFile);
@@ -257,7 +266,7 @@ public class Link_Optical {
                 if (showDialogs) {
                     Dialog.Info(message);
                 }
-                return new ProcessResult(0, null, null, null, null);
+                return new ProcessResult(0, null, null, null, null, null);
             }
 
             if (outputDir == null) {
@@ -469,23 +478,44 @@ public class Link_Optical {
             File descriptionFile = DescriptionChecker.process(fullFile, outputDir, formattedDateTime4);
             String output_DESCRIPTION = descriptionFile.getName();
 
+            // 5) DataCPU_Memory_xxx.csv is generated directly from the same
+            // completed Link Optical logs, so the standalone JAR and Bot mode
+            // always produce the same five-file output set.
+            LocalDateTime now5 = now4.plusSeconds(1);
+            String formattedDateTime5 = now5.format(formatter);
+            if (formattedDateTime5.equals(formattedDateTime4)) {
+                now5 = now5.plusSeconds(1);
+                formattedDateTime5 = now5.format(formatter);
+            }
+            CpuMemoryExporter.ExportResult cpuMemoryResult
+                    = CpuMemoryExporter.export(lldpFiles, outputDir, formattedDateTime5);
+            File cpuMemoryFile = cpuMemoryResult.getOutputFile();
+            String output_CPU_MEMORY = cpuMemoryFile.getName();
+            System.out.println("[INFO] Generated " + output_CPU_MEMORY
+                    + " rows=" + cpuMemoryResult.getExported()
+                    + " partial=" + cpuMemoryResult.getPartial()
+                    + " noData=" + cpuMemoryResult.getNoData());
+
             System.out.println(output_PORT);
             System.out.println(output_DESCRIPTION);
+            System.out.println(output_CPU_MEMORY);
             System.out.println(output_LLDP_2);
             System.out.println(output_LLDP);
             System.out.println(TotalFile + " Node");
             if (showDialogs) {
                 Dialog.Success(
-                        "Generated 4 Link Optical file(s)\n"
+                        "Generated 5 Link Optical file(s)\n"
                         + output_PORT + "\n"
                         + output_DESCRIPTION + "\n"
+                        + output_CPU_MEMORY + "\n"
                         + output_LLDP_2 + "\n"
                         + output_LLDP,
                         TotalFile
                 );
             }
 
-            return new ProcessResult(TotalFile, fullFile, filteredFile, portFile, descriptionFile);
+            return new ProcessResult(TotalFile, fullFile, filteredFile, portFile,
+                    descriptionFile, cpuMemoryFile);
 
         } catch (Exception ex) {
             if (file_fail == null || file_fail.trim().isEmpty()) {
