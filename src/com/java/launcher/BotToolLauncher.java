@@ -67,9 +67,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.37: Generate DataCPU_Memory directly from Link_Optical.jar with consistent Nokia,
-    // ZTE, and Huawei CPU and memory columns.
-    private static final String FALLBACK_VERSION = "1.1.37";
+    // Version 1.1.38: Recursively discover and collect only newly added Link Optical nodes before
+    // one final export while preserving existing Total_Log; also include automatic neighbor
+    // discovery, vendor-aware command selection, and CPU/memory export fixes.
+    private static final String FALLBACK_VERSION = "1.1.38";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

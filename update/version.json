@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.37",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.37/BotGetLog_Multi-dist-1.1.37.zip",
-    "sha256":  "248ba1827c1572a513dc1b78232941496649a0b0043728a4537cc7d8cd397707",
-    "notes":  "Released 1.1.37: Generate DataCPU_Memory directly from Link_Optical.jar with consistent Nokia, ZTE, and Huawei CPU and memory columns."
+    "version":  "1.1.38",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.38/BotGetLog_Multi-dist-1.1.38.zip",
+    "sha256":  "0976cdbe385364d8dd64469def6512a9ff3b0bcb1af2e7d8edbd55c59ff5df7b",
+    "notes":  "Released 1.1.38: Recursively discover and collect only newly added Link Optical nodes before one final export while preserving existing Total_Log; also include automatic neighbor discovery, vendor-aware command selection, and CPU/memory export fixes."
 }

@@ -6,6 +6,10 @@ import java.awt.Dimension;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -36,6 +40,7 @@ final class TrueLinkOpticalAutoMode {
     private static final String ARG_THREADS_PREFIX = "--link-optical-threads=";
     private static final String ARG_EXPORT_MODE_PREFIX = "--link-optical-export-mode=";
     private static final String ARG_EXPORT_SINCE_FILE_PREFIX = "--link-optical-export-since-file=";
+    private static final String ARG_NEW_SITE_QUEUE_FILE_PREFIX = "--link-optical-new-site-queue-file=";
     private static final String CMDSET_TOKEN = "-LLDP-Link_OPTIC";
     private static final int PREVIEW_LIMIT = 12;
     private static final Pattern IPV4_PATTERN = Pattern.compile("\\b(\\d{1,3}(?:\\.\\d{1,3}){3})\\b");
@@ -387,13 +392,15 @@ final class TrueLinkOpticalAutoMode {
             return;
         }
         if (mode == ExportMode.PRESCAN) {
-            runLinkOpticalPreScan(fileInput, selection, getExportSinceFile(args));
+            runLinkOpticalPreScan(fileInput, selection, getExportSinceFile(args),
+                    getNewSiteQueueFile(args));
             return;
         }
         runLinkOpticalExport(fileInput, selection);
     }
 
-    static void runLinkOpticalPreScan(PathFile fileInput, Selection selection, File sinceFile) {
+    static void runLinkOpticalPreScan(PathFile fileInput, Selection selection, File sinceFile,
+            File newSiteQueueFile) {
         if (fileInput == null || selection == null || !selection.isEnabled()) {
             return;
         }
@@ -412,6 +419,7 @@ final class TrueLinkOpticalAutoMode {
                     sinceFile.getAbsolutePath(), modifiedSince, changedLogs.length);
             if (changedLogs.length == 0) {
                 System.out.println("[AUTO-LINK] Pre-scan found no new or modified completed Link Optical logs.");
+                writeNewSiteQueue(newSiteQueueFile, Collections.<String>emptyList());
                 return;
             }
 
@@ -425,13 +433,19 @@ final class TrueLinkOpticalAutoMode {
             Link_Optical.ProcessResult result = Link_Optical.processFiles(changedLogs, tempDir, false);
             TrueLinkOpticalInputUpdater.UpdateResult updateResult
                     = TrueLinkOpticalInputUpdater.updateFromLinkOptical(fileInput, result);
+            if (!updateResult.successful) {
+                throw new IllegalStateException(
+                        "UserInterface_Input update did not complete; the next-site queue was not replaced.");
+            }
+            writeNewSiteQueue(newSiteQueueFile, updateResult.addedDevices);
             System.out.printf(Locale.ROOT,
-                    "[AUTO-LINK] Pre-scan node update: processedLogs=%d added=%d duplicateIp=%d duplicateDevice=%d duplicateInRun=%d%n",
+                    "[AUTO-LINK] Pre-scan node update: processedLogs=%d added=%d duplicateIp=%d duplicateDevice=%d duplicateInRun=%d queue=%s%n",
                     result == null ? 0 : result.getTotalFiles(),
                     updateResult.added,
                     updateResult.duplicateIp,
                     updateResult.duplicateDevice,
-                    updateResult.duplicateInRun);
+                    updateResult.duplicateInRun,
+                    newSiteQueueFile == null ? "disabled" : newSiteQueueFile.getAbsolutePath());
         } catch (Exception e) {
             System.out.println("[AUTO-LINK] Link Optical pre-scan failed: " + e.getMessage());
         } finally {
@@ -490,6 +504,48 @@ final class TrueLinkOpticalAutoMode {
     static File getExportSinceFile(String[] args) {
         String value = getArgValue(args, ARG_EXPORT_SINCE_FILE_PREFIX);
         return value.isEmpty() ? null : new File(value);
+    }
+
+    static File getNewSiteQueueFile(String[] args) {
+        String value = getArgValue(args, ARG_NEW_SITE_QUEUE_FILE_PREFIX);
+        return value.isEmpty() ? null : new File(value);
+    }
+
+    static void writeNewSiteQueue(File queueFile, List<String> siteNames) throws Exception {
+        if (queueFile == null) {
+            return;
+        }
+        File absoluteQueueFile = queueFile.getAbsoluteFile();
+        File parent = absoluteQueueFile.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
+            throw new IllegalStateException(
+                    "Unable to create new-site queue directory: " + parent.getAbsolutePath());
+        }
+
+        LinkedHashSet<String> unique = new LinkedHashSet<String>();
+        if (siteNames != null) {
+            for (String siteName : siteNames) {
+                String normalized = safeValue(siteName).trim();
+                if (!normalized.isEmpty()) {
+                    unique.add(normalized);
+                }
+            }
+        }
+
+        File tempFile = new File(parent,
+                absoluteQueueFile.getName() + ".tmp." + System.nanoTime());
+        try {
+            Files.write(tempFile.toPath(), new ArrayList<String>(unique), StandardCharsets.UTF_8);
+            try {
+                Files.move(tempFile.toPath(), absoluteQueueFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tempFile.toPath(), absoluteQueueFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(tempFile.toPath());
+        }
     }
 
     static boolean isEnabled(String[] args) {
