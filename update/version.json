@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.38",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.38/BotGetLog_Multi-dist-1.1.38.zip",
-    "sha256":  "0976cdbe385364d8dd64469def6512a9ff3b0bcb1af2e7d8edbd55c59ff5df7b",
-    "notes":  "Released 1.1.38: Recursively discover and collect only newly added Link Optical nodes before one final export while preserving existing Total_Log; also include automatic neighbor discovery, vendor-aware command selection, and CPU/memory export fixes."
+    "version":  "1.1.39",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.39/BotGetLog_Multi-dist-1.1.39.zip",
+    "sha256":  "2743542fed21f12fca243150d179e4aded28890adb8d2c2399609a8f02f26776",
+    "notes":  "Released 1.1.39: Fix DTAC ZTE auto-detection for prompts containing semicolon."
 }

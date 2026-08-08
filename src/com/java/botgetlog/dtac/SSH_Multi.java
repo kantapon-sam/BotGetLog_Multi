@@ -496,12 +496,12 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         String prompt = sanitizePromptLine(line);
         if (prompt.isEmpty()) return null;
 
-        if (prompt.matches("^[A-Za-z0-9._:-]+[>#]$")) {
+        if (prompt.matches("^[A-Za-z0-9._:;-]+[>#]$")) {
             return "ZTE";
         }
 
-        if (prompt.matches("^<[A-Za-z0-9._:-]+>$")
-                || prompt.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:-]+(?:-[^\\]]+)?\\]$")) {
+        if (prompt.matches("^<[A-Za-z0-9._:;-]+>$")
+                || prompt.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:;-]+(?:-[^\\]]+)?\\]$")) {
             return "HW";
         }
 
@@ -762,7 +762,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 
     private boolean isSingleSidedGreaterPromptLine(String line) {
         String prompt = sanitizePromptLine(line);
-        return prompt.matches("^[A-Za-z0-9._:-]+>$");
+        return prompt.matches("^[A-Za-z0-9._:;-]+>$");
     }
 
     private char promptTerminatorFromWindow(String text, String promptHint) {
@@ -784,7 +784,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 continue;
             }
 
-            if (line.matches("^[A-Za-z0-9._:-]+#$")) return '#';
+            if (line.matches("^[A-Za-z0-9._:;-]+#$")) return '#';
             if (isSingleSidedGreaterPromptLine(line)) return '>';
         }
 
@@ -956,7 +956,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 ? text.substring(text.length() - PROMPT_WINDOW_CHARS)
                 : text;
         String quotedCommand = java.util.regex.Pattern.quote(command.trim());
-        String promptChars = "([A-Za-z0-9._:-]+)";
+        String promptChars = "([A-Za-z0-9._:;-]+)";
         java.util.regex.Pattern[] patterns = new java.util.regex.Pattern[] {
                 java.util.regex.Pattern.compile("^<" + promptChars + ">\\s*" + quotedCommand + "\\s*$"),
                 java.util.regex.Pattern.compile("^" + promptChars + "[>#]\\s*" + quotedCommand + "\\s*$"),
@@ -982,18 +982,18 @@ private void connectSSH(String host, int port, String user, String pass) throws 
     private String extractPromptHintFromLine(String line) {
         if (line == null || line.isEmpty()) return "";
 
-        if (line.matches("^[A-Za-z0-9._:-]+[>#]$")) {
+        if (line.matches("^[A-Za-z0-9._:;-]+[>#]$")) {
             return line.substring(0, line.length() - 1);
         }
 
         java.util.regex.Matcher anglePrompt =
-                java.util.regex.Pattern.compile("^<([A-Za-z0-9._:-]+)>$").matcher(line);
+                java.util.regex.Pattern.compile("^<([A-Za-z0-9._:;-]+)>$").matcher(line);
         if (anglePrompt.matches()) {
             return anglePrompt.group(1);
         }
 
         java.util.regex.Matcher bracketPrompt =
-                java.util.regex.Pattern.compile("^\\[(?:~|\\*)?([A-Za-z0-9._:-]+)(?:-[^\\]]+)?\\]$").matcher(line);
+                java.util.regex.Pattern.compile("^\\[(?:~|\\*)?([A-Za-z0-9._:;-]+)(?:-[^\\]]+)?\\]$").matcher(line);
         if (bracketPrompt.matches()) {
             return bracketPrompt.group(1);
         }
@@ -1017,9 +1017,9 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             return false;
         }
 
-        if (line.matches("^[A-Za-z0-9._:-]+[>#]$")) return true;
-        if (line.matches("^<[A-Za-z0-9._:-]+>$")) return true;
-        return line.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:-]+(?:-[^\\]]+)?\\]$");
+        if (line.matches("^[A-Za-z0-9._:;-]+[>#]$")) return true;
+        if (line.matches("^<[A-Za-z0-9._:;-]+>$")) return true;
+        return line.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:;-]+(?:-[^\\]]+)?\\]$");
     }
 
     public void disconnect() {
