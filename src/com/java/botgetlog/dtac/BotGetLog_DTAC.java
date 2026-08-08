@@ -510,16 +510,16 @@ public class BotGetLog_DTAC {
             return null;
         }
 
-        if (sanitized.matches("^[A-Za-z0-9._:-]+#(?:\\s*.*)?$")) {
+        if (sanitized.matches("^[A-Za-z0-9._:;-]+#(?:\\s*.*)?$")) {
             return "ZTE";
         }
 
-        if (sanitized.matches("^[A-Za-z0-9._:-]+>(?:\\s*.*)?$")) {
+        if (sanitized.matches("^[A-Za-z0-9._:;-]+>(?:\\s*.*)?$")) {
             return "ZTE";
         }
 
-        if (sanitized.matches("^<[A-Za-z0-9._:-]+>(?:\\s*.*)?$")
-                || sanitized.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:-]+(?:-[^\\]]+)?\\](?:\\s*.*)?$")) {
+        if (sanitized.matches("^<[A-Za-z0-9._:;-]+>(?:\\s*.*)?$")
+                || sanitized.matches("^\\[(?:~|\\*)?[A-Za-z0-9._:;-]+(?:-[^\\]]+)?\\](?:\\s*.*)?$")) {
             return "HW";
         }
 
@@ -658,7 +658,7 @@ public class BotGetLog_DTAC {
 
         return line.matches("^<[^\r\n>]+>\\s*" + quotedCmd + "\\s*$")
                 || line.matches("^\\[(?:~|\\*)?[^\r\n\\]]+(?:-[^\\]]+)?\\]\\s*" + quotedCmd + "\\s*$")
-                || line.matches("^[A-Za-z0-9._:-]+[>#]\\s*" + quotedCmd + "\\s*$");
+                || line.matches("^[A-Za-z0-9._:;-]+[>#]\\s*" + quotedCmd + "\\s*$");
     }
 
     private static void deleteLogFileQuietly(File logFile, String reason) {
