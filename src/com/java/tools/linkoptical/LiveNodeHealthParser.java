@@ -214,8 +214,9 @@ public final class LiveNodeHealthParser {
             Double rx = null;
             String warning = "";
             Matcher rxMatcher = Pattern.compile(
-                    "(?im)^\\s*Rx Optical Power.*?\\)\\s*([-+0-9.]+)\\s+"
-                    + "([-+0-9.]+)\\s+([-+0-9.]+)\\s+([-+0-9.]+)\\s+([-+0-9.]+)")
+                    "(?im)^\\s*Rx Optical Power.*?\\)\\s*([-+0-9.]+)[!*]?\\s+"
+                    + "([-+0-9.]+)[!*]?\\s+([-+0-9.]+)[!*]?\\s+"
+                    + "([-+0-9.]+)[!*]?\\s+([-+0-9.]+)[!*]?")
                     .matcher(block);
             if (rxMatcher.find()) {
                 rx = number(rxMatcher.group(1));

@@ -38,7 +38,7 @@ public final class LiveNodeHealthParserRegression {
                 + "TX Laser Wavelength: 1310 nm\n"
                 + "Link Length support: 10km for SMF\n"
                 + "Tx Output Power (dBm)         -5.24     -2.00      -3.00      -9.00     -10.00\n"
-                + "Rx Optical Power (avg dBm)    -6.95     -2.00      -3.00     -21.02     -22.01\n"
+                + "Rx Optical Power (avg dBm)    -0.87     -2.00!     -3.00!    -21.02     -22.01\n"
                 + "A:NOKIA-LIVE#show port description\n"
                 + "Port Id        Description\n"
                 + "1/1/1          To_DN-B\n"
@@ -54,8 +54,12 @@ public final class LiveNodeHealthParserRegression {
         }
         if (!ports.get(0).hasOpticalData
                 || Math.abs(ports.get(0).txPowerDbm.doubleValue() + 5.24d) > 0.001d
-                || Math.abs(ports.get(0).rxPowerDbm.doubleValue() + 6.95d) > 0.001d) {
+                || Math.abs(ports.get(0).rxPowerDbm.doubleValue() + 0.87d) > 0.001d) {
             throw new AssertionError("Nokia live Tx/Rx detail was not merged into the port row.");
+        }
+        if (!"ALARM".equals(ports.get(0).opticalStatus)
+                || !"[-21.02<>-3.00]".equals(ports.get(0).rxWarningRange)) {
+            throw new AssertionError("Nokia alarm-marked Rx thresholds were not parsed.");
         }
         if (!"DOWN".equals(ports.get(1).portStatus) || !"10G".equals(ports.get(1).speed)) {
             throw new AssertionError("Nokia 10G down port was not parsed.");
