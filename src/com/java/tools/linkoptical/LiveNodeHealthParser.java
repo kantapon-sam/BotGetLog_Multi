@@ -66,18 +66,149 @@ public final class LiveNodeHealthParser {
                 detailed.addAll(parseNokiaPortDetails(transcript));
                 return mergePortSummary(parseNokiaPortSummary(transcript), detailed);
             }
+            if (vendorCmdSet.startsWith("ZTE")) {
+                detailed.addAll(parseZteInterfaceDetails(transcript));
+                return mergePortSummary(parseZteInterfaceBrief(transcript), detailed);
+            }
             if (!vendorCmdSet.startsWith("HW")) {
                 return Collections.unmodifiableList(detailed);
             }
+            detailed.addAll(parseHuaweiInterfaceDetails(transcript));
             return mergePortSummary(parseHuaweiInterfaceDescription(transcript), detailed);
         } catch (Exception ignored) {
             if (vendorCmdSet.startsWith("N-")) {
                 return Collections.unmodifiableList(parseNokiaPortSummary(transcript));
             }
             if (vendorCmdSet.startsWith("HW")) {
-                return Collections.unmodifiableList(parseHuaweiInterfaceDescription(transcript));
+                return mergePortSummary(parseHuaweiInterfaceDescription(transcript),
+                        parseHuaweiInterfaceDetails(transcript));
+            }
+            if (vendorCmdSet.startsWith("ZTE")) {
+                return mergePortSummary(parseZteInterfaceBrief(transcript),
+                        parseZteInterfaceDetails(transcript));
             }
             return Collections.emptyList();
+        }
+    }
+
+    private static List<PortSnapshot> parseZteInterfaceBrief(String transcript) {
+        List<PortSnapshot> rows = new ArrayList<PortSnapshot>();
+        if (transcript == null || transcript.isEmpty()) {
+            return rows;
+        }
+        Pattern rowPattern = Pattern.compile(
+                "^\\s*(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+"
+                + "(up|down)\\s+(up|down)\\s+(up|down)\\s*$",
+                Pattern.CASE_INSENSITIVE);
+        String[] lines = transcript.split("\\r?\\n");
+        for (int index = 0; index < lines.length; index++) {
+            Matcher matcher = rowPattern.matcher(lines[index]);
+            if (!matcher.matches() || !isZtePhysicalPort(matcher.group(1))) {
+                continue;
+            }
+            String description = "";
+            if (index + 1 < lines.length) {
+                String next = safe(lines[index + 1]);
+                if (!next.isEmpty() && !next.contains("#") && !rowPattern.matcher(next).matches()) {
+                    description = next;
+                }
+            }
+            rows.add(new PortSnapshot(matcher.group(1), normalizePortStatus(matcher.group(6)),
+                    description, matcher.group(4), "", "", null, null, "", false,
+                    "NO_DATA"));
+        }
+        return rows;
+    }
+
+    private static List<PortSnapshot> parseZteInterfaceDetails(String transcript) {
+        List<PortSnapshot> rows = new ArrayList<PortSnapshot>();
+        if (transcript == null || transcript.isEmpty()) {
+            return rows;
+        }
+        Pattern startPattern = Pattern.compile(
+                "^\\s*(\\S+)\\s+is\\s+(up|down),\\s*ifindex\\s*:",
+                Pattern.CASE_INSENSITIVE);
+        Pattern descriptionPattern = Pattern.compile("^\\s*Description\\s*:\\s*(.*)$",
+                Pattern.CASE_INSENSITIVE);
+        Pattern speedPattern = Pattern.compile("^\\s*BW\\s+([0-9.]+)\\s*([GMK]?)bit/s",
+                Pattern.CASE_INSENSITIVE);
+        Pattern inputCrcPattern = Pattern.compile("\\bIn_CRC_ERROR\\s+(\\d+|N/A)\\b",
+                Pattern.CASE_INSENSITIVE);
+        Pattern outputCrcPattern = Pattern.compile("\\bE_CRC_ERROR\\s+(\\d+|N/A)\\b",
+                Pattern.CASE_INSENSITIVE);
+        String currentPort = "";
+        String currentState = "UNKNOWN";
+        String description = "";
+        String speed = "";
+        Long crcInput = null;
+        Long crcOutput = null;
+        for (String line : transcript.split("\\r?\\n")) {
+            Matcher start = startPattern.matcher(line);
+            if (start.find()) {
+                if (!currentPort.isEmpty()) {
+                    rows.add(zteDetail(currentPort, currentState, description, speed,
+                            crcInput, crcOutput));
+                }
+                currentPort = isZtePhysicalPort(start.group(1)) ? start.group(1) : "";
+                currentState = normalizePortStatus(start.group(2));
+                description = "";
+                speed = "";
+                crcInput = null;
+                crcOutput = null;
+                continue;
+            }
+            if (currentPort.isEmpty()) {
+                continue;
+            }
+            Matcher descriptionMatcher = descriptionPattern.matcher(line);
+            if (descriptionMatcher.find()) {
+                description = safe(descriptionMatcher.group(1));
+            }
+            Matcher speedMatcher = speedPattern.matcher(line);
+            if (speedMatcher.find()) {
+                speed = speedMatcher.group(1) + speedMatcher.group(2).toUpperCase(Locale.ROOT);
+            }
+            Matcher inputMatcher = inputCrcPattern.matcher(line);
+            if (inputMatcher.find()) {
+                crcInput = longNumber(inputMatcher.group(1));
+            }
+            Matcher outputMatcher = outputCrcPattern.matcher(line);
+            if (outputMatcher.find()) {
+                crcOutput = longNumber(outputMatcher.group(1));
+            }
+        }
+        if (!currentPort.isEmpty()) {
+            rows.add(zteDetail(currentPort, currentState, description, speed, crcInput, crcOutput));
+        }
+        return rows;
+    }
+
+    private static PortSnapshot zteDetail(String port, String state, String description,
+            String speed, Long crcInput, Long crcOutput) {
+        Long crcTotal = null;
+        if (crcInput != null || crcOutput != null) {
+            crcTotal = Long.valueOf((crcInput == null ? 0L : crcInput.longValue())
+                    + (crcOutput == null ? 0L : crcOutput.longValue()));
+        }
+        return new PortSnapshot(port, state, description, speed, "", "", null, null,
+                "", false, "NO_DATA", crcInput, crcOutput, crcTotal);
+    }
+
+    private static boolean isZtePhysicalPort(String port) {
+        String value = safe(port).toLowerCase(Locale.ROOT);
+        return value.matches("^(?:gei|xgei|cgei|100gei|40gei|25gei|fei|eth|ethernet)"
+                + "-?[0-9]+(?:/[0-9]+){2,5}$");
+    }
+
+    private static Long longNumber(String value) {
+        String text = safe(value).replace(",", "");
+        if (text.isEmpty() || "N/A".equalsIgnoreCase(text)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(text);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
@@ -222,11 +353,18 @@ public final class LiveNodeHealthParser {
                 rx = number(rxMatcher.group(1));
                 warning = "[" + rxMatcher.group(4) + "<>" + rxMatcher.group(3) + "]";
             }
+            Long fcsErrors = null;
+            Matcher fcsMatcher = Pattern.compile(
+                    "(?im)^\\s*FCS Errors\\s*:\\s*(\\d+)\\b").matcher(block);
+            if (fcsMatcher.find()) {
+                fcsErrors = longNumber(fcsMatcher.group(1));
+            }
             boolean hasOptical = !wavelength.isEmpty() || !distance.isEmpty()
                     || meaningful(tx) || meaningful(rx);
             rows.add(new PortSnapshot(port, state, description, speed,
                     wavelength, distance, tx, rx, warning, hasOptical,
-                    opticalStatus(hasOptical, rx, warning)));
+                    opticalStatus(hasOptical, rx, warning),
+                    fcsErrors, null, fcsErrors));
         }
         return rows;
     }
@@ -270,6 +408,66 @@ public final class LiveNodeHealthParser {
                     "", "", null, null, "", false, "NO_DATA"));
         }
         return rows;
+    }
+
+    private static List<PortSnapshot> parseHuaweiInterfaceDetails(String transcript) {
+        List<PortSnapshot> rows = new ArrayList<PortSnapshot>();
+        if (transcript == null || transcript.isEmpty()) {
+            return rows;
+        }
+        Pattern startPattern = Pattern.compile(
+                "^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
+                + "[0-9]+(?:/[0-9]+){2,4})\\s+current state\\s*:\\s*(UP|DOWN)",
+                Pattern.CASE_INSENSITIVE);
+        Pattern descriptionPattern = Pattern.compile("^\\s*Description\\s*:\\s*(.*)$",
+                Pattern.CASE_INSENSITIVE);
+        Pattern speedPattern = Pattern.compile("^\\s*Port BW\\s*:\\s*([^,\\s]+)",
+                Pattern.CASE_INSENSITIVE);
+        Pattern crcPattern = Pattern.compile("^\\s*CRC\\s*:\\s*(\\d+)\\s+packets\\b",
+                Pattern.CASE_INSENSITIVE);
+        String currentPort = "";
+        String currentState = "UNKNOWN";
+        String description = "";
+        String speed = "";
+        Long crcInput = null;
+        for (String line : transcript.split("\\r?\\n")) {
+            Matcher start = startPattern.matcher(line);
+            if (start.find()) {
+                addHuaweiDetail(rows, currentPort, currentState, description, speed, crcInput);
+                currentPort = start.group(1);
+                currentState = normalizePortStatus(start.group(2));
+                description = "";
+                speed = huaweiPortSpeed(currentPort);
+                crcInput = null;
+                continue;
+            }
+            if (currentPort.isEmpty()) {
+                continue;
+            }
+            Matcher descriptionMatcher = descriptionPattern.matcher(line);
+            if (descriptionMatcher.find()) {
+                description = safe(descriptionMatcher.group(1));
+            }
+            Matcher speedMatcher = speedPattern.matcher(line);
+            if (speedMatcher.find()) {
+                speed = safe(speedMatcher.group(1)).toUpperCase(Locale.ROOT);
+            }
+            Matcher crcMatcher = crcPattern.matcher(line);
+            if (crcMatcher.find() && crcInput == null) {
+                crcInput = longNumber(crcMatcher.group(1));
+            }
+        }
+        addHuaweiDetail(rows, currentPort, currentState, description, speed, crcInput);
+        return rows;
+    }
+
+    private static void addHuaweiDetail(List<PortSnapshot> rows, String port, String state,
+            String description, String speed, Long crcInput) {
+        if (rows == null || safe(port).isEmpty() || crcInput == null) {
+            return;
+        }
+        rows.add(new PortSnapshot(port, state, description, speed, "", "", null, null,
+                "", false, "NO_DATA", crcInput, null, crcInput));
     }
 
     private static Map<String, double[]> parseHuaweiLaneAverages(String transcript) {
@@ -342,7 +540,10 @@ public final class LiveNodeHealthParser {
                     useDetailOptical ? detail.rxPowerDbm : compact.rxPowerDbm,
                     useDetailOptical ? detail.rxWarningRange : compact.rxWarningRange,
                     useDetailOptical ? detail.hasOpticalData : compact.hasOpticalData,
-                    useDetailOptical ? detail.opticalStatus : compact.opticalStatus));
+                    useDetailOptical ? detail.opticalStatus : compact.opticalStatus,
+                    detail.crcInput == null ? compact.crcInput : detail.crcInput,
+                    detail.crcOutput == null ? compact.crcOutput : detail.crcOutput,
+                    detail.crcTotal == null ? compact.crcTotal : detail.crcTotal));
         }
         return Collections.unmodifiableList(new ArrayList<PortSnapshot>(merged.values()));
     }
@@ -481,10 +682,21 @@ public final class LiveNodeHealthParser {
         public final String rxWarningRange;
         public final boolean hasOpticalData;
         public final String opticalStatus;
+        public final Long crcInput;
+        public final Long crcOutput;
+        public final Long crcTotal;
 
         PortSnapshot(String port, String portStatus, String description, String speed,
                 String wavelength, String distance, Double txPowerDbm, Double rxPowerDbm,
                 String rxWarningRange, boolean hasOpticalData, String opticalStatus) {
+            this(port, portStatus, description, speed, wavelength, distance, txPowerDbm,
+                    rxPowerDbm, rxWarningRange, hasOpticalData, opticalStatus, null, null, null);
+        }
+
+        PortSnapshot(String port, String portStatus, String description, String speed,
+                String wavelength, String distance, Double txPowerDbm, Double rxPowerDbm,
+                String rxWarningRange, boolean hasOpticalData, String opticalStatus,
+                Long crcInput, Long crcOutput, Long crcTotal) {
             this.port = safe(port);
             this.portStatus = safe(portStatus);
             this.description = safe(description);
@@ -496,6 +708,9 @@ public final class LiveNodeHealthParser {
             this.rxWarningRange = safe(rxWarningRange);
             this.hasOpticalData = hasOpticalData;
             this.opticalStatus = safe(opticalStatus);
+            this.crcInput = crcInput;
+            this.crcOutput = crcOutput;
+            this.crcTotal = crcTotal;
         }
     }
 }

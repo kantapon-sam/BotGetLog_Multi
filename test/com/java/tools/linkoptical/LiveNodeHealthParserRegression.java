@@ -19,6 +19,7 @@ public final class LiveNodeHealthParserRegression {
         verify(args[1], "ZTE-LLDP-Link_OPTIC", "ZTE");
         verify(args[2], "HW-LLDP-Link_OPTIC", "Huawei");
         verifyNokiaCompactLiveTranscript();
+        verifyZteBriefAndCrcTranscript();
         verifyHuaweiCompactLiveTranscript();
     }
 
@@ -39,6 +40,7 @@ public final class LiveNodeHealthParserRegression {
                 + "Link Length support: 10km for SMF\n"
                 + "Tx Output Power (dBm)         -5.24     -2.00      -3.00      -9.00     -10.00\n"
                 + "Rx Optical Power (avg dBm)    -0.87     -2.00!     -3.00!    -21.02     -22.01\n"
+                + "FCS Errors       : 4    Mult Collisions : 0\n"
                 + "A:NOKIA-LIVE#show port description\n"
                 + "Port Id        Description\n"
                 + "1/1/1          To_DN-B\n"
@@ -61,6 +63,9 @@ public final class LiveNodeHealthParserRegression {
                 || !"[-21.02<>-3.00]".equals(ports.get(0).rxWarningRange)) {
             throw new AssertionError("Nokia alarm-marked Rx thresholds were not parsed.");
         }
+        if (ports.get(0).crcTotal == null || ports.get(0).crcTotal.longValue() != 4L) {
+            throw new AssertionError("Nokia FCS Errors counter was not parsed.");
+        }
         if (!"DOWN".equals(ports.get(1).portStatus) || !"10G".equals(ports.get(1).speed)) {
             throw new AssertionError("Nokia 10G down port was not parsed.");
         }
@@ -74,6 +79,42 @@ public final class LiveNodeHealthParserRegression {
             throw new AssertionError("Nokia management port state/speed was not parsed.");
         }
         System.out.println("Nokia compact live transcript: ports=" + ports.size());
+    }
+
+    private static void verifyZteBriefAndCrcTranscript() {
+        String transcript = "RN-LIVE#show interface brief\n"
+                + "Interface               Attribute  Mode         BW    Admin Phy   Prot\n"
+                + "gei-0/0/0/1             electric   Duplex/full  1G    up    up    up\n"
+                + "To_ARUBA_MC\n"
+                + "xgei-0/0/1/1            optical    Duplex/full  10G   up    down  down\n"
+                + "Reserved\n"
+                + "RN-LIVE#show interface gei-0/0/0/1\n"
+                + "gei-0/0/0/1 is up, ifindex: 8317\n"
+                + "  Description: To_ARUBA_MC\n"
+                + "  BW 1 Gbit/s\n"
+                + "  In_CRC_ERROR      4                    In_Unicasts        46293\n"
+                + "  E_CRC_ERROR       N/A                  E_Unicasts         11355\n"
+                + "RN-LIVE#\n";
+        List<LiveNodeHealthParser.PortSnapshot> ports
+                = LiveNodeHealthParser.parsePorts("RN-LIVE", "10.0.0.2",
+                        "ZTE-LLDP-Link_OPTIC", transcript);
+        if (ports.size() != 2) {
+            throw new AssertionError("ZTE brief parser expected 2 ports, got " + ports.size());
+        }
+        LiveNodeHealthParser.PortSnapshot first = ports.get(0);
+        if (!"UP".equals(first.portStatus) || !"1G".equals(first.speed)
+                || !"To_ARUBA_MC".equals(first.description)) {
+            throw new AssertionError("ZTE brief state, speed or description was not parsed.");
+        }
+        if (first.crcInput == null || first.crcInput.longValue() != 4L
+                || first.crcOutput != null || first.crcTotal == null
+                || first.crcTotal.longValue() != 4L) {
+            throw new AssertionError("ZTE selected-port CRC counters were not parsed.");
+        }
+        if (!"DOWN".equals(ports.get(1).portStatus) || !"10G".equals(ports.get(1).speed)) {
+            throw new AssertionError("ZTE brief physical state was not parsed.");
+        }
+        System.out.println("ZTE compact live transcript: ports=" + ports.size());
     }
 
     private static void verifyHuaweiCompactLiveTranscript() {
@@ -94,6 +135,9 @@ public final class LiveNodeHealthParserRegression {
                 + "Rx1 Power:  1.00dBm, Tx1 Power: 2.50dBm\n"
                 + "Rx2 Power: -2.00dBm, Tx2 Power: 1.50dBm\n"
                 + "Rx3 Power:  2.00dBm, Tx3 Power: 2.50dBm\n"
+                + "Input:\n"
+                + "  Unicast: 20243107625791 packets, Multicast: 931125768 packets\n"
+                + "  CRC: 238097811870 packets, Symbol: 230605413500 packets\n"
                 + "<LIVE>\n";
         List<LiveNodeHealthParser.PortSnapshot> ports
                 = LiveNodeHealthParser.parsePorts("AGN-LIVE", "10.0.0.1",
@@ -107,6 +151,10 @@ public final class LiveNodeHealthParserRegression {
         if (Math.abs(ports.get(0).txPowerDbm.doubleValue() - 2.0d) > 0.001d
                 || Math.abs(ports.get(0).rxPowerDbm.doubleValue()) > 0.001d) {
             throw new AssertionError("Huawei multi-lane Tx/Rx values were not averaged.");
+        }
+        if (ports.get(0).crcTotal == null
+                || ports.get(0).crcTotal.longValue() != 238097811870L) {
+            throw new AssertionError("Huawei input CRC counter was not parsed.");
         }
         if (!"DOWN".equals(ports.get(1).portStatus)) {
             throw new AssertionError("Huawei compact inventory did not retain the down port.");

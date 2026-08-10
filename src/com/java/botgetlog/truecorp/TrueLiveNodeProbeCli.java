@@ -22,6 +22,8 @@ public final class TrueLiveNodeProbeCli {
         String node = value(options, "node");
         String cmdSet = value(options, "cmdset");
         String metrics = normalizeMetrics(value(options, "metrics"));
+        String nodeType = value(options, "type");
+        List<String> selectedPorts = parsePortList(value(options, "ports"));
         if (ip.isEmpty() || node.isEmpty() || cmdSet.isEmpty()) {
             printResult(errorJson(node, ip, cmdSet, "INVALID_REQUEST",
                     "--ip, --node and --cmdset are required.", 0L));
@@ -39,7 +41,7 @@ public final class TrueLiveNodeProbeCli {
                 return;
             }
 
-            List<String> commands = commandsFor(cmdSet, metrics);
+            List<String> commands = commandsFor(cmdSet, metrics, node, nodeType, selectedPorts);
             if (commands.isEmpty()) {
                 printResult(errorJson(node, ip, cmdSet, "UNSUPPORTED_VENDOR",
                         "Live monitoring supports Nokia, ZTE and Huawei command sets.", elapsed(startedAt)));
@@ -114,6 +116,11 @@ public final class TrueLiveNodeProbeCli {
     }
 
     static List<String> commandsFor(String cmdSet, String metrics) {
+        return commandsFor(cmdSet, metrics, "", "", new ArrayList<String>());
+    }
+
+    static List<String> commandsFor(String cmdSet, String metrics, String node,
+            String nodeType, List<String> selectedPorts) {
         String value = cmdSet == null ? "" : cmdSet.trim().toUpperCase(Locale.ROOT);
         String mode = normalizeMetrics(metrics);
         LinkedHashMap<String, Boolean> commands = new LinkedHashMap<>();
@@ -128,13 +135,34 @@ public final class TrueLiveNodeProbeCli {
             }
             if (includesPortStatus(mode)) {
                 commands.put("show port description", Boolean.TRUE);
+                int detailCount = 0;
+                for (String port : selectedPorts == null
+                        ? new ArrayList<String>() : selectedPorts) {
+                    if (detailCount >= 20 || !isSafePort(port)) {
+                        continue;
+                    }
+                    commands.put("show port " + port, Boolean.TRUE);
+                    detailCount++;
+                }
             }
         }
         else if (value.startsWith("Z")) {
             commands.put("terminal length 0", Boolean.TRUE);
             if (includesCpu(mode)) commands.put("show processor", Boolean.TRUE);
             if (includesOptical(mode)) commands.put("show opt brief", Boolean.TRUE);
-            if (includesPortStatus(mode)) commands.put("show interface", Boolean.TRUE);
+            if (includesPortStatus(mode)) {
+                commands.put(isLargeZteNode(node, nodeType)
+                        ? "show interface brief" : "show interface", Boolean.TRUE);
+                int detailCount = 0;
+                for (String port : selectedPorts == null
+                        ? new ArrayList<String>() : selectedPorts) {
+                    if (detailCount >= 20 || !isSafePort(port)) {
+                        continue;
+                    }
+                    commands.put("show interface " + port, Boolean.TRUE);
+                    detailCount++;
+                }
+            }
         }
         else if (value.startsWith("H")) {
             commands.put("screen-length 0 temporary", Boolean.TRUE);
@@ -146,8 +174,44 @@ public final class TrueLiveNodeProbeCli {
             // Read the compact physical-port inventory first; optical/all mode then
             // expands only active physical ports inside Telnet_Multi.
             if (includesPorts(mode)) commands.put("display interface description", Boolean.TRUE);
+            if (includesPortStatus(mode)) {
+                int detailCount = 0;
+                for (String port : selectedPorts == null
+                        ? new ArrayList<String>() : selectedPorts) {
+                    if (detailCount >= 20 || !isSafePort(port)) {
+                        continue;
+                    }
+                    commands.put("display interface " + port, Boolean.TRUE);
+                    detailCount++;
+                }
+            }
         }
         return new ArrayList<>(commands.keySet());
+    }
+
+    private static boolean isLargeZteNode(String node, String nodeType) {
+        String type = nodeType == null ? "" : nodeType.trim().toUpperCase(Locale.ROOT);
+        String name = node == null ? "" : node.trim().toUpperCase(Locale.ROOT);
+        return "RN".equals(type) || "AGN".equals(type)
+                || name.startsWith("RN-") || name.startsWith("AGN-");
+    }
+
+    private static List<String> parsePortList(String value) {
+        List<String> ports = new ArrayList<String>();
+        if (value == null || value.trim().isEmpty()) {
+            return ports;
+        }
+        for (String token : value.split(",")) {
+            String port = token == null ? "" : token.trim();
+            if (isSafePort(port) && !ports.contains(port) && ports.size() < 20) {
+                ports.add(port);
+            }
+        }
+        return ports;
+    }
+
+    private static boolean isSafePort(String port) {
+        return port != null && port.matches("[A-Za-z0-9_.:/-]{1,80}");
     }
 
     private static String successJson(String node, String ip, String cmdSet, String metrics,
@@ -207,6 +271,9 @@ public final class TrueLiveNodeProbeCli {
             appendString(json, "rxWarningRange", port.rxWarningRange);
             json.append(",\"hasOpticalData\":").append(port.hasOpticalData);
             appendString(json, "opticalStatus", port.opticalStatus);
+            appendLong(json, "crcInput", port.crcInput);
+            appendLong(json, "crcOutput", port.crcOutput);
+            appendLong(json, "crcTotal", port.crcTotal);
             json.append('}');
         }
         json.append(']');
@@ -275,6 +342,15 @@ public final class TrueLiveNodeProbeCli {
             json.append("null");
         } else {
             json.append(String.format(Locale.US, "%.2f", value));
+        }
+    }
+
+    private static void appendLong(StringBuilder json, String key, Long value) {
+        json.append(",\"").append(escape(key)).append("\":");
+        if (value == null) {
+            json.append("null");
+        } else {
+            json.append(value.longValue());
         }
     }
 
