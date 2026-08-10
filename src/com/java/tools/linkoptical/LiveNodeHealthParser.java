@@ -36,6 +36,9 @@ public final class LiveNodeHealthParser {
                     continue;
                 }
                 String port = field(fields, 2);
+                if (vendorCmdSet.startsWith("N-") && port.startsWith("'")) {
+                    port = port.substring(1);
+                }
                 if (port.isEmpty()) {
                     continue;
                 }
@@ -59,16 +62,185 @@ public final class LiveNodeHealthParser {
                 detailed.add(new PortSnapshot(port, portStatus, description, speed,
                         wavelength, distance, tx, rx, rxWarning, hasOptical, opticalStatus));
             }
+            if (vendorCmdSet.startsWith("N-")) {
+                detailed.addAll(parseNokiaPortDetails(transcript));
+                return mergePortSummary(parseNokiaPortSummary(transcript), detailed);
+            }
             if (!vendorCmdSet.startsWith("HW")) {
                 return Collections.unmodifiableList(detailed);
             }
-            return mergeHuaweiSummary(parseHuaweiInterfaceDescription(transcript), detailed);
+            return mergePortSummary(parseHuaweiInterfaceDescription(transcript), detailed);
         } catch (Exception ignored) {
+            if (vendorCmdSet.startsWith("N-")) {
+                return Collections.unmodifiableList(parseNokiaPortSummary(transcript));
+            }
             if (vendorCmdSet.startsWith("HW")) {
                 return Collections.unmodifiableList(parseHuaweiInterfaceDescription(transcript));
             }
             return Collections.emptyList();
         }
+    }
+
+    private static List<PortSnapshot> parseNokiaPortSummary(String transcript) {
+        Map<String, PortSnapshot> rows = new LinkedHashMap<String, PortSnapshot>();
+        Map<String, String> descriptions = parseNokiaPortDescriptions(transcript);
+        if (transcript == null || transcript.isEmpty()) {
+            return new ArrayList<PortSnapshot>();
+        }
+        // Nokia SR OS "show port" summary columns are:
+        // Port Id, Admin State, Link State (Yes/No), Port State (Up/Down), ...
+        // Parse the operational Port State rather than the preceding Link flag.
+        Pattern rowPattern = Pattern.compile(
+                "^\\s*([A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4})\\s+"
+                + "(Up|Down)\\s+(Yes|No)\\s+(Up|Down)\\s+(.+)$",
+                Pattern.CASE_INSENSITIVE);
+        for (String line : transcript.split("\\r?\\n")) {
+            Matcher matcher = rowPattern.matcher(line);
+            if (!matcher.matches()) {
+                continue;
+            }
+            String port = matcher.group(1);
+            String state = normalizePortStatus(matcher.group(4));
+            String speed = nokiaPortSpeed(line);
+            String description = descriptions.get(normalizePortKey(port));
+            PortSnapshot snapshot = new PortSnapshot(port, state, safe(description), speed,
+                    "", "", null, null, "", false, "NO_DATA");
+            rows.put(normalizePortKey(port), snapshot);
+        }
+        return new ArrayList<PortSnapshot>(rows.values());
+    }
+
+    private static Map<String, String> parseNokiaPortDescriptions(String transcript) {
+        Map<String, String> descriptions = new LinkedHashMap<String, String>();
+        if (transcript == null || transcript.isEmpty()) {
+            return descriptions;
+        }
+        boolean inDescription = false;
+        for (String line : transcript.split("\\r?\\n")) {
+            String value = safe(line);
+            if (value.matches("(?i)^\\S+#\\s*show\\s+port\\s+description\\s*$")) {
+                inDescription = true;
+                continue;
+            }
+            if (!inDescription) {
+                continue;
+            }
+            if (value.matches("^\\S+#.*$") || value.startsWith("Connection closed")) {
+                inDescription = false;
+                continue;
+            }
+            if (value.isEmpty() || value.startsWith("=") || value.startsWith("-")
+                    || value.startsWith("Port Descriptions") || value.startsWith("Port Id")
+                    || value.equalsIgnoreCase("show port description")) {
+                continue;
+            }
+            String[] fields = value.split("\\s{2,}", 2);
+            if (fields.length == 2
+                    && fields[0].matches("[A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4}")) {
+                descriptions.put(normalizePortKey(fields[0]), fields[1].trim());
+            }
+        }
+        return descriptions;
+    }
+
+    private static List<PortSnapshot> parseNokiaPortDetails(String transcript) {
+        List<PortSnapshot> rows = new ArrayList<PortSnapshot>();
+        if (transcript == null || transcript.isEmpty()) {
+            return rows;
+        }
+        Pattern commandPattern = Pattern.compile(
+                "(?im)^\\s*\\S+#\\s*show\\s+port\\s+"
+                + "([A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4})\\s*$");
+        Matcher commands = commandPattern.matcher(transcript);
+        List<Integer> starts = new ArrayList<Integer>();
+        List<Integer> ends = new ArrayList<Integer>();
+        List<String> commandPorts = new ArrayList<String>();
+        while (commands.find()) {
+            starts.add(Integer.valueOf(commands.start()));
+            ends.add(Integer.valueOf(commands.end()));
+            commandPorts.add(commands.group(1));
+        }
+        for (int index = 0; index < commandPorts.size(); index++) {
+            int blockStart = ends.get(index).intValue();
+            int blockEnd = index + 1 < starts.size()
+                    ? starts.get(index + 1).intValue() : transcript.length();
+            String block = transcript.substring(blockStart, blockEnd);
+            String port = commandPorts.get(index);
+
+            Matcher interfaceMatcher = Pattern.compile(
+                    "(?im)^\\s*Interface\\s*:\\s*([^\\s]+)").matcher(block);
+            if (interfaceMatcher.find()) {
+                port = interfaceMatcher.group(1);
+            }
+            String description = "";
+            Matcher descriptionMatcher = Pattern.compile(
+                    "(?ims)^\\s*Description\\s*:\\s*(.*?)^\\s*Interface\\s*:").matcher(block);
+            if (descriptionMatcher.find()) {
+                description = descriptionMatcher.group(1).replace("\"", "")
+                        .replaceAll("\\s+", " ").trim();
+            }
+            String state = "UNKNOWN";
+            Matcher stateMatcher = Pattern.compile(
+                    "(?im)^\\s*Oper State\\s*:\\s*([A-Za-z]+)").matcher(block);
+            if (stateMatcher.find()) {
+                state = normalizePortStatus(stateMatcher.group(1));
+            }
+            String speed = "";
+            Matcher speedMatcher = Pattern.compile(
+                    "(?i)Oper Speed\\s*:\\s*([0-9.]+)\\s*([GMK]?bps)").matcher(block);
+            if (speedMatcher.find()) {
+                String unit = speedMatcher.group(2).toUpperCase(Locale.ROOT);
+                speed = speedMatcher.group(1) + (unit.startsWith("G") ? "G"
+                        : unit.startsWith("M") ? "M" : unit.startsWith("K") ? "K" : "");
+            }
+            String wavelength = "";
+            Matcher wavelengthMatcher = Pattern.compile(
+                    "(?im)^\\s*TX Laser Wavelength\\s*:\\s*([0-9.]+)\\s*nm").matcher(block);
+            if (wavelengthMatcher.find()) {
+                wavelength = wavelengthMatcher.group(1) + "nm";
+            }
+            String distance = "";
+            Matcher distanceMatcher = Pattern.compile(
+                    "(?im)^\\s*Link Length support\\s*:.*?([0-9.]+)\\s*(km|m)\\b").matcher(block);
+            if (distanceMatcher.find()) {
+                distance = distanceMatcher.group(1) + distanceMatcher.group(2).toLowerCase(Locale.ROOT);
+            }
+            Double tx = null;
+            Matcher txMatcher = Pattern.compile(
+                    "(?im)^\\s*Tx Output Power.*?\\)\\s*([-+0-9.]+)").matcher(block);
+            if (txMatcher.find()) {
+                tx = number(txMatcher.group(1));
+            }
+            Double rx = null;
+            String warning = "";
+            Matcher rxMatcher = Pattern.compile(
+                    "(?im)^\\s*Rx Optical Power.*?\\)\\s*([-+0-9.]+)\\s+"
+                    + "([-+0-9.]+)\\s+([-+0-9.]+)\\s+([-+0-9.]+)\\s+([-+0-9.]+)")
+                    .matcher(block);
+            if (rxMatcher.find()) {
+                rx = number(rxMatcher.group(1));
+                warning = "[" + rxMatcher.group(4) + "<>" + rxMatcher.group(3) + "]";
+            }
+            boolean hasOptical = !wavelength.isEmpty() || !distance.isEmpty()
+                    || meaningful(tx) || meaningful(rx);
+            rows.add(new PortSnapshot(port, state, description, speed,
+                    wavelength, distance, tx, rx, warning, hasOptical,
+                    opticalStatus(hasOptical, rx, warning)));
+        }
+        return rows;
+    }
+
+    private static String nokiaPortSpeed(String line) {
+        String value = safe(line).toUpperCase(Locale.ROOT);
+        if (value.contains("400GBASE") || value.contains("400G")) return "400G";
+        if (value.contains("100GBASE") || value.contains("C100G")) return "100G";
+        if (value.contains("50GBASE") || value.contains("50G")) return "50G";
+        if (value.contains("40GBASE") || value.contains("C40G")) return "40G";
+        if (value.contains("25GBASE") || value.contains("25G")) return "25G";
+        if (value.contains("10GBASE") || value.contains("XGIGE")) return "10G";
+        if (value.contains("GIGE") || value.contains("XCME")) return "1G";
+        if (value.contains("FASTE")) return "100M";
+        return "";
     }
 
     private static List<PortSnapshot> parseHuaweiInterfaceDescription(String transcript) {
@@ -78,20 +250,22 @@ public final class LiveNodeHealthParser {
         }
         Pattern rowPattern = Pattern.compile(
                 "^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                + "[0-9]+(?:/[0-9]+){2,4})\\s+(up|down|\\*down)\\s+(\\S+)(?:\\s+(.*))?$",
+                + "[0-9]+(?:/[0-9]+){2,4}(?:\\([^)]*\\))?)\\s+"
+                + "(up|down|\\*down)\\s+(\\S+)(?:\\s+(.*))?$",
                 Pattern.CASE_INSENSITIVE);
         for (String line : transcript.split("\\r?\\n")) {
             Matcher matcher = rowPattern.matcher(line);
             if (!matcher.matches()) {
                 continue;
             }
-            String port = matcher.group(1);
+            String rawPort = matcher.group(1);
+            String port = rawPort.replaceFirst("\\([^)]*\\)$", "");
             String state = normalizePortStatus(matcher.group(2));
             String description = safe(matcher.group(4));
             if ("--".equals(description) || "-".equals(description)) {
                 description = "";
             }
-            rows.add(new PortSnapshot(port, state, description, huaweiPortSpeed(port),
+            rows.add(new PortSnapshot(port, state, description, huaweiPortSpeed(rawPort),
                     "", "", null, null, "", false, "NO_DATA"));
         }
         return rows;
@@ -143,7 +317,7 @@ public final class LiveNodeHealthParser {
         result.put(normalizePortKey(port), new double[]{txSum / laneCount, rxSum / laneCount});
     }
 
-    private static List<PortSnapshot> mergeHuaweiSummary(List<PortSnapshot> summary,
+    private static List<PortSnapshot> mergePortSummary(List<PortSnapshot> summary,
             List<PortSnapshot> detailed) {
         Map<String, PortSnapshot> merged = new LinkedHashMap<String, PortSnapshot>();
         for (PortSnapshot port : summary) {
@@ -156,22 +330,36 @@ public final class LiveNodeHealthParser {
                 merged.put(key, detail);
                 continue;
             }
+            boolean useDetailOptical = detail.hasOpticalData || !compact.hasOpticalData;
             merged.put(key, new PortSnapshot(detail.port,
                     "UNKNOWN".equals(detail.portStatus) ? compact.portStatus : detail.portStatus,
                     detail.description.isEmpty() ? compact.description : detail.description,
                     detail.speed.isEmpty() ? compact.speed : detail.speed,
-                    detail.wavelength, detail.distance, detail.txPowerDbm, detail.rxPowerDbm,
-                    detail.rxWarningRange, detail.hasOpticalData, detail.opticalStatus));
+                    useDetailOptical ? detail.wavelength : compact.wavelength,
+                    useDetailOptical ? detail.distance : compact.distance,
+                    useDetailOptical ? detail.txPowerDbm : compact.txPowerDbm,
+                    useDetailOptical ? detail.rxPowerDbm : compact.rxPowerDbm,
+                    useDetailOptical ? detail.rxWarningRange : compact.rxWarningRange,
+                    useDetailOptical ? detail.hasOpticalData : compact.hasOpticalData,
+                    useDetailOptical ? detail.opticalStatus : compact.opticalStatus));
         }
         return Collections.unmodifiableList(new ArrayList<PortSnapshot>(merged.values()));
     }
 
     private static String normalizePortKey(String port) {
-        return safe(port).toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        String value = safe(port).replaceFirst("^'+", "")
+                .toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        if (value.matches("^ge[0-9].*")) {
+            value = "gigabitethernet" + value.substring(2);
+        }
+        return value;
     }
 
     private static String huaweiPortSpeed(String port) {
         String value = safe(port).toUpperCase(Locale.ROOT);
+        Matcher hint = Pattern.compile("\\((400G|200G|100G|50G|40G|25G|10G|1G|100M)\\)")
+                .matcher(value);
+        if (hint.find()) return hint.group(1);
         if (value.startsWith("100GE")) return "100G";
         if (value.startsWith("50GE")) return "50G";
         if (value.startsWith("40GE")) return "40G";

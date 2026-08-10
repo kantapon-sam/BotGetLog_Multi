@@ -1170,7 +1170,11 @@ public class Telnet_Multi {
                 }
                 transcript.append(liveTranscriptCommand(safeCommand)).append('\n');
                 write(safeCommand);
-                String response = readUntilPromptOnlyLarge("#", ">", "]");
+                // Live probes run in the normal exec view (# or >).  Do not accept
+                // a bare ']' as a prompt terminator: ZTE optical rows end their
+                // threshold ranges with ']' and would otherwise stop after the
+                // first port, leaving the following command out of sync.
+                String response = readUntilPromptOnlyLarge("#", ">");
                 transcript.append(response == null ? "" : response).append('\n');
                 if (isTimeoutResponse(response)) {
                     return response;
@@ -1180,7 +1184,7 @@ public class Telnet_Multi {
                         String detailCommand = "show port " + port;
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
-                        String detailResponse = readUntilPromptOnlyLarge("#", ">", "]");
+                        String detailResponse = readUntilPromptOnlyLarge("#", ">");
                         transcript.append(detailResponse == null ? "" : detailResponse).append('\n');
                         if (isTimeoutResponse(detailResponse)) {
                             return detailResponse;
@@ -1192,13 +1196,14 @@ public class Telnet_Multi {
                         && "display interface description".equalsIgnoreCase(safeCommand)) {
                     // Huawei aggregation nodes can expose hundreds of logical
                     // interfaces.  The compact inventory is complete, while the
-                    // detail expansion is intentionally bounded to the first 24
-                    // active physical ports (high-speed ports are listed first).
-                    for (String port : extractHuaweiActivePorts(response, 24)) {
+                    // detail expansion is bounded to physical ports only.  A
+                    // 64-port ceiling covers the supported chassis while keeping
+                    // a live request within the MapViewer probe timeout.
+                    for (String port : extractHuaweiActivePorts(response, 64)) {
                         String detailCommand = "display interface " + port;
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
-                        String detailResponse = readUntilPromptOnlyLarge("#", ">", "]");
+                        String detailResponse = readUntilPromptOnlyLarge("#", ">");
                         if (isTimeoutResponse(detailResponse)) {
                             // Keep the complete compact port inventory plus all
                             // details already collected instead of failing the
@@ -1233,8 +1238,9 @@ public class Telnet_Multi {
                     Pattern.CASE_INSENSITIVE);
             Matcher matcher = row.matcher(response);
             while (matcher.find() && ports.size() < Math.max(1, maxPorts)) {
-                if ("up".equalsIgnoreCase(matcher.group(2))
-                        || "up".equalsIgnoreCase(matcher.group(4))) {
+                // Read DDM only for operationally Up ports.  Admin Up can still
+                // have Port State Down and must remain status-only.
+                if ("up".equalsIgnoreCase(matcher.group(4))) {
                     ports.add(matcher.group(1));
                 }
             }
@@ -1248,12 +1254,17 @@ public class Telnet_Multi {
             }
             Pattern row = Pattern.compile(
                     "(?m)^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                    + "[0-9]+(?:/[0-9]+){2,4})\\s+(up|down|\\*down)\\s+\\S+.*$",
+                    + "[0-9]+(?:/[0-9]+){2,4})(?:\\([^)]*\\))?\\s+"
+                    + "(up|down|\\*down)\\s+\\S+.*$",
                     Pattern.CASE_INSENSITIVE);
             Matcher matcher = row.matcher(response);
             while (matcher.find() && ports.size() < Math.max(1, maxPorts)) {
                 if ("up".equalsIgnoreCase(matcher.group(2))) {
-                    ports.add(matcher.group(1));
+                    String port = matcher.group(1);
+                    if (port.matches("(?i)^GE[0-9].*")) {
+                        port = "GigabitEthernet" + port.substring(2);
+                    }
+                    ports.add(port);
                 }
             }
             return new ArrayList<String>(ports);

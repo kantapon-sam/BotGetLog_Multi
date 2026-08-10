@@ -126,6 +126,9 @@ public final class TrueLiveNodeProbeCli {
             if (includesPorts(mode)) {
                 commands.put("show port", Boolean.TRUE);
             }
+            if (includesPortStatus(mode)) {
+                commands.put("show port description", Boolean.TRUE);
+            }
         }
         else if (value.startsWith("Z")) {
             commands.put("terminal length 0", Boolean.TRUE);
