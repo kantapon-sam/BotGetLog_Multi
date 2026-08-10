@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.40",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.40/BotGetLog_Multi-dist-1.1.40.zip",
-    "sha256":  "e5052432374fc41f79e52074b83a21fbcc6d7b065e6cbf824fcd2e92f5950b4f",
-    "notes":  "Released 1.1.40: Prevent false TRUE site cleanup by counting only initial no-login failures. Post-login session recovery failures are classified as connection failures, with improved vendor login prompt and banner detection."
+    "version":  "1.1.41",
+    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.41/BotGetLog_Multi-dist-1.1.41.zip",
+    "sha256":  "32b9196d5690c40b2697f619db3e6231c216d626a55425cb84731f314f0076ba",
+    "notes":  "Released 1.1.41: Add read-only Live Node Monitor probes for CPU and memory, port status, and optical Tx/Rx across Nokia, ZTE, and Huawei; optimize Huawei large nodes with a compact port inventory and averaged multi-lane optics; never write to Total_Log."
 }

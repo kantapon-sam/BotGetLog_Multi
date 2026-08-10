@@ -45,6 +45,25 @@ public final class CpuMemoryExporter {
     private CpuMemoryExporter() {
     }
 
+    /**
+     * Parse a live command transcript without creating any output file.
+     * This is shared by the MapViewer Live Node Monitor and the normal CSV
+     * exporter so both paths use exactly the same vendor rules.
+     */
+    public static CpuMemorySnapshot parseSnapshot(String siteCode, String ipLoopback,
+            String content) {
+        CpuMemoryRow row = new CpuMemoryRow();
+        row.siteCode = siteCode == null ? "" : siteCode.trim();
+        row.ipLoopback = ipLoopback == null ? "" : ipLoopback.trim();
+        parseContent(content, row);
+        if (row.siteCode == null || row.siteCode.trim().isEmpty()) {
+            row.siteCode = siteCode == null ? "" : siteCode.trim();
+        }
+        row.siteCode = row.siteCode == null ? "" : row.siteCode.trim();
+        row.siteCode = row.siteCode.replaceFirst("^\\*?[A-Za-z]:", "");
+        return CpuMemorySnapshot.from(row);
+    }
+
     public static ExportResult export(List<File> inputFiles, File outputDir,
             String requestedTimestamp) throws IOException {
         if (outputDir == null) {
@@ -91,6 +110,12 @@ public final class CpuMemoryExporter {
 
     private static CpuMemoryRow parse(File file, String content) {
         CpuMemoryRow row = CpuMemoryRow.fromFile(file);
+        parseContent(content, row);
+        row.normalizeIdentity(file);
+        return row;
+    }
+
+    private static void parseContent(String content, CpuMemoryRow row) {
         if (containsIgnoreCase(content, "show system cpu")) {
             row.siteCode = firstGroup(NOKIA_PROMPT, content);
             parseNokia(content, row);
@@ -101,8 +126,6 @@ public final class CpuMemoryExporter {
             row.siteCode = firstGroup(HUAWEI_PROMPT, content);
             parseHuawei(content, row);
         }
-        row.normalizeIdentity(file);
-        return row;
     }
 
     private static void parseNokia(String content, CpuMemoryRow row) {
@@ -314,6 +337,42 @@ public final class CpuMemoryExporter {
 
         public int getNoData() {
             return noData;
+        }
+    }
+
+    public static final class CpuMemorySnapshot {
+
+        public final String siteCode;
+        public final String ipLoopback;
+        public final Double cpuCurrentPercent;
+        public final Double cpuIdlePercent;
+        public final Double memoryTotalMb;
+        public final Double memoryUsedMb;
+        public final Double memoryFreeMb;
+        public final Double memoryUsedPercent;
+        public final Double memoryFreePercent;
+
+        private CpuMemorySnapshot(CpuMemoryRow row) {
+            this.siteCode = row.siteCode == null ? "" : row.siteCode;
+            this.ipLoopback = row.ipLoopback == null ? "" : row.ipLoopback;
+            this.cpuCurrentPercent = row.cpuCurrentPct;
+            this.cpuIdlePercent = row.cpuIdlePct;
+            this.memoryTotalMb = row.memoryTotalMb;
+            this.memoryUsedMb = row.memoryUsedMb;
+            this.memoryFreeMb = row.memoryFreeMb;
+            this.memoryUsedPercent = row.memoryUsedPct;
+            this.memoryFreePercent = row.memoryFreePct;
+        }
+
+        private static CpuMemorySnapshot from(CpuMemoryRow row) {
+            return new CpuMemorySnapshot(row);
+        }
+
+        public boolean hasAnyData() {
+            return cpuCurrentPercent != null || cpuIdlePercent != null
+                    || memoryTotalMb != null || memoryUsedMb != null
+                    || memoryFreeMb != null || memoryUsedPercent != null
+                    || memoryFreePercent != null;
         }
     }
 

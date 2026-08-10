@@ -911,6 +911,46 @@ public class BotGetLog_TrueCorp {
         return new CachedSettings(gatewayServers, userServer, pwServer, userCLLS, pwCLLS, userL2, pwL2);
     }
 
+    public static LiveProbeConfig loadLiveProbeConfig() throws IOException {
+        PathFile pathFile = new PathFile();
+        File workbookFile = new File(pathFile.getUserInterface_Input());
+        if (!workbookFile.isFile()) {
+            throw new FileNotFoundException("UserInterface_Input.xlsx was not found.");
+        }
+        CachedSettings settings;
+        try (Workbook workbook = openWorkbookReadOnly(workbookFile)) {
+            Sheet settingSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
+            settings = loadSettingsFromSheet(settingSheet);
+        }
+        CredentialInput nodeCredentials = loadStartupCllsCredentials(pathFile);
+        return new LiveProbeConfig(settings.gatewayServers, settings.userServer,
+                settings.pwServer, nodeCredentials.username, nodeCredentials.password);
+    }
+
+    public static final class LiveProbeConfig {
+
+        public final List<String> gatewayServers;
+        public final String gatewayUsername;
+        public final String gatewayPassword;
+        public final String nodeUsername;
+        public final String nodePassword;
+
+        private LiveProbeConfig(List<String> gatewayServers, String gatewayUsername,
+                String gatewayPassword, String nodeUsername, String nodePassword) {
+            this.gatewayServers = Collections.unmodifiableList(new ArrayList<>(gatewayServers));
+            this.gatewayUsername = safeValue(gatewayUsername);
+            this.gatewayPassword = safeValue(gatewayPassword);
+            this.nodeUsername = safeValue(nodeUsername);
+            this.nodePassword = safeValue(nodePassword);
+        }
+
+        public boolean isComplete() {
+            return !gatewayServers.isEmpty() && !gatewayUsername.isEmpty()
+                    && !gatewayPassword.isEmpty() && !nodeUsername.isEmpty()
+                    && !nodePassword.isEmpty();
+        }
+    }
+
     public static int copyCachedCommands(String cmdSet, String[] targetCommand) {
         if (targetCommand == null) {
             return 0;

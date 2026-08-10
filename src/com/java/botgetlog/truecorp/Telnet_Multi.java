@@ -800,6 +800,72 @@ public class Telnet_Multi {
         }
     }
 
+    /**
+     * Login to one node and run a small read-only command set in memory.
+     * No Total_Log or work-log file is created by this path.
+     */
+    public static LiveProbeResult runLiveProbe(String server, String userServer, String pwServer,
+            String loopback, String userCLLS, String pwCLLS, String cmdSet, String device,
+            List<String> commands) {
+        return runLiveProbe(server, userServer, pwServer, loopback, userCLLS, pwCLLS,
+                cmdSet, device, commands, false);
+    }
+
+    public static LiveProbeResult runLiveProbe(String server, String userServer, String pwServer,
+            String loopback, String userCLLS, String pwCLLS, String cmdSet, String device,
+            List<String> commands, boolean includeActivePortDetails) {
+        long startedAt = System.currentTimeMillis();
+        try (CredentialProbe probe = new CredentialProbe()) {
+            LoginValidationResult login = probe.validate(server, userServer, pwServer,
+                    loopback, userCLLS, pwCLLS, cmdSet, device);
+            if (!login.isSuccess()) {
+                return LiveProbeResult.failure(login.status.name(), login.message,
+                        System.currentTimeMillis() - startedAt);
+            }
+            String transcript = probe.executeCommands(commands, includeActivePortDetails);
+            if (isTimeoutResponse(transcript)) {
+                return LiveProbeResult.failure("COMMAND_TIMEOUT",
+                        "Timed out while reading live commands on " + describeValidationTarget(loopback, device, cmdSet) + ".",
+                        System.currentTimeMillis() - startedAt);
+            }
+            return LiveProbeResult.success(transcript,
+                    System.currentTimeMillis() - startedAt);
+        } catch (Exception e) {
+            String message = e.getMessage();
+            if (message == null || message.trim().isEmpty()) {
+                message = e.toString();
+            }
+            return LiveProbeResult.failure("PROBE_ERROR", message,
+                    System.currentTimeMillis() - startedAt);
+        }
+    }
+
+    public static final class LiveProbeResult {
+
+        public final boolean success;
+        public final String status;
+        public final String message;
+        public final String transcript;
+        public final long elapsedMs;
+
+        private LiveProbeResult(boolean success, String status, String message,
+                String transcript, long elapsedMs) {
+            this.success = success;
+            this.status = safeTrim(status);
+            this.message = safeTrim(message);
+            this.transcript = transcript == null ? "" : transcript;
+            this.elapsedMs = Math.max(0L, elapsedMs);
+        }
+
+        static LiveProbeResult success(String transcript, long elapsedMs) {
+            return new LiveProbeResult(true, "OK", "Live commands completed.", transcript, elapsedMs);
+        }
+
+        static LiveProbeResult failure(String status, String message, long elapsedMs) {
+            return new LiveProbeResult(false, status, message, "", elapsedMs);
+        }
+    }
+
     private static String safeTrim(String value) {
         return value == null ? "" : value.trim();
     }
@@ -1081,6 +1147,118 @@ public class Telnet_Multi {
             }
         }
 
+        private String executeCommands(List<String> commands) throws IOException {
+            return executeCommands(commands, false);
+        }
+
+        private String executeCommands(List<String> commands, boolean includeActivePortDetails) throws IOException {
+            if (out == null || in == null) {
+                throw new IOException("Live node session is not connected.");
+            }
+            StringBuilder transcript = new StringBuilder(8192);
+            if (commands == null || commands.isEmpty()) {
+                return transcript.toString();
+            }
+            // Some devices expose the operational prompt before their CLI is fully
+            // ready.  A short settle prevents the first live-only command (for
+            // example "display interface") from returning an empty response.
+            sleepQuietly(500);
+            for (String command : commands) {
+                String safeCommand = safeTrim(command);
+                if (safeCommand.isEmpty()) {
+                    continue;
+                }
+                transcript.append(liveTranscriptCommand(safeCommand)).append('\n');
+                write(safeCommand);
+                String response = readUntilPromptOnlyLarge("#", ">", "]");
+                transcript.append(response == null ? "" : response).append('\n');
+                if (isTimeoutResponse(response)) {
+                    return response;
+                }
+                if (includeActivePortDetails && "show port".equalsIgnoreCase(safeCommand)) {
+                    for (String port : extractNokiaActivePorts(response, 64)) {
+                        String detailCommand = "show port " + port;
+                        transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
+                        write(detailCommand);
+                        String detailResponse = readUntilPromptOnlyLarge("#", ">", "]");
+                        transcript.append(detailResponse == null ? "" : detailResponse).append('\n');
+                        if (isTimeoutResponse(detailResponse)) {
+                            return detailResponse;
+                        }
+                        sleepQuietly(50);
+                    }
+                }
+                if (includeActivePortDetails
+                        && "display interface description".equalsIgnoreCase(safeCommand)) {
+                    // Huawei aggregation nodes can expose hundreds of logical
+                    // interfaces.  The compact inventory is complete, while the
+                    // detail expansion is intentionally bounded to the first 24
+                    // active physical ports (high-speed ports are listed first).
+                    for (String port : extractHuaweiActivePorts(response, 24)) {
+                        String detailCommand = "display interface " + port;
+                        transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
+                        write(detailCommand);
+                        String detailResponse = readUntilPromptOnlyLarge("#", ">", "]");
+                        if (isTimeoutResponse(detailResponse)) {
+                            // Keep the complete compact port inventory plus all
+                            // details already collected instead of failing the
+                            // whole node because one port did not return a prompt.
+                            break;
+                        }
+                        transcript.append(detailResponse == null ? "" : detailResponse).append('\n');
+                        sleepQuietly(35);
+                    }
+                }
+                sleepQuietly(100);
+            }
+            return transcript.toString();
+        }
+
+        private String liveTranscriptCommand(String command) {
+            String prompt = cleanPromptToken(lastPromptToken);
+            if (prompt.isEmpty() || !(prompt.endsWith("#") || prompt.endsWith(">") || prompt.endsWith("]"))) {
+                prompt = "LIVE#";
+            }
+            return prompt + safeTrim(command);
+        }
+
+        private static List<String> extractNokiaActivePorts(String response, int maxPorts) {
+            LinkedHashSet<String> ports = new LinkedHashSet<String>();
+            if (response == null || response.isEmpty()) {
+                return new ArrayList<String>(ports);
+            }
+            Pattern row = Pattern.compile(
+                    "(?m)^\\s*([0-9]+/[0-9]+/(?:c[0-9]+(?:/[0-9]+)?|[0-9]+(?:/[0-9]+)?))\\s+"
+                    + "(Up|Down)\\s+(Yes|No)\\s+(Up|Down)\\b.*$",
+                    Pattern.CASE_INSENSITIVE);
+            Matcher matcher = row.matcher(response);
+            while (matcher.find() && ports.size() < Math.max(1, maxPorts)) {
+                if ("up".equalsIgnoreCase(matcher.group(2))
+                        || "up".equalsIgnoreCase(matcher.group(4))) {
+                    ports.add(matcher.group(1));
+                }
+            }
+            return new ArrayList<String>(ports);
+        }
+
+        private static List<String> extractHuaweiActivePorts(String response, int maxPorts) {
+            LinkedHashSet<String> ports = new LinkedHashSet<String>();
+            if (response == null || response.isEmpty()) {
+                return new ArrayList<String>(ports);
+            }
+            Pattern row = Pattern.compile(
+                    "(?m)^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
+                    + "[0-9]+(?:/[0-9]+){2,4})\\s+(up|down|\\*down)\\s+\\S+.*$",
+                    Pattern.CASE_INSENSITIVE);
+            Matcher matcher = row.matcher(response);
+            while (matcher.find() && ports.size() < Math.max(1, maxPorts)) {
+                if ("up".equalsIgnoreCase(matcher.group(2))) {
+                    ports.add(matcher.group(1));
+                }
+            }
+            return new ArrayList<String>(ports);
+        }
+
         private String connectGateway(String server, String userServer, String pwServer, String target) throws Exception {
             GatewayEndpoint requestedEndpoint = parseGatewayEndpoint(server);
             List<GatewayEndpoint> candidates = buildGatewayCandidates(requestedEndpoint);
@@ -1344,7 +1522,15 @@ public class Telnet_Multi {
             return readUntilInternal(patterns, false);
         }
 
+        private String readUntilPromptOnlyLarge(String... patterns) {
+            return readUntilInternal(patterns, false, 2_000_000);
+        }
+
         private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt) {
+            return readUntilInternal(patterns, stopOnAuthPrompt, 12000);
+        }
+
+        private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt, int maxBufferChars) {
             try {
                 StringBuilder sb = new StringBuilder(4096);
                 StringBuilder lowerTail = new StringBuilder(256);
@@ -1391,8 +1577,9 @@ public class Telnet_Multi {
                         }
                     }
 
-                    if (sb.length() > 12000) {
-                        sb.delete(0, sb.length() - 8000);
+                    int safeMaxBufferChars = Math.max(12000, maxBufferChars);
+                    if (sb.length() > safeMaxBufferChars) {
+                        sb.delete(0, sb.length() - (safeMaxBufferChars * 3 / 4));
                     }
                 }
             } catch (Exception e) {
