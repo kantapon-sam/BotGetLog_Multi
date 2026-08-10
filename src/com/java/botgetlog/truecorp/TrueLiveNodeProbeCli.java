@@ -138,7 +138,7 @@ public final class TrueLiveNodeProbeCli {
                 int detailCount = 0;
                 for (String port : selectedPorts == null
                         ? new ArrayList<String>() : selectedPorts) {
-                    if (detailCount >= 20 || !isSafePort(port)) {
+                    if (detailCount >= 5 || !isSafePort(port)) {
                         continue;
                     }
                     commands.put("show port " + port, Boolean.TRUE);
@@ -156,7 +156,7 @@ public final class TrueLiveNodeProbeCli {
                 int detailCount = 0;
                 for (String port : selectedPorts == null
                         ? new ArrayList<String>() : selectedPorts) {
-                    if (detailCount >= 20 || !isSafePort(port)) {
+                    if (detailCount >= 5 || !isSafePort(port)) {
                         continue;
                     }
                     commands.put("show interface " + port, Boolean.TRUE);
@@ -178,7 +178,7 @@ public final class TrueLiveNodeProbeCli {
                 int detailCount = 0;
                 for (String port : selectedPorts == null
                         ? new ArrayList<String>() : selectedPorts) {
-                    if (detailCount >= 20 || !isSafePort(port)) {
+                    if (detailCount >= 5 || !isSafePort(port)) {
                         continue;
                     }
                     commands.put("display interface " + port, Boolean.TRUE);
@@ -203,7 +203,7 @@ public final class TrueLiveNodeProbeCli {
         }
         for (String token : value.split(",")) {
             String port = token == null ? "" : token.trim();
-            if (isSafePort(port) && !ports.contains(port) && ports.size() < 20) {
+            if (isSafePort(port) && !ports.contains(port) && ports.size() < 5) {
                 ports.add(port);
             }
         }
