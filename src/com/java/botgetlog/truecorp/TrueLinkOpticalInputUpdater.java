@@ -52,6 +52,23 @@ final class TrueLinkOpticalInputUpdater {
     private static final Pattern MPLS_ALIAS_PATTERN = Pattern.compile("^W\\d{5}[A-Z]?$");
     private static final Pattern SWITCH_MODEL_TOKEN_PATTERN
             = Pattern.compile("(^|[-_])S\\d{4}[A-Z0-9-]*(?=$|[-_])");
+    private static final Pattern INFRASTRUCTURE_NEIGHBOR_ALIAS_PATTERN = Pattern.compile(
+            "^(?:RN|PN|DN|AN)\\d?-[A-Z0-9]+-(?:AC|AG|CO)-[A-Z0-9-]+$");
+    private static final Pattern TRUE_FORBIDDEN_NODE_TOKEN_PATTERN = Pattern.compile(
+            "-(?:AG|CO|AC)-");
+    private static final Pattern TRUE_BLOCKED_NAME_FRAGMENT_PATTERN = Pattern.compile(
+            "(?:NWCN|CGN|MBCN)");
+    private static final Pattern TRUE_SITE_TOKEN_PATTERN = Pattern.compile(
+            "[A-Z]{3,5}\\d{3,5}[A-Z]?");
+    private static final String[] TRUE_AUTO_ADD_IP_PREFIXES = new String[]{
+        "10.185.",
+        "10.85.",
+        "10.150.",
+        "10.163.",
+        "10.167.",
+        "10.207.",
+        "10.165."
+    };
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private TrueLinkOpticalInputUpdater() {
@@ -137,6 +154,9 @@ final class TrueLinkOpticalInputUpdater {
                 String deviceName = normalizeDeviceName(!neighborDes.isEmpty() ? neighborDes : neighborSysName);
                 String ip = extractDestinationIp(sourceIp, description, neighborSysName, neighborDes);
                 if (deviceName.isEmpty() || ip.isEmpty()
+                        || !isAllowedTrueAutoAddIp(ip)
+                        || !isEligibleDiscoveredNodeName(deviceName)
+                        || !descriptionMatchesDiscoveredNode(deviceName, description, neighborDes)
                         || isBlockedDiscoveredNodeName(deviceName, neighborSysName, neighborDes, description)) {
                     continue;
                 }
@@ -190,6 +210,9 @@ final class TrueLinkOpticalInputUpdater {
                 String ip = normalizeIp(valueAt(cols, targetIpIdx));
                 String sourceIp = normalizeIp(valueAt(cols, sourceIpIdx));
                 if (deviceName.isEmpty() || ip.isEmpty() || ip.equals(sourceIp)
+                        || !isAllowedTrueAutoAddIp(ip)
+                        || !isEligibleDiscoveredNodeName(deviceName)
+                        || !descriptionMatchesDiscoveredNode(deviceName, description, detail)
                         || isBlockedDiscoveredNodeName(deviceName, target, description, detail)) {
                     continue;
                 }
@@ -226,7 +249,7 @@ final class TrueLinkOpticalInputUpdater {
             }
 
             Set<String> existingIps = new LinkedHashSet<String>();
-            Set<String> existingDevices = new LinkedHashSet<String>();
+            Set<String> existingDeviceKeys = new LinkedHashSet<String>();
             for (int r = 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
                 if (row == null) {
@@ -235,7 +258,7 @@ final class TrueLinkOpticalInputUpdater {
                 String device = normalizeDeviceName(getCell(row, 2));
                 String ip = normalizeIp(getCell(row, 3));
                 if (!device.isEmpty()) {
-                    existingDevices.add(device);
+                    existingDeviceKeys.add(deviceIdentityKey(device));
                 }
                 if (!ip.isEmpty()) {
                     existingIps.add(ip);
@@ -243,16 +266,25 @@ final class TrueLinkOpticalInputUpdater {
             }
 
             Map<String, DiscoveredNode> uniqueByIp = new LinkedHashMap<String, DiscoveredNode>();
+            Set<String> uniqueDeviceKeys = new LinkedHashSet<String>();
             for (DiscoveredNode node : discovered) {
-                if (isBlockedDiscoveredNodeName(node.deviceName, node.description, node.detail)) {
+                if (!isAllowedTrueAutoAddIp(node.ip)
+                        || !isEligibleDiscoveredNodeName(node.deviceName)
+                        || !descriptionMatchesDiscoveredNode(node.deviceName, node.description, node.detail)
+                        || isBlockedDiscoveredNodeName(node.deviceName, node.description, node.detail)) {
                     continue;
                 }
                 if (existingIps.contains(node.ip)) {
                     duplicateIp++;
                     continue;
                 }
-                if (existingDevices.contains(node.deviceName)) {
+                String deviceKey = deviceIdentityKey(node.deviceName);
+                if (existingDeviceKeys.contains(deviceKey)) {
                     duplicateDevice++;
+                    continue;
+                }
+                if (uniqueDeviceKeys.contains(deviceKey)) {
+                    duplicateInRun++;
                     continue;
                 }
                 if (uniqueByIp.containsKey(node.ip)) {
@@ -260,6 +292,7 @@ final class TrueLinkOpticalInputUpdater {
                     continue;
                 }
                 uniqueByIp.put(node.ip, node);
+                uniqueDeviceKeys.add(deviceKey);
             }
 
             int nextRowIndex = sheet.getLastRowNum() + 1;
@@ -273,7 +306,7 @@ final class TrueLinkOpticalInputUpdater {
                 setCell(row, 3, node.ip);
                 setCell(row, 4, node.cmdSet);
                 existingIps.add(node.ip);
-                existingDevices.add(node.deviceName);
+                existingDeviceKeys.add(deviceIdentityKey(node.deviceName));
                 addedDevices.add(node.deviceName);
                 added++;
             }
@@ -405,6 +438,10 @@ final class TrueLinkOpticalInputUpdater {
         return v.replaceAll("\\s+", "_");
     }
 
+    static String deviceIdentityKey(String value) {
+        return normalizeDeviceName(value).replaceAll("[^A-Z0-9]", "");
+    }
+
     static boolean isBlockedDiscoveredNodeName(String... values) {
         if (values == null) {
             return false;
@@ -416,7 +453,60 @@ final class TrueLinkOpticalInputUpdater {
             }
             if (MPLS_TOKEN_PATTERN.matcher(normalized).find()
                     || MPLS_ALIAS_PATTERN.matcher(normalized).matches()
-                    || SWITCH_MODEL_TOKEN_PATTERN.matcher(normalized).find()) {
+                    || SWITCH_MODEL_TOKEN_PATTERN.matcher(normalized).find()
+                    || TRUE_BLOCKED_NAME_FRAGMENT_PATTERN.matcher(normalized).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean isEligibleDiscoveredNodeName(String deviceName) {
+        String normalized = normalizeDeviceName(deviceName);
+        if (normalized.isEmpty() || normalized.contains(".")
+                || normalized.endsWith("-") || normalized.endsWith("_")) {
+            return false;
+        }
+        return !inferGroup(normalized).isEmpty()
+                && !INFRASTRUCTURE_NEIGHBOR_ALIAS_PATTERN.matcher(normalized).matches()
+                && !TRUE_FORBIDDEN_NODE_TOKEN_PATTERN.matcher(normalized).find()
+                && !TRUE_BLOCKED_NAME_FRAGMENT_PATTERN.matcher(normalized).find();
+    }
+
+    static boolean descriptionMatchesDiscoveredNode(String deviceName, String... descriptions) {
+        String normalized = normalizeDeviceName(deviceName);
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        String host = normalized;
+        int dot = host.indexOf('.');
+        if (dot >= 0) {
+            host = host.substring(0, dot);
+        }
+
+        StringBuilder haystack = new StringBuilder();
+        if (descriptions != null) {
+            for (String description : descriptions) {
+                if (description != null && !description.trim().isEmpty()) {
+                    if (haystack.length() > 0) {
+                        haystack.append(' ');
+                    }
+                    haystack.append(description.toUpperCase(Locale.ROOT).replaceAll("\\s+", "_"));
+                }
+            }
+        }
+        if (haystack.length() == 0) {
+            return false;
+        }
+        String searchable = haystack.toString();
+        if (host.length() >= 5 && searchable.contains(host)) {
+            return true;
+        }
+
+        Matcher tokenMatcher = TRUE_SITE_TOKEN_PATTERN.matcher(host);
+        while (tokenMatcher.find()) {
+            String token = tokenMatcher.group();
+            if (searchable.contains(token)) {
                 return true;
             }
         }
@@ -426,6 +516,19 @@ final class TrueLinkOpticalInputUpdater {
     private static String normalizeIp(String value) {
         String ip = value == null ? "" : value.trim();
         return isValidIpv4(ip) ? ip : "";
+    }
+
+    static boolean isAllowedTrueAutoAddIp(String value) {
+        String ip = normalizeIp(value);
+        if (ip.isEmpty()) {
+            return false;
+        }
+        for (String prefix : TRUE_AUTO_ADD_IP_PREFIXES) {
+            if (ip.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String extractDestinationIp(String sourceIp, String description, String neighborSysName, String neighborDes) {

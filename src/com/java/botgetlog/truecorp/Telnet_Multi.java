@@ -52,6 +52,8 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 
 public class Telnet_Multi {
 
+    private static final String NO_LOGIN_PROMPT_REASON = "No login prompt before credentials";
+
     private enum GatewayProtocol {
         AUTO,
         TELNET,
@@ -874,7 +876,7 @@ public class Telnet_Multi {
         return sb.length() == 0 ? "selected node" : sb.toString();
     }
 
-    private static boolean containsTransportFailureText(String text) {
+    static boolean containsTransportFailureText(String text) {
         if (text == null) {
             return false;
         }
@@ -888,6 +890,10 @@ public class Telnet_Multi {
                 || low.contains("closed by foreign host")
                 || low.contains("refused")
                 || low.contains("network is unreachable");
+    }
+
+    static boolean isTransportFailureBeforeAuthPrompt(String text) {
+        return containsTransportFailureText(text) && !containsAuthPromptText(text);
     }
 
     private static boolean containsRemoteSessionClosedText(String text) {
@@ -975,7 +981,7 @@ public class Telnet_Multi {
 
                 write(safeLoopback);
                 String preLoginOut = readPreLoginBanner(12000);
-                if (containsTransportFailureText(preLoginOut)) {
+                if (isTransportFailureBeforeAuthPrompt(preLoginOut)) {
                     return LoginValidationResult.retryableFailure("Node did not answer login on " + target + ".");
                 }
 
@@ -1852,10 +1858,12 @@ public class Telnet_Multi {
 
             // ===============================================================================================
 //   SAM gateway  (Connection timed out)
-            if (LOG.toString().toLowerCase().contains("connection timed out")) {
+            if (isTransportFailureBeforeAuthPrompt(preLoginOut)) {
                 System.out.println("[ERROR] SAM-BB connection to node timed out: " + Loopback);
-                logwork("[ERROR] SAM-BB connection to node timed out: " + Loopback + "\n");
-                Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+                logwork("[ERROR] SAM-BB connection to node failed before login prompt: " + Loopback
+                        + " | response: " + summarizeResponseForLog(preLoginOut) + "\n");
+                Connection_failed(Num_row, Loopback, Device, cmdSet,
+                        "_[" + NO_LOGIN_PROMPT_REASON + " - connection timed out]");
                 disconnect();
                 return; //   constructor --
             }
@@ -1876,7 +1884,12 @@ public class Telnet_Multi {
                         System.out.println("[ERROR] SSH node login did not return a usable response at " + Loopback);
                         logwork("[ERROR] SSH node login did not return a usable response at " + Loopback
                                 + " | response: " + summarizeResponseForLog(resp, User_CLLS, PW_CLLS) + "\n");
-                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed after password]");
+                        boolean loginPromptSeen = containsAuthPromptText(preLoginOut)
+                                || containsAuthPromptText(resp);
+                        Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                loginPromptSeen
+                                        ? "_[Connection failed after login prompt]"
+                                        : "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         failedAfterPassword = true;
                         disconnect();
                         return;
@@ -1924,7 +1937,8 @@ public class Telnet_Multi {
                             LOGIN_PROMPT_DELAY_BASE_MS,
                             LOGIN_PROMPT_DELAY_JITTER_MS));
 
-                    if (!checkVendorLoginPrompt("Username:", "ogin:", "H/Z", Loopback, Device, cmdSet, Num_row, LOG)) {
+                    if (!checkVendorLoginPrompt("Username:", "ogin:", "H/Z", Loopback, Device, cmdSet,
+                            Num_row, LOG, preLoginOut, false)) {
                         return;
                     }
                     write_NoShow(User_CLLS);
@@ -1933,28 +1947,32 @@ public class Telnet_Multi {
                             LOGIN_PROMPT_DELAY_BASE_MS,
                             LOGIN_PROMPT_DELAY_JITTER_MS));
 
-                    if (!checkVendorLoginPrompt("ogin:", "Username:", "N", Loopback, Device, cmdSet, Num_row, LOG)) {
+                    if (!checkVendorLoginPrompt("ogin:", "Username:", "N", Loopback, Device, cmdSet,
+                            Num_row, LOG, preLoginOut, false)) {
                         return;
                     }
                     write_NoShow(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'J') {
                     LOG.append(Checklogin("ogin:"));
                     if (LOG.toString().contains("Login_failed")) {
-                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+                        Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         break;
                     }
                     write_NoShow(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'O') {
                     LOG.append(Checklogin(":"));
                     if (LOG.toString().contains("Login_failed")) {
-                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+                        Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         break;
                     }
                     write_NoShow(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'L') {
                     LOG.append(Checklogin("Username:"));
                     if (LOG.toString().contains("Login_failed")) {
-                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+                        Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         break;
                     }
                     write_NoShow(User_L2);
@@ -1967,7 +1985,21 @@ public class Telnet_Multi {
                         LOG.append(readUntil(":"));
                         write_NoShow(PW_CLLS);
                     } else {
-                        LOG.append(readUntil("ssword:"));
+                        String passwordPrompt = readUntil("ssword:");
+                        LOG.append(passwordPrompt);
+                        if ((cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z')
+                                && (isTimeoutResponse(passwordPrompt)
+                                || containsTransportFailureText(passwordPrompt)
+                                || !containsPasswordPromptText(passwordPrompt))) {
+                            System.out.println("[ERROR] Node did not present a password prompt at " + Loopback);
+                            logwork("[ERROR] Node did not present a password prompt at " + Loopback
+                                    + " | response: " + summarizeResponseForLog(passwordPrompt, User_CLLS, PW_CLLS) + "\n");
+                            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                    "_[Connection failed after login prompt - no password prompt]");
+                            failedAfterPassword = true;
+                            disconnect();
+                            return;
+                        }
                         write_NoShow(PW_CLLS);
                     }
                     if (cmdSet.charAt(0) == 'J') {
@@ -1990,21 +2022,12 @@ public class Telnet_Multi {
 
                         write("");
                     } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
-                        //   timeout  password ( Password:[TIMEOUT-READ])
-                        if (isTimeoutLog()) {
-                            System.out.println("[ERROR] No response after password at " + Loopback);
-                            logwork("[ERROR] No response after password at " + Loopback + "\n");
-                            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed - no response after password]");
-                            failedAfterPassword = true;
-                            disconnect();
-                            return;
-                        }
-
                         String resp = waitForPostPasswordPrompt(Loopback, User_CLLS, PW_CLLS);
                         LOG.append(resp);
                         if (resp == null
                                 || resp.contains("[TIMEOUT-READ]")
                                 || resp.contains("[TIMEOUT]")
+                                || containsTransportFailureText(resp)
                                 || containsLoginFailureText(resp)
                                 || (containsAuthPromptText(resp) && !hasInteractivePromptToken(resp))) {
                             boolean invalidCredentials = containsLoginFailureText(resp)
@@ -3884,7 +3907,7 @@ public class Telnet_Multi {
         sleepQuietly(50);
     }
 
-    private static boolean containsAuthPromptText(String text) {
+    static boolean containsAuthPromptText(String text) {
         if (text == null) {
             return false;
         }
@@ -3896,7 +3919,7 @@ public class Telnet_Multi {
                 || low.contains("password:");
     }
 
-    private static boolean containsLoginFailureText(String text) {
+    static boolean containsLoginFailureText(String text) {
         if (text == null) {
             return false;
         }
@@ -4003,6 +4026,14 @@ public class Telnet_Multi {
         patterns.add("#");
         patterns.add("error:");
         return patterns.toArray(new String[0]);
+    }
+
+    static boolean containsPasswordPromptText(String text) {
+        if (text == null) {
+            return false;
+        }
+        String low = text.toLowerCase(Locale.ROOT);
+        return low.contains("password:") || low.contains("ssword:");
     }
 
     private String completeSshNodeLogin(String loopback, String device, String cmdSet,
@@ -4215,23 +4246,19 @@ public class Telnet_Multi {
             }
 
             //  -
-            String logType;
-            if (cleanReason.contains("Wrong vendor")) {
-                logType = "Node_WrongVendor_" + dateTag + ".txt";
-            } else {
-                logType = "Node_ConnectionFailed_" + dateTag + ".txt";
-            }
+            String logType = failureLogFileNameForReason(cleanReason, dateTag);
 
             //   timestamp  Wrong Vendor format
             String message = String.format(
-                    "[AUTO]%s,[%d]%s_%s_%s_%s.txt,[%s]",
+                    "[AUTO]%s,[%d]%s_%s_%s_%s.txt,[%s],[PHASE=%s]",
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")), // 
                     Num_row,
                     Loopback,
                     Device,
                     cmdSet,
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")), // --
-                    cleanReason
+                    cleanReason,
+                    failurePhaseTag(System.getenv("TRUE_LINKOPTICAL_FAILURE_PHASE"))
             );
 
             System.out.println(message);
@@ -4411,6 +4438,39 @@ public class Telnet_Multi {
         return null;
     }
 
+    static String failureLogFileNameForReason(String reason, String dateTag) {
+        String cleanReason = reason == null ? "" : reason.trim();
+        String reasonLower = cleanReason.toLowerCase(Locale.ROOT);
+        if (reasonLower.contains(NO_LOGIN_PROMPT_REASON.toLowerCase(Locale.ROOT))) {
+            return "Node_NoLoginPrompt_" + dateTag + ".txt";
+        }
+        if (reasonLower.contains("wrong vendor")) {
+            return "Node_WrongVendor_" + dateTag + ".txt";
+        }
+        if (reasonLower.contains("auth") || reasonLower.contains("password rejected")
+                || reasonLower.contains("login failed")) {
+            return "Node_AuthFailed_" + dateTag + ".txt";
+        }
+        if (reasonLower.contains("cmdset") || reasonLower.contains("cmd set")
+                || reasonLower.contains("incomplete") || reasonLower.contains("file too small")) {
+            return "Node_IncompleteLog_" + dateTag + ".txt";
+        }
+        return "Node_ConnectionFailed_" + dateTag + ".txt";
+    }
+
+    static String failurePhaseTag(String value) {
+        String phase = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        phase = phase.replaceAll("[^A-Z0-9_]+", "_");
+        phase = phase.replaceAll("^_+|_+$", "");
+        return phase.isEmpty() ? "MANUAL" : phase;
+    }
+
+    static String loginPromptFailureReason(boolean sessionRecovery) {
+        return sessionRecovery
+                ? "Connection failed during session recovery before login prompt"
+                : NO_LOGIN_PROMPT_REASON;
+    }
+
     private String currentPromptTokenFromState() {
         String promptToken = cleanPromptToken(extractPromptToken(s));
         if (isInteractivePromptToken(promptToken)) {
@@ -4552,11 +4612,22 @@ public class Telnet_Multi {
     private boolean checkVendorLoginPrompt(String expectedPrompt, String wrongPrompt,
             String vendorName, String Loopback,
             String Device, String cmdSet,
-            int Num_row, StringBuilder LOG) {
-        //   pre-read banner/prompt  Loopback  (auto-vendor) 
-        String lowLog = (LOG == null) ? "" : LOG.toString().toLowerCase();
-        if (lowLog.contains("username:") || lowLog.contains("user name:") || lowLog.contains("login:") || lowLog.contains("ogin:")) {
+            int Num_row, StringBuilder LOG, String initialNodeResponse,
+            boolean sessionRecovery) {
+        // Only inspect data received after the target IP was submitted. LOG also contains
+        // the gateway login transcript and must never be used as proof that the node replied.
+        // A real Login/Username/Password prompt always wins over transport words that may
+        // be present elsewhere in a gateway/banner transcript.
+        if (containsAuthPromptText(initialNodeResponse)) {
             return true;
+        }
+        if (isTransportFailureBeforeAuthPrompt(initialNodeResponse)) {
+            logwork("[ERROR] Node transport failed before login prompt at " + Loopback
+                    + " | response: " + summarizeResponseForLog(initialNodeResponse) + "\n");
+            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                    "_[" + loginPromptFailureReason(sessionRecovery) + "]");
+            disconnect();
+            return false;
         }
 
         sleepQuietly(randomDelayMs(
@@ -4576,12 +4647,25 @@ public class Telnet_Multi {
             checkResult = Checklogin(expectedPrompt);
         }
 
+        if ("Login_failed".equals(checkResult) || isTransportFailureBeforeAuthPrompt(checkResult)) {
+            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                    "_[" + loginPromptFailureReason(sessionRecovery) + "]");
+            disconnect();
+            return false;
+        }
+
         //   retry
         if (checkResult == null || checkResult.contains("[TIMEOUT-Checklogin]")) {
             //  retry - force read
             logwork("[FORCE-RETRY] Second layer check for " + Loopback + "\n");
             String force = readUntil("ogin:");
-            if (force != null && force.toLowerCase().contains("ogin:")) {
+            if (isTransportFailureBeforeAuthPrompt(force)) {
+                Connection_failed(Num_row, Loopback, Device, cmdSet,
+                        "_[" + loginPromptFailureReason(sessionRecovery) + "]");
+                disconnect();
+                return false;
+            }
+            if (containsAuthPromptText(force)) {
                 logwork("[FORCE-RETRY] Prompt found on force read  continue " + Loopback + "\n");
                 LOG.append(force);
                 return true;
@@ -4589,7 +4673,13 @@ public class Telnet_Multi {
 //  -  prompt - (ZTE / Huawei banner)
             if (force == null || !force.toLowerCase().contains("ogin:")) {
                 String all = readUntilStable(":");
-                if (all.toLowerCase().contains("username") || all.toLowerCase().contains("login")) {
+                if (isTransportFailureBeforeAuthPrompt(all)) {
+                    Connection_failed(Num_row, Loopback, Device, cmdSet,
+                            "_[" + loginPromptFailureReason(sessionRecovery) + "]");
+                    disconnect();
+                    return false;
+                }
+                if (containsAuthPromptText(all)) {
                     logwork("[RECOVER] Prompt recovered in second read for " + Loopback + "\n");
                     LOG.append(all);
                     return true;
@@ -4600,7 +4690,8 @@ public class Telnet_Multi {
                     + " but got none/timeout from " + Loopback);
             logwork("\n[ERROR] Wrong vendor or no prompt: Expected " + vendorName
                     + " but got none/timeout from " + Loopback + "\n");
-            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Wrong vendor or no prompt]");
+            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                    "_[" + loginPromptFailureReason(sessionRecovery) + "]");
             disconnect();
             return false;
         }
@@ -4616,8 +4707,9 @@ public class Telnet_Multi {
         LOG.append(checkResult);
 
         //   login fail 
-        if (LOG.toString().contains("Login_failed")) {
-            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed]");
+        if (checkResult.contains("Login_failed")) {
+            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                    "_[" + loginPromptFailureReason(sessionRecovery) + "]");
             disconnect();
             return false;
         }
@@ -5721,13 +5813,15 @@ public class Telnet_Multi {
 
         if (loginVendorFamily == 'H' || loginVendorFamily == 'Z') {
             sleepQuietly(randomDelayMs(LOGIN_PROMPT_DELAY_BASE_MS, LOGIN_PROMPT_DELAY_JITTER_MS));
-            if (!checkVendorLoginPrompt("Username:", "ogin:", "H/Z", Loopback, Device, cmdSet, Num_row, LOG)) {
+            if (!checkVendorLoginPrompt("Username:", "ogin:", "H/Z", Loopback, Device, cmdSet,
+                    Num_row, LOG, preLoginOut, true)) {
                 return false;
             }
             write_NoShow(nodeUsername);
         } else if (loginVendorFamily == 'N') {
             sleepQuietly(randomDelayMs(LOGIN_PROMPT_DELAY_BASE_MS, LOGIN_PROMPT_DELAY_JITTER_MS));
-            if (!checkVendorLoginPrompt("ogin:", "Username:", "N", Loopback, Device, cmdSet, Num_row, LOG)) {
+            if (!checkVendorLoginPrompt("ogin:", "Username:", "N", Loopback, Device, cmdSet,
+                    Num_row, LOG, preLoginOut, true)) {
                 return false;
             }
             write_NoShow(nodeUsername);
@@ -5759,7 +5853,16 @@ public class Telnet_Multi {
                 LOG.append(readUntil(":"));
                 write_NoShow(nodePassword);
             } else {
-                LOG.append(readUntil("ssword:"));
+                String passwordPrompt = readUntil("ssword:");
+                LOG.append(passwordPrompt);
+                if ((cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z')
+                        && (isTimeoutResponse(passwordPrompt)
+                        || containsTransportFailureText(passwordPrompt)
+                        || !containsPasswordPromptText(passwordPrompt))) {
+                    logwork("[RECOVER-FAIL] Node did not present a password prompt at " + Loopback
+                            + " | response: " + summarizeResponseForLog(passwordPrompt, nodeUsername, nodePassword) + "\n");
+                    return false;
+                }
                 write_NoShow(nodePassword);
             }
 
@@ -5774,10 +5877,6 @@ public class Telnet_Multi {
                 }
                 write("");
             } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
-                if (isTimeoutLog()) {
-                    return false;
-                }
-
                 String resp = waitForPostPasswordPrompt(Loopback, nodeUsername, nodePassword);
                 LOG.append(resp);
                 if (resp == null
@@ -6564,7 +6663,7 @@ public class Telnet_Multi {
                     pruneMonitorScanCache(connFailMonitorScanCache, logs);
 
                     String today = LocalDateTime.now().format(dateFmt);
-                    File connFailLog = new File(fileInput.getLogWork(), "Node_ConnectionFailed_" + today + ".txt");
+                    File incompleteLog = new File(fileInput.getLogWork(), "Node_IncompleteLog_" + today + ".txt");
                     long now = System.currentTimeMillis();
                     long safetyIdleMs = getMonitorSafetyIdleMs();
 
@@ -6649,8 +6748,8 @@ public class Telnet_Multi {
 
                         if (fileSize < sizeLimitKB * 1024) {
                             String timestamp = LocalDateTime.now().format(timeFmt);
-                            try ( FileWriter fw = new FileWriter(connFailLog, true)) {
-                                fw.write(String.format("[AUTO]%s,%s,[File too small (%.2f KB < %.2f KB; %d cmds) - auto deleted as connection fail]\n",
+                            try ( FileWriter fw = new FileWriter(incompleteLog, true)) {
+                                fw.write(String.format("[AUTO]%s,%s,[File too small (%.2f KB < %.2f KB; %d cmds) - auto deleted as incomplete log]\n",
                                         timestamp, f.getName(), fileSize / 1024.0, sizeLimitKB, commandCount));
                             }
 

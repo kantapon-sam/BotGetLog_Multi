@@ -13,6 +13,12 @@ public final class TrueLinkOpticalExportModeRegression {
         verifySinceFileParsing();
         verifyModifiedSinceFilter();
         verifyCmdSetExtractionAfterVendorChange();
+        verifyFailureLogClassification();
+        verifyNodePromptIsolation();
+        verifyAuthFailureIsolation();
+        verifyLoginBannerDisconnectIsolation();
+        verifySessionRecoveryFailureIsolation();
+        verifyFailurePhaseTag();
         System.out.println("PASS TrueLinkOpticalExportModeRegression");
     }
 
@@ -78,6 +84,96 @@ public final class TrueLinkOpticalExportModeRegression {
         assertEquals("",
                 TrueLinkOpticalAutoMode.extractLinkOpticalCmdSetFromFileName(
                         "[126]10.1.2.6_NODE_OTHER-COMMAND_2026-08-05.txt"));
+    }
+
+    private static void verifyFailureLogClassification() {
+        assertEquals("Node_NoLoginPrompt_20260809.txt",
+                Telnet_Multi.failureLogFileNameForReason(
+                        "[No login prompt before credentials]", "20260809"));
+        assertEquals("Node_AuthFailed_20260809.txt",
+                Telnet_Multi.failureLogFileNameForReason(
+                        "[Auth failed - username or password rejected]", "20260809"));
+        assertEquals("Node_IncompleteLog_20260809.txt",
+                Telnet_Multi.failureLogFileNameForReason(
+                        "[File too small - incomplete]", "20260809"));
+        assertEquals("Node_ConnectionFailed_20260809.txt",
+                Telnet_Multi.failureLogFileNameForReason(
+                        "[Connection failed after login prompt]", "20260809"));
+    }
+
+    private static void verifyNodePromptIsolation() {
+        String targetTimeout = "Trying to connect to 10.163.191.107, please wait...\n"
+                + "connect telnet to login to 10.163.191.107\n"
+                + "Trying 10.163.191.107...\n"
+                + "telnet: connect to address 10.163.191.107: Connection timed out\n"
+                + "Script done\nEnter IP address [press q/Q to quit]:";
+        assertTrue(Telnet_Multi.containsTransportFailureText(targetTimeout),
+                "target timeout must be recognized before credentials");
+        assertTrue(!Telnet_Multi.containsAuthPromptText(targetTimeout),
+                "the words 'login to' in gateway output are not a node login prompt");
+        assertTrue(!Telnet_Multi.containsPasswordPromptText(targetTimeout),
+                "target timeout must not be mistaken for a password prompt");
+        assertTrue(Telnet_Multi.containsAuthPromptText("Username:"),
+                "real username prompt must be recognized");
+        assertTrue(Telnet_Multi.containsPasswordPromptText("Password:"),
+                "real password prompt must be recognized");
+    }
+
+    private static void verifyAuthFailureIsolation() {
+        String rejectedLogin = "Connected to 10.167.242.27.\n"
+                + "Username:vdes2442@clls\nPassword:\n"
+                + "Error: Username or password error.\nUsername:";
+        assertTrue(Telnet_Multi.containsAuthPromptText(rejectedLogin),
+                "connected node must expose a real authentication prompt");
+        assertTrue(Telnet_Multi.containsLoginFailureText(rejectedLogin),
+                "username/password rejection must be classified as authentication failure");
+        assertTrue(!Telnet_Multi.containsTransportFailureText(rejectedLogin),
+                "authentication failure must not be classified as no-login transport failure");
+    }
+
+    private static void verifyLoginBannerDisconnectIsolation() {
+        String loginBannerDisconnect = "Connected to 10.167.106.3.\n"
+                + "WARNING: Unauthorized access is forbidden.\n"
+                + "Login: vdes2442@clls\nPassword:\n"
+                + "Connection closed by foreign host.";
+        assertTrue(Telnet_Multi.containsAuthPromptText(loginBannerDisconnect),
+                "Login: prompt behind a vendor banner must be recognized");
+        assertTrue(Telnet_Multi.containsPasswordPromptText(loginBannerDisconnect),
+                "Password: prompt behind a vendor banner must be recognized");
+        assertTrue(Telnet_Multi.containsTransportFailureText(loginBannerDisconnect),
+                "post-password remote close must be recognized as a session failure");
+        assertTrue(!Telnet_Multi.isTransportFailureBeforeAuthPrompt(loginBannerDisconnect),
+                "a real Login/Password prompt must win over a later remote close");
+        assertEquals("Node_ConnectionFailed_20260809.txt",
+                Telnet_Multi.failureLogFileNameForReason(
+                        "[Connection failed after password]", "20260809"));
+    }
+
+    private static void verifySessionRecoveryFailureIsolation() {
+        String huaweiBanner = "Connected to 10.167.143.39.\n"
+                + "WARNING: Unauthorized access is forbidden.\nUsername:";
+        assertTrue(Telnet_Multi.containsAuthPromptText(huaweiBanner),
+                "Huawei/ZTE Username prompt behind a warning banner must be recognized");
+        assertTrue(Telnet_Multi.containsAuthPromptText("Login:"),
+                "Nokia Login prompt must be recognized");
+        assertTrue(Telnet_Multi.containsAuthPromptText("User name:"),
+                "spaced user-name prompt must be recognized");
+        assertTrue(Telnet_Multi.isTransportFailureBeforeAuthPrompt(
+                "Trying 10.163.191.107... Connection timed out"),
+                "a real initial transport timeout must remain a no-login failure");
+
+        String initialReason = Telnet_Multi.loginPromptFailureReason(false);
+        String recoveryReason = Telnet_Multi.loginPromptFailureReason(true);
+        assertEquals("Node_NoLoginPrompt_20260810.txt",
+                Telnet_Multi.failureLogFileNameForReason(initialReason, "20260810"));
+        assertEquals("Node_ConnectionFailed_20260810.txt",
+                Telnet_Multi.failureLogFileNameForReason(recoveryReason, "20260810"));
+    }
+
+    private static void verifyFailurePhaseTag() {
+        assertEquals("PRIMARY_THREAD_20", Telnet_Multi.failurePhaseTag("primary-thread-20"));
+        assertEquals("RETRY_THREAD_10", Telnet_Multi.failurePhaseTag(" retry thread 10 "));
+        assertEquals("MANUAL", Telnet_Multi.failurePhaseTag(""));
     }
 
     private static void assertEquals(Object expected, Object actual) {
