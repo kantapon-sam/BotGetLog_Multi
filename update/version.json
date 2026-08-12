@@ -1,6 +1,0 @@
-{
-    "version":  "1.1.42",
-    "url":  "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.1.42/BotGetLog_Multi-dist-1.1.42.zip",
-    "sha256":  "c9fa05fd84e0720b04ce8060280dc7267d59f67b0947e9f7cf05a9ade722a34a",
-    "notes":  "Released 1.1.42: Remove the TRUE Link Optical 30-thread ceiling, honor configured worker counts, preserve targeted ring refresh cleanup safety, and improve multi-vendor live port parsing."
-}
