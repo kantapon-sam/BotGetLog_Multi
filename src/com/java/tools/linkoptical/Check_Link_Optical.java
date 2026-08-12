@@ -231,25 +231,25 @@ Pattern pHasNeighbor = Pattern.compile(
                         wavelength = wavePart;
                     }
 
-                    Matcher m = Pattern.compile("transmission distance[:\\s]*([0-9]+)\\s*km", Pattern.CASE_INSENSITIVE).matcher(l);
+                    Matcher m = Pattern.compile("transmission distance[:\\s]*([0-9]+(?:\\.[0-9]+)?)\\s*(km|m)\\b", Pattern.CASE_INSENSITIVE).matcher(l);
                     if (m.find() && !distanceCaptured) {
-                        distance = m.group(1).trim() + "km";
+                        distance = m.group(1).trim() + m.group(2).toLowerCase();
                         distanceCaptured = true;
                     }
 
                 } else if (l.toLowerCase().contains("connector type")) {
-                    Matcher m = Pattern.compile("transmission distance[:\\s]*([0-9]+)\\s*km", Pattern.CASE_INSENSITIVE).matcher(l);
+                    Matcher m = Pattern.compile("transmission distance[:\\s]*([0-9]+(?:\\.[0-9]+)?)\\s*(km|m)\\b", Pattern.CASE_INSENSITIVE).matcher(l);
                     if (m.find() && !distanceCaptured) {
-                        distance = m.group(1).trim() + "km";
+                        distance = m.group(1).trim() + m.group(2).toLowerCase();
                         distanceCaptured = true;
                     }
                     continue;
 
                 } else if (l.trim().toLowerCase().startsWith("transmission distance")) {
                     if (!prevLine.toLowerCase().contains("wavelength") && !distanceCaptured) {
-                        Matcher m = Pattern.compile("([0-9]+)\\s*km", Pattern.CASE_INSENSITIVE).matcher(l);
+                        Matcher m = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*(km|m)\\b", Pattern.CASE_INSENSITIVE).matcher(l);
                         if (m.find()) {
-                            distance = m.group(1).trim() + "km";
+                            distance = m.group(1).trim() + m.group(2).toLowerCase();
                             distanceCaptured = true;
                         }
                     }

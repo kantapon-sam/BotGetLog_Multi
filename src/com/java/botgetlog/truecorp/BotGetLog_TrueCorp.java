@@ -47,7 +47,6 @@ public class BotGetLog_TrueCorp {
     boolean isFocusMode = false; //  (Work Mode)
 
     private static final int DEFAULT_THREAD_POOL_SIZE = Telnet_Multi.NORMAL_TELNET_LIMIT;
-    private static final int MAX_THREAD_POOL_SIZE = 30;
     private static final long RETRY_DELAY_MS = 3000;
     private static final int MAX_RETRY = 3;
     private static final int MAX_RERUN_IF_LOG_INCOMPLETE = 1;
@@ -753,13 +752,15 @@ public class BotGetLog_TrueCorp {
         }
     }
 
-    private static int clampThreadPoolSize(int configuredThreadPoolSize, int taskCount) {
+    static int clampThreadPoolSize(int configuredThreadPoolSize, int taskCount) {
         if (taskCount <= 0) {
             return 1;
         }
         int configured = configuredThreadPoolSize <= 0 ? DEFAULT_THREAD_POOL_SIZE : configuredThreadPoolSize;
-        int capped = Math.min(configured, MAX_THREAD_POOL_SIZE);
-        return Math.max(1, Math.min(capped, taskCount));
+        // The operator-provided thread count is authoritative. Do not impose a
+        // hidden application ceiling; the number of runnable tasks remains the
+        // natural upper bound so the executor never creates idle excess workers.
+        return Math.max(1, Math.min(configured, taskCount));
     }
 
     private static boolean shouldRunDeviceRow(Row row) {
@@ -1556,7 +1557,7 @@ public class BotGetLog_TrueCorp {
                             linkOpticalExportMode);
                     if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
                         int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
-                                new File(FileInput.getLog()), linkOpticalSelection);
+                                new File(FileInput.getLog()), linkOpticalSelection, trueDeviceSheet);
                         String cleanupMode = linkOpticalSelection.isIncremental()
                                 ? "Incremental down rerun"
                                 : "Manual selected rerun";
@@ -1852,8 +1853,8 @@ public class BotGetLog_TrueCorp {
 //   ThreadPool - TELNET_LIMIT - Telnet_Multi
                         int initialThreads = clampThreadPoolSize(configuredThreadPoolSize, totalNodes);
                         Telnet_Multi.configureNormalTelnetLimit(initialThreads);
-                        realOut.printf("[INFO] Thread pool size: %d (configured=%d, max=%d)%n",
-                                initialThreads, configuredThreadPoolSize, MAX_THREAD_POOL_SIZE);
+                        realOut.printf("[INFO] Thread pool size: %d (configured=%d, code max=unlimited, tasks=%d)%n",
+                                initialThreads, configuredThreadPoolSize, totalNodes);
                         final GatewayPool runGatewayPool = new GatewayPool(gatewayServers, initialThreads);
                         currentGatewayPool = runGatewayPool;
                         realOut.printf("[GATEWAY-POOL] %s | total sessions=%d%n",
@@ -2212,7 +2213,11 @@ public class BotGetLog_TrueCorp {
                         }
 
                         if (executorDrained) {
-                            cleanDuplicateLogs(new File(FileInput.getLog()));
+                            if (TrueLinkOpticalAutoMode.shouldSkipGlobalDuplicateCleanup(args)) {
+                                realOut.println("[INFO] Targeted refresh: skipped global duplicate cleanup; only selected row logs were archived before recollection.");
+                            } else {
+                                cleanDuplicateLogs(new File(FileInput.getLog()));
+                            }
                             if (linkOpticalSelection.isEnabled()) {
                                 TrueDeviceInventoryUpdater.InventoryUpdateResult inventoryUpdate
                                         = TrueDeviceInventoryUpdater.applyPendingUpdates(FileInput);

@@ -2,6 +2,9 @@ package com.java.botgetlog.truecorp;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 public final class TrueLinkOpticalExportModeRegression {
 
@@ -19,6 +22,9 @@ public final class TrueLinkOpticalExportModeRegression {
         verifyLoginBannerDisconnectIsolation();
         verifySessionRecoveryFailureIsolation();
         verifyFailurePhaseTag();
+        verifyExactRowSelection();
+        verifySelectedLogIdentityUsesIpNotExcelRow();
+        verifyThreadPoolHasNoHardCeiling();
         System.out.println("PASS TrueLinkOpticalExportModeRegression");
     }
 
@@ -174,6 +180,63 @@ public final class TrueLinkOpticalExportModeRegression {
         assertEquals("PRIMARY_THREAD_20", Telnet_Multi.failurePhaseTag("primary-thread-20"));
         assertEquals("RETRY_THREAD_10", Telnet_Multi.failurePhaseTag(" retry thread 10 "));
         assertEquals("MANUAL", Telnet_Multi.failurePhaseTag(""));
+    }
+
+    private static void verifyExactRowSelection() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("deviceList_TRUE");
+            org.apache.poi.ss.usermodel.Row similar = sheet.createRow(1);
+            similar.createCell(2).setCellValue("CPE-ROW71-SIMILAR");
+            similar.createCell(3).setCellValue("10.167.71.10");
+            similar.createCell(4).setCellValue("N-LLDP-Link_OPTIC");
+
+            org.apache.poi.ss.usermodel.Row exact = sheet.createRow(70);
+            exact.createCell(2).setCellValue("CPE-EXACT0071");
+            exact.createCell(3).setCellValue("10.167.1.71");
+            exact.createCell(4).setCellValue("N-LLDP-Link_OPTIC");
+
+            TrueLinkOpticalAutoMode.Selection selection = TrueLinkOpticalAutoMode.resolveSelection(
+                    new String[]{"--auto-link-optical", "--link-optical-sites=#71"}, sheet);
+            assertTrue(selection != null, "exact row selection must resolve");
+            assertEquals(1, selection.getSiteCount());
+            assertTrue(selection.includesRow(exact), "#71 must include only Excel row 71");
+            assertTrue(!selection.includesRow(similar), "#71 must not compact-match another device or IP");
+            assertTrue(TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(selection),
+                    "exact selected rerun must archive only its selected old row before recollection");
+            assertTrue(TrueLinkOpticalAutoMode.shouldSkipGlobalDuplicateCleanup(
+                    new String[]{"--link-optical-skip-global-dedup"}),
+                    "targeted refresh must be able to preserve unrelated Total_Log duplicates");
+            assertTrue(!TrueLinkOpticalAutoMode.shouldSkipGlobalDuplicateCleanup(
+                    new String[]{"--auto-link-optical"}),
+                    "normal scheduled runs must keep their existing duplicate-cleanup behavior");
+        }
+    }
+
+    private static void verifySelectedLogIdentityUsesIpNotExcelRow() {
+        Set<String> selectedIps = new LinkedHashSet<String>();
+        selectedIps.add("10.167.1.71");
+
+        File staleSameRow = new File(
+                "[71]10.167.71.10_CPE-ROW71-SIMILAR_N-LLDP-Link_OPTIC_2026-08-11.txt");
+        File selectedOldRow = new File(
+                "[999]10.167.1.71_CPE-EXACT0071_N-LLDP-Link_OPTIC_2026-08-10.txt");
+        File selectedWrongCommand = new File(
+                "[999]10.167.1.71_CPE-EXACT0071_N-ARP_2026-08-10.txt");
+
+        assertTrue(!TrueLinkOpticalAutoMode.isSelectedLinkOpticalLog(staleSameRow, selectedIps),
+                "a reused Excel row must not archive another site's log");
+        assertTrue(TrueLinkOpticalAutoMode.isSelectedLinkOpticalLog(selectedOldRow, selectedIps),
+                "the selected IP must archive its old log even when its old Excel row differs");
+        assertTrue(!TrueLinkOpticalAutoMode.isSelectedLinkOpticalLog(selectedWrongCommand, selectedIps),
+                "selected cleanup must remain limited to Link Optical logs");
+    }
+
+    private static void verifyThreadPoolHasNoHardCeiling() {
+        assertEquals(40, BotGetLog_TrueCorp.clampThreadPoolSize(40, 50000));
+        assertEquals(100, BotGetLog_TrueCorp.clampThreadPoolSize(100, 50000));
+        assertEquals(12, BotGetLog_TrueCorp.clampThreadPoolSize(100, 12));
+        assertEquals(Telnet_Multi.NORMAL_TELNET_LIMIT,
+                BotGetLog_TrueCorp.clampThreadPoolSize(0, 50000));
     }
 
     private static void assertEquals(Object expected, Object actual) {

@@ -12,15 +12,18 @@ public final class LiveNodeHealthParserRegression {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args == null || args.length != 3) {
+        if (args != null && args.length != 0 && args.length != 3) {
             throw new IllegalArgumentException("Expected Nokia, ZTE and Huawei log paths.");
         }
-        verify(args[0], "N-LLDP-Link_OPTIC", "Nokia");
-        verify(args[1], "ZTE-LLDP-Link_OPTIC", "ZTE");
-        verify(args[2], "HW-LLDP-Link_OPTIC", "Huawei");
+        if (args != null && args.length == 3) {
+            verify(args[0], "N-LLDP-Link_OPTIC", "Nokia");
+            verify(args[1], "ZTE-LLDP-Link_OPTIC", "ZTE");
+            verify(args[2], "HW-LLDP-Link_OPTIC", "Huawei");
+        }
         verifyNokiaCompactLiveTranscript();
         verifyZteBriefAndCrcTranscript();
         verifyHuaweiCompactLiveTranscript();
+        verifyHuaweiCopperDistanceTranscript();
     }
 
     private static void verifyNokiaCompactLiveTranscript() {
@@ -164,6 +167,36 @@ public final class LiveNodeHealthParserRegression {
             throw new AssertionError("Huawei parenthesized port speed was not normalized.");
         }
         System.out.println("Huawei compact live transcript: ports=" + ports.size());
+    }
+
+    private static void verifyHuaweiCopperDistanceTranscript() {
+        String transcript = "<LIVE>display interface description\n"
+                + "Interface                      PHY     Protocol Description\n"
+                + "GigabitEthernet7/0/3          up      up       To_RNC\n"
+                + "<LIVE>display interface GigabitEthernet 7/0/3\n"
+                + "GigabitEthernet7/0/3 current state : UP (ifindex: 465)\n"
+                + "Line protocol current state : UP\n"
+                + "Description: To_RNC\n"
+                + "Port BW: 1G, Transceiver max BW: 1G, Transceiver Mode: Copper Mode\n"
+                + "Wavelength: unknown, Transmission Distance: 100m\n"
+                + "Input:\n"
+                + "  CRC: 0 packets, Symbol: 0 packets\n"
+                + "<LIVE>\n";
+        List<LiveNodeHealthParser.PortSnapshot> ports
+                = LiveNodeHealthParser.parsePorts("RN-LIVE", "10.0.0.3",
+                        "HW-LLDP-Link_OPTIC", transcript);
+        LiveNodeHealthParser.PortSnapshot target = null;
+        for (LiveNodeHealthParser.PortSnapshot port : ports) {
+            if ("GigabitEthernet7/0/3".equals(port.port)) {
+                target = port;
+                break;
+            }
+        }
+        if (target == null || !"100m".equals(target.distance)) {
+            throw new AssertionError("Huawei copper transmission distance was not parsed: "
+                    + (target == null ? "missing port" : target.distance));
+        }
+        System.out.println("Huawei copper live distance: " + target.distance);
     }
 
     private static void verify(String path, String cmdSet, String vendor) throws Exception {

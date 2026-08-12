@@ -3,6 +3,8 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOT_DIST_DIR="${BOT_DIST_DIR:-$APP_DIR/dist}"
+MAPVIEWER_INPUT_DIR="${MAPVIEWER_INPUT_DIR:-/home/transportsftp/LLDP_MapViewer/_input}"
+MAPVIEWER_DIR="${MAPVIEWER_DIR:-$(cd "$(dirname "$MAPVIEWER_INPUT_DIR")" && pwd)}"
 LOG_DIR="$BOT_DIST_DIR/_output/System_Log"
 MODE="${1:-}"
 CYCLE_LOCK_DIR="$LOG_DIR/.true-linkoptical-cycle.lock"
@@ -10,6 +12,11 @@ RUN_LOG="$LOG_DIR/true-linkoptical-${MODE:-invalid}-checkpoint-cycle-$(date +%Y%
 RETRY_SCRIPT="${RETRY_SCRIPT:-$APP_DIR/run_true_linkoptical_checkpoint_rerun_to_mapviewer.sh}"
 FINAL_PUBLISH_SCRIPT="${FINAL_PUBLISH_SCRIPT:-$APP_DIR/publish_true_linkoptical_all_completed_to_mapviewer.sh}"
 FULL_PRIMARY_SCRIPT="${FULL_PRIMARY_SCRIPT:-$APP_DIR/run_true_linkoptical_auto_allsite_single_pass_to_mapviewer.sh}"
+TARGETED_RING_SCRIPT="${TARGETED_RING_SCRIPT:-$MAPVIEWER_DIR/scripts/run_true_access_ring_targeted_refresh.sh}"
+TARGETED_RING_ENABLED="${BOT_TARGETED_RING_REFRESH_ENABLED:-1}"
+TARGETED_RING_PLAN_ONLY="${BOT_TARGETED_RING_PLAN_ONLY:-${BOT_TARGETED_RING_REFRESH_PLAN_ONLY:-0}}"
+DEFER_INITIAL_MAPVIEWER_RESTART="${BOT_DEFER_INITIAL_MAPVIEWER_RESTART:-1}"
+MAPVIEWER_RESTART_SCRIPT="${MAPVIEWER_RESTART_SCRIPT:-$MAPVIEWER_DIR/scripts/restart_mapviewer_9090.sh}"
 CHECKPOINT_RETRY_THREADS="${TRUE_CHECKPOINT_RETRY_THREADS:-10}"
 PRIMARY_THREADS="${TRUE_PRIMARY_THREADS:-20}"
 PRIMARY_FAILURE_PHASE="PRIMARY_THREAD_${PRIMARY_THREADS}"
@@ -26,6 +33,33 @@ mkdir -p "$LOG_DIR"
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$RUN_LOG"
+}
+
+restart_mapviewer_after_deferred_publish() {
+  local reason="${1:-checkpoint completion}"
+  if [[ "${INITIAL_MAPVIEWER_RESTART_PENDING:-0}" != "1" ]]; then
+    return 0
+  fi
+  if [[ ! -x "$MAPVIEWER_RESTART_SCRIPT" ]]; then
+    log "[ERROR] Deferred MapViewer restart is pending, but restart script is unavailable: $MAPVIEWER_RESTART_SCRIPT"
+    return 1
+  fi
+  log "[PUBLISH] Restarting MapViewer once after $reason."
+  set +e
+  bash "$MAPVIEWER_RESTART_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+  local restart_status="${PIPESTATUS[0]}"
+  set -e
+  if [[ "$restart_status" -ne 0 ]]; then
+    log "[ERROR] Deferred MapViewer restart failed with status=$restart_status."
+    return "$restart_status"
+  fi
+  INITIAL_MAPVIEWER_RESTART_PENDING=0
+  log "[PUBLISH] Deferred MapViewer restart completed."
+}
+
+latest_map_lldp() {
+  find "$MAPVIEWER_INPUT_DIR" -maxdepth 1 -type f -name 'DataLLDP_Neighbor_*.csv' \
+    -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-
 }
 
 case "$MODE" in
@@ -57,6 +91,38 @@ if [[ ! -x "$FULL_PRIMARY_SCRIPT" ]]; then
   log "[ERROR] Full single-pass runner not found or not executable: $FULL_PRIMARY_SCRIPT"
   exit 1
 fi
+case "$(printf '%s' "$TARGETED_RING_ENABLED" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    TARGETED_RING_ENABLED=1
+    if [[ ! -x "$TARGETED_RING_SCRIPT" ]]; then
+      log "[ERROR] Targeted Access Ring refresh runner not found or not executable: $TARGETED_RING_SCRIPT"
+      exit 1
+    fi
+    ;;
+  0|false|no|off)
+    TARGETED_RING_ENABLED=0
+    ;;
+  *)
+    log "[ERROR] BOT_TARGETED_RING_REFRESH_ENABLED must be 0 or 1: $TARGETED_RING_ENABLED"
+    exit 2
+    ;;
+esac
+case "$(printf '%s' "$TARGETED_RING_PLAN_ONLY" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) TARGETED_RING_PLAN_ONLY=1 ;;
+  0|false|no|off) TARGETED_RING_PLAN_ONLY=0 ;;
+  *)
+    log "[ERROR] BOT_TARGETED_RING_PLAN_ONLY must be 0 or 1: $TARGETED_RING_PLAN_ONLY"
+    exit 2
+    ;;
+esac
+case "$(printf '%s' "$DEFER_INITIAL_MAPVIEWER_RESTART" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) DEFER_INITIAL_MAPVIEWER_RESTART=1 ;;
+  0|false|no|off) DEFER_INITIAL_MAPVIEWER_RESTART=0 ;;
+  *)
+    log "[ERROR] BOT_DEFER_INITIAL_MAPVIEWER_RESTART must be 0 or 1: $DEFER_INITIAL_MAPVIEWER_RESTART"
+    exit 2
+    ;;
+esac
 if ! [[ "$NEW_SITE_QUEUE_MAX_ROUNDS" =~ ^[0-9]+$ ]]; then
   log "[ERROR] BOT_NEW_SITE_QUEUE_MAX_ROUNDS must be a non-negative integer: $NEW_SITE_QUEUE_MAX_ROUNDS"
   exit 2
@@ -91,6 +157,23 @@ if ! mkdir "$CYCLE_LOCK_DIR" 2>/dev/null; then
   mkdir "$CYCLE_LOCK_DIR"
 fi
 echo "$$" > "$CYCLE_LOCK_DIR/pid"
+
+RING_BASELINE_LLDP=""
+INITIAL_MAPVIEWER_RESTART_PENDING=0
+if [[ "$TARGETED_RING_ENABLED" == "1" ]]; then
+  RING_BASELINE_LLDP="$(latest_map_lldp)"
+  if [[ -n "$RING_BASELINE_LLDP" ]]; then
+    log "[RING-REFRESH] Saved topology baseline before collection: $RING_BASELINE_LLDP"
+  else
+    log "[RING-REFRESH][WARN] No previous MapViewer LLDP snapshot exists; targeted comparison will be skipped for this cycle."
+  fi
+fi
+if [[ "$TARGETED_RING_ENABLED" == "1" && "$TARGETED_RING_PLAN_ONLY" == "0" \
+  && "$DEFER_INITIAL_MAPVIEWER_RESTART" == "1" \
+  && -n "$RING_BASELINE_LLDP" && -f "$RING_BASELINE_LLDP" ]]; then
+  INITIAL_MAPVIEWER_RESTART_PENDING=1
+  log "[PUBLISH] Initial MapViewer restart will be deferred until the Access Ring topology check finishes."
+fi
 
 cleanup() {
   rm -f "$SITE_UPDATE_RESULT_FILE" "$SITE_UPDATE_RESULT_FILE.tmp."* 2>/dev/null || true
@@ -211,9 +294,16 @@ fi
 log "Collection and recursive discovery finished. Exporting all completed Total_Log files and merging MapViewer once."
 rm -f "$SITE_UPDATE_RESULT_FILE"
 set +e
-BOT_DIST_DIR="$BOT_DIST_DIR" \
-BOT_SITE_UPDATE_RESULT_FILE="$SITE_UPDATE_RESULT_FILE" \
-  "$FINAL_PUBLISH_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+if [[ "$INITIAL_MAPVIEWER_RESTART_PENDING" == "1" ]]; then
+  MAPVIEWER_RESTART_AFTER_MERGE=false \
+  BOT_DIST_DIR="$BOT_DIST_DIR" \
+  BOT_SITE_UPDATE_RESULT_FILE="$SITE_UPDATE_RESULT_FILE" \
+    "$FINAL_PUBLISH_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+else
+  BOT_DIST_DIR="$BOT_DIST_DIR" \
+  BOT_SITE_UPDATE_RESULT_FILE="$SITE_UPDATE_RESULT_FILE" \
+    "$FINAL_PUBLISH_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+fi
 publish_status="${PIPESTATUS[0]}"
 set -e
 if [[ "$publish_status" -ne 0 ]]; then
@@ -224,4 +314,39 @@ if [[ -s "$SITE_UPDATE_RESULT_FILE" ]]; then
   log "[INFO] Final merged-data sync added inventory outside this Link Optical queue; it will be collected by the next scheduled cycle: $(cat "$SITE_UPDATE_RESULT_FILE")"
 fi
 
-log "Finished TRUE Link Optical $MODE checkpoint cycle (recursive new-site rounds=$queue_round, pending=$queue_pending, final publications=1)."
+targeted_ring_rounds="disabled"
+if [[ "$TARGETED_RING_ENABLED" == "1" && -n "$RING_BASELINE_LLDP" && -f "$RING_BASELINE_LLDP" ]]; then
+  RING_CURRENT_LLDP="$(latest_map_lldp)"
+  if [[ -n "$RING_CURRENT_LLDP" && -f "$RING_CURRENT_LLDP" && "$RING_CURRENT_LLDP" != "$RING_BASELINE_LLDP" ]]; then
+    log "[RING-REFRESH] Checking the published topology for changed TRUE Access Rings."
+    set +e
+    APP_DIR="$MAPVIEWER_DIR/scripts" \
+    BOT_DIST_DIR="$BOT_DIST_DIR" \
+    MAPVIEWER_INPUT_DIR="$MAPVIEWER_INPUT_DIR" \
+    FULL_PRIMARY_SCRIPT="$FULL_PRIMARY_SCRIPT" \
+    FINAL_PUBLISH_SCRIPT="$FINAL_PUBLISH_SCRIPT" \
+    TRUE_CHECKPOINT_RETRY_THREADS="$CHECKPOINT_RETRY_THREADS" \
+    BOT_TARGETED_RING_DEFER_MAPVIEWER_RESTART=1 \
+    BOT_TARGETED_RING_INITIAL_RESTART_PENDING="$INITIAL_MAPVIEWER_RESTART_PENDING" \
+      "$TARGETED_RING_SCRIPT" "$RING_BASELINE_LLDP" "$RING_CURRENT_LLDP" 2>&1 | tee -a "$RUN_LOG"
+    targeted_ring_status="${PIPESTATUS[0]}"
+    set -e
+    if [[ "$targeted_ring_status" -ne 0 ]]; then
+      log "[ERROR] Targeted Access Ring refresh failed with status=$targeted_ring_status. Publishing the successfully merged fallback snapshot."
+      fallback_restart_status=0
+      restart_mapviewer_after_deferred_publish "targeted Access Ring failure fallback" || fallback_restart_status="$?"
+      if [[ "$fallback_restart_status" -ne 0 ]]; then
+        log "[ERROR] The fallback MapViewer restart also failed with status=$fallback_restart_status."
+      fi
+      exit "$targeted_ring_status"
+    fi
+    INITIAL_MAPVIEWER_RESTART_PENDING=0
+    targeted_ring_rounds="checked"
+  else
+    log "[RING-REFRESH][WARN] Final publication did not create a comparable LLDP snapshot; targeted comparison was skipped."
+    targeted_ring_rounds="skipped"
+  fi
+fi
+
+restart_mapviewer_after_deferred_publish "checkpoint and Access Ring completion"
+log "Finished TRUE Link Optical $MODE checkpoint cycle (recursive new-site rounds=$queue_round, pending=$queue_pending, targeted-ring=$targeted_ring_rounds)."

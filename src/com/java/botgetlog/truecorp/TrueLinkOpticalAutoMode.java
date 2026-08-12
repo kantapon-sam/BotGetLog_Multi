@@ -41,10 +41,15 @@ final class TrueLinkOpticalAutoMode {
     private static final String ARG_EXPORT_MODE_PREFIX = "--link-optical-export-mode=";
     private static final String ARG_EXPORT_SINCE_FILE_PREFIX = "--link-optical-export-since-file=";
     private static final String ARG_NEW_SITE_QUEUE_FILE_PREFIX = "--link-optical-new-site-queue-file=";
+    private static final String ARG_SKIP_GLOBAL_DEDUP = "--link-optical-skip-global-dedup";
     private static final String CMDSET_TOKEN = "-LLDP-Link_OPTIC";
     private static final int PREVIEW_LIMIT = 12;
     private static final Pattern IPV4_PATTERN = Pattern.compile("\\b(\\d{1,3}(?:\\.\\d{1,3}){3})\\b");
     private static final Pattern LOG_ROW_PATTERN = Pattern.compile("^\\[(\\d+)\\].*\\.txt$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LOG_IP_PATTERN = Pattern.compile("^\\[\\d+\\]([^_]+)_.*\\.txt$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern ROW_SELECTOR_PATTERN = Pattern.compile("^(?:#|row\\s*)(\\d+)$",
+            Pattern.CASE_INSENSITIVE);
 
     private TrueLinkOpticalAutoMode() {
     }
@@ -235,16 +240,29 @@ final class TrueLinkOpticalAutoMode {
     }
 
     static int clearSelectedLogsBeforeManualRun(File logDir, Selection selection) {
+        return clearSelectedLogsBeforeManualRun(logDir, selection, null);
+    }
+
+    static int clearSelectedLogsBeforeManualRun(File logDir, Selection selection, Sheet deviceSheet) {
         if (!shouldClearSelectedLogsBeforeManualRun(selection)) {
             return 0;
         }
-        return clearSelectedLogsBeforeRerun(logDir, selection);
+        return clearSelectedLogsBeforeRerun(logDir, selection, deviceSheet);
     }
 
     static int clearSelectedLogsBeforeRerun(File logDir, Selection selection) {
+        return clearSelectedLogsBeforeRerun(logDir, selection, null);
+    }
+
+    static int clearSelectedLogsBeforeRerun(File logDir, Selection selection, Sheet deviceSheet) {
         if (!shouldClearSelectedLogsBeforeRerun(selection)
                 || logDir == null
                 || !logDir.isDirectory()) {
+            return 0;
+        }
+        Set<String> selectedIps = selectedIps(selection, deviceSheet);
+        if (selectedIps.isEmpty()) {
+            System.out.println("[AUTO-LINK] Selected-log cleanup skipped: no valid selected IP identity was found.");
             return 0;
         }
         File[] logs = logDir.listFiles((dir, name) -> name != null
@@ -254,12 +272,11 @@ final class TrueLinkOpticalAutoMode {
         }
 
         int moved = 0;
-        Set<Integer> selectedRows = selection.getCmdSetsByRow().keySet();
         String reason = selection.isIncremental()
                 ? "incremental down rerun before batch"
                 : "manual selected rerun before batch";
         for (File log : logs) {
-            if (!isSelectedLinkOpticalLog(log, selectedRows)) {
+            if (!isSelectedLinkOpticalLog(log, selectedIps)) {
                 continue;
             }
             if (Telnet_Multi.moveLogToArchiveIfInactive(log, reason)) {
@@ -509,6 +526,10 @@ final class TrueLinkOpticalAutoMode {
     static File getNewSiteQueueFile(String[] args) {
         String value = getArgValue(args, ARG_NEW_SITE_QUEUE_FILE_PREFIX);
         return value.isEmpty() ? null : new File(value);
+    }
+
+    static boolean shouldSkipGlobalDuplicateCleanup(String[] args) {
+        return hasArg(args, ARG_SKIP_GLOBAL_DEDUP);
     }
 
     static void writeNewSiteQueue(File queueFile, List<String> siteNames) throws Exception {
@@ -1092,8 +1113,12 @@ final class TrueLinkOpticalAutoMode {
         }
         int rowNum = row.getRowNum() + 1;
         String rowText = Integer.toString(rowNum);
-        if (q.equals(rowText) || q.equalsIgnoreCase("row " + rowText) || q.equalsIgnoreCase("#" + rowText)) {
-            return true;
+        Matcher rowSelector = ROW_SELECTOR_PATTERN.matcher(q);
+        if (rowSelector.matches()) {
+            return rowText.equals(rowSelector.group(1));
+        }
+        if (q.matches("\\d+")) {
+            return q.equals(rowText);
         }
 
         String haystack = BotGetLog_TrueCorp.getCell(row, 1) + " "
@@ -1155,23 +1180,38 @@ final class TrueLinkOpticalAutoMode {
         return null;
     }
 
-    private static boolean isSelectedLinkOpticalLog(File log, Set<Integer> selectedRows) {
-        if (log == null || selectedRows == null || selectedRows.isEmpty()) {
+    private static Set<String> selectedIps(Selection selection, Sheet deviceSheet) {
+        Set<String> selectedIps = new LinkedHashSet<String>();
+        if (selection == null || deviceSheet == null) {
+            return selectedIps;
+        }
+        for (Integer rowNum : selection.getCmdSetsByRow().keySet()) {
+            if (rowNum == null || rowNum.intValue() < 1) {
+                continue;
+            }
+            Row row = deviceSheet.getRow(rowNum.intValue() - 1);
+            String ip = normalizeIp(BotGetLog_TrueCorp.getCell(row, 3));
+            if (!ip.isEmpty()) {
+                selectedIps.add(ip);
+            }
+        }
+        return selectedIps;
+    }
+
+    static boolean isSelectedLinkOpticalLog(File log, Set<String> selectedIps) {
+        if (log == null || selectedIps == null || selectedIps.isEmpty()) {
             return false;
         }
         String name = log.getName();
-        Matcher matcher = LOG_ROW_PATTERN.matcher(name);
+        if (!name.toLowerCase(Locale.ROOT).contains(CMDSET_TOKEN.toLowerCase(Locale.ROOT))) {
+            return false;
+        }
+        Matcher matcher = LOG_IP_PATTERN.matcher(name);
         if (!matcher.matches()) {
             return false;
         }
-        int rowNum;
-        try {
-            rowNum = Integer.parseInt(matcher.group(1));
-        } catch (NumberFormatException e) {
-            return false;
-        }
-        return selectedRows.contains(rowNum)
-                && name.toLowerCase(Locale.ROOT).contains(CMDSET_TOKEN.toLowerCase(Locale.ROOT));
+        String logIp = normalizeIp(matcher.group(1));
+        return !logIp.isEmpty() && selectedIps.contains(logIp);
     }
 
     private static void showExportResult(Link_Optical.ProcessResult result) {

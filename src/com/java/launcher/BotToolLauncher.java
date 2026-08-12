@@ -67,10 +67,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.41: Add read-only Live Node Monitor probes for CPU and memory, port status, and
-    // optical Tx/Rx across Nokia, ZTE, and Huawei; optimize Huawei large nodes with a compact port
-    // inventory and averaged multi-lane optics; never write to Total_Log.
-    private static final String FALLBACK_VERSION = "1.1.41";
+    // Version 1.1.42: Remove the TRUE Link Optical 30-thread ceiling, honor configured worker
+    // counts, preserve targeted ring refresh cleanup safety, and improve multi-vendor live port
+    // parsing.
+    private static final String FALLBACK_VERSION = "1.1.42";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
