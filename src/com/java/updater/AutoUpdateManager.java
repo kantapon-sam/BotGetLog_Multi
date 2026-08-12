@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,6 +37,9 @@ public final class AutoUpdateManager {
             Pattern.compile("https?://github\\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/.+");
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
+    private static final int DOWNLOAD_ATTEMPTS_PER_SOURCE = 3;
+    private static final long DOWNLOAD_RETRY_DELAY_MS = 1500L;
+    private static final String BINARY_ACCEPT_HEADER = "application/octet-stream";
     private static final DateTimeFormatter LOG_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -109,27 +113,131 @@ public final class AutoUpdateManager {
 
     private static File downloadUpdatePackage(UpdateManifest manifest) throws Exception {
         logUpdate("Downloading update package from " + manifest.getDownloadUrl());
-        HttpURLConnection connection = openConnection(manifest.getDownloadUrl());
         File tempZip = File.createTempFile("botgetlog-update-", ".zip");
+        List<String> sources = new ArrayList<String>();
+        sources.add(manifest.getDownloadUrl());
+        String githubAssetApiUrl = tryResolveGitHubAssetApiUrl(manifest.getDownloadUrl());
+        if (!githubAssetApiUrl.isEmpty() && !sources.contains(githubAssetApiUrl)) {
+            sources.add(githubAssetApiUrl);
+        }
+
+        Exception lastError = null;
+        int totalAttempts = 0;
+        for (int sourceIndex = 0; sourceIndex < sources.size(); sourceIndex++) {
+            String sourceUrl = sources.get(sourceIndex);
+            String sourceLabel = sourceIndex == 0 ? "release URL" : "GitHub Asset API";
+            for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS_PER_SOURCE; attempt++) {
+                totalAttempts++;
+                try {
+                    downloadToFile(sourceUrl, tempZip);
+                    verifyDownloadedPackage(manifest, tempZip);
+                    if (sourceIndex > 0) {
+                        logUpdate("Direct release download was unavailable; GitHub Asset API fallback succeeded.");
+                    }
+                    logUpdate("Update package downloaded successfully to " + tempZip.getAbsolutePath());
+                    return tempZip;
+                } catch (Exception ex) {
+                    lastError = ex;
+                    logUpdate("Download attempt " + attempt + "/" + DOWNLOAD_ATTEMPTS_PER_SOURCE
+                            + " via " + sourceLabel + " failed: " + safeMessage(ex));
+                    if (attempt < DOWNLOAD_ATTEMPTS_PER_SOURCE) {
+                        waitBeforeDownloadRetry();
+                    }
+                }
+            }
+        }
+
+        Files.deleteIfExists(tempZip.toPath());
+        String detail = lastError == null ? "unknown error" : safeMessage(lastError);
+        throw new IOException("Update download failed after " + totalAttempts
+                + " attempts: " + detail, lastError);
+    }
+
+    private static void downloadToFile(String url, File destination) throws IOException {
+        HttpURLConnection connection = openConnection(url, BINARY_ACCEPT_HEADER);
+        connection.setInstanceFollowRedirects(true);
         try (InputStream input = new BufferedInputStream(connection.getInputStream());
-                FileOutputStream output = new FileOutputStream(tempZip)) {
+                FileOutputStream output = new FileOutputStream(destination, false)) {
             byte[] buffer = new byte[8192];
             int bytesRead;
             while ((bytesRead = input.read(buffer)) != -1) {
                 output.write(buffer, 0, bytesRead);
             }
+        } finally {
+            connection.disconnect();
         }
+    }
 
+    private static void verifyDownloadedPackage(UpdateManifest manifest, File tempZip) throws Exception {
         if (!manifest.getSha256().isEmpty()) {
             String actualHash = sha256(tempZip);
             if (!manifest.getSha256().equalsIgnoreCase(actualHash)) {
-                Files.deleteIfExists(tempZip.toPath());
                 throw new IOException("SHA-256 mismatch. Expected " + manifest.getSha256() + " but got " + actualHash);
             }
         }
+    }
 
-        logUpdate("Update package downloaded successfully to " + tempZip.getAbsolutePath());
-        return tempZip;
+    private static void waitBeforeDownloadRetry() throws IOException {
+        try {
+            Thread.sleep(DOWNLOAD_RETRY_DELAY_MS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Update download retry was interrupted.", ex);
+        }
+    }
+
+    private static String safeMessage(Exception error) {
+        if (error == null || error.getMessage() == null || error.getMessage().trim().isEmpty()) {
+            return error == null ? "unknown error" : error.getClass().getSimpleName();
+        }
+        return error.getMessage().trim();
+    }
+
+    static String tryResolveGitHubAssetApiUrl(String downloadUrl) {
+        Matcher releaseMatcher = GITHUB_RELEASE_DOWNLOAD_PATTERN.matcher(
+                downloadUrl == null ? "" : downloadUrl.trim());
+        if (!releaseMatcher.matches()) {
+            return "";
+        }
+
+        String fileName;
+        try {
+            String path = new URL(downloadUrl).getPath();
+            fileName = URLDecoder.decode(path.substring(path.lastIndexOf('/') + 1), "UTF-8");
+        } catch (Exception ex) {
+            return "";
+        }
+
+        String apiUrl = buildGitHubReleaseApiUrl(downloadUrl);
+        try {
+            HttpURLConnection connection = openConnection(apiUrl, "application/vnd.github+json");
+            try (InputStream input = new BufferedInputStream(connection.getInputStream())) {
+                String json = readFullyAsUtf8(input);
+                return findGitHubAssetApiUrl(json, fileName);
+            } finally {
+                connection.disconnect();
+            }
+        } catch (IOException ex) {
+            logUpdate("Unable to resolve GitHub Asset API fallback: " + safeMessage(ex));
+        }
+        return "";
+    }
+
+    static String findGitHubAssetApiUrl(String releaseJson, String fileName) {
+        if (releaseJson == null || releaseJson.isEmpty()
+                || fileName == null || fileName.isEmpty()) {
+            return "";
+        }
+        Pattern assetPattern = Pattern.compile(
+                "\\\"url\\\"\\s*:\\s*\\\"(https://api\\.github\\.com/repos/[^\\\"]+/releases/assets/\\d+)\\\""
+                + "[\\s\\S]*?\\\"name\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"");
+        Matcher assetMatcher = assetPattern.matcher(releaseJson);
+        while (assetMatcher.find()) {
+            if (fileName.equals(unescapeJson(assetMatcher.group(2)))) {
+                return unescapeJson(assetMatcher.group(1));
+            }
+        }
+        return "";
     }
 
     private static String buildManifestRequestUrl(String manifestUrl) {
