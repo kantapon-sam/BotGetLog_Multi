@@ -131,15 +131,6 @@ private static String buildZtePort(String iface, String subIface, String extVlan
     return i;
 }
 
-    private static String buildZteVlanInfo(String extVlan, String interVlan) {
-        String e = extVlan == null ? "" : extVlan.trim();
-        String i = interVlan == null ? "" : interVlan.trim();
-        if (e.isEmpty() && i.isEmpty()) {
-            return "";
-        }
-        return e + "/" + i;
-    }
-
     private static String cleanNokiaValue(String s) {
         if (s == null) {
             return "";
@@ -586,7 +577,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                         || trimmed.contains("#quit")) {
                     if (!curIp.isEmpty()) {
                       String port = buildZtePort(curIface, curSubIface, curExtVlan);
-                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), buildZteVlanInfo(curExtVlan, curInterVlan));
+                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), "");
                         arp_all += "\n" + curIp + "," + curMac + "," + curAge + ",," + port + "," + vpn;
                     }
 
@@ -614,7 +605,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                 if (trimmed.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+\\s+.*")) {
                     if (!curIp.isEmpty()) {
                   String port = buildZtePort(curIface, curSubIface, curExtVlan);
-                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), buildZteVlanInfo(curExtVlan, curInterVlan));
+                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), "");
                         arp_all += "\n" + curIp + "," + curMac + "," + curAge + ",," + port + "," + vpn;
                     }
 

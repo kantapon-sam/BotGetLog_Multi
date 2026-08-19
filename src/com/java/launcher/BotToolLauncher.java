@@ -67,9 +67,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.43: Make automatic updates resilient to interrupted GitHub downloads with retry
-    // and GitHub Asset API fallback.
-    private static final String FALLBACK_VERSION = "1.1.43";
+    // Version 1.1.44: Fix ZTE ARP VPN-INSTANCE values, improve Nokia/ZTE live port-speed parsing,
+    // harden TRUE Link Optical checkpoint publishing and server log automation, and make release
+    // dependencies reproducible.
+    private static final String FALLBACK_VERSION = "1.1.44";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

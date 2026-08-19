@@ -362,7 +362,26 @@ function Assert-RequiredReleaseArtifacts {
         "README.TXT",
         "defaults\UserInterface_Input.xlsx",
         "defaults\NEW_Site.csv",
-        "updater\BotGetLog_Updater.jar"
+        "updater\BotGetLog_Updater.jar",
+        "lib\SparseBitSet-1.3.jar",
+        "lib\bcprov-jdk18on-1.78.1.jar",
+        "lib\commons-codec-1.20.0.jar",
+        "lib\commons-collections4-4.5.0.jar",
+        "lib\commons-compress-1.28.0.jar",
+        "lib\commons-io-2.21.0.jar",
+        "lib\commons-lang3-3.18.0.jar",
+        "lib\commons-math3-3.6.1.jar",
+        "lib\commons-net-3.13.0.jar",
+        "lib\curvesapi-1.08.jar",
+        "lib\jsch-2.27.6.jar",
+        "lib\log4j-api-2.25.4.jar",
+        "lib\log4j-core-2.25.4.jar",
+        "lib\poi-5.5.1.jar",
+        "lib\poi-ooxml-5.5.1.jar",
+        "lib\poi-ooxml-lite-5.5.1.jar",
+        "lib\poi-scratchpad-5.5.1.jar",
+        "lib\snmp4j-3.9.7.jar",
+        "lib\xmlbeans-5.3.0.jar"
     )
 
     $missingArtifacts = @()

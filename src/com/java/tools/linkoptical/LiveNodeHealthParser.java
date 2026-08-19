@@ -45,6 +45,9 @@ public final class LiveNodeHealthParser {
                 String currentState = field(fields, 3);
                 String description = field(fields, 4);
                 String speed = field(fields, 7);
+                if (vendorCmdSet.startsWith("ZTE")) {
+                    speed = ztePortSpeed(port, speed);
+                }
                 String wavelength = field(fields, 12);
                 String distance = field(fields, 13);
                 Double tx = number(field(fields, 14));
@@ -114,7 +117,8 @@ public final class LiveNodeHealthParser {
                 }
             }
             rows.add(new PortSnapshot(matcher.group(1), normalizePortStatus(matcher.group(6)),
-                    description, matcher.group(4), "", "", null, null, "", false,
+                    description, ztePortSpeed(matcher.group(1), matcher.group(4)),
+                    "", "", null, null, "", false,
                     "NO_DATA"));
         }
         return rows;
@@ -190,8 +194,23 @@ public final class LiveNodeHealthParser {
             crcTotal = Long.valueOf((crcInput == null ? 0L : crcInput.longValue())
                     + (crcOutput == null ? 0L : crcOutput.longValue()));
         }
-        return new PortSnapshot(port, state, description, speed, "", "", null, null,
+        return new PortSnapshot(port, state, description, ztePortSpeed(port, speed),
+                "", "", null, null,
                 "", false, "NO_DATA", crcInput, crcOutput, crcTotal);
+    }
+
+    private static String ztePortSpeed(String port, String reportedSpeed) {
+        String value = safe(port).toLowerCase(Locale.ROOT);
+        if (value.startsWith("cgei-")) {
+            return "100G";
+        }
+        if (value.startsWith("xgei-")) {
+            return "10G";
+        }
+        if (value.startsWith("gei-")) {
+            return "1G";
+        }
+        return safe(reportedSpeed).toUpperCase(Locale.ROOT);
     }
 
     private static boolean isZtePhysicalPort(String port) {
@@ -232,8 +251,8 @@ public final class LiveNodeHealthParser {
             }
             String port = matcher.group(1);
             String state = normalizePortStatus(matcher.group(4));
-            String speed = nokiaPortSpeed(line);
             String description = descriptions.get(normalizePortKey(port));
+            String speed = nokiaPortSpeed(line, description);
             PortSnapshot snapshot = new PortSnapshot(port, state, safe(description), speed,
                     "", "", null, null, "", false, "NO_DATA");
             rows.put(normalizePortKey(port), snapshot);
@@ -316,14 +335,7 @@ public final class LiveNodeHealthParser {
             if (stateMatcher.find()) {
                 state = normalizePortStatus(stateMatcher.group(1));
             }
-            String speed = "";
-            Matcher speedMatcher = Pattern.compile(
-                    "(?i)Oper Speed\\s*:\\s*([0-9.]+)\\s*([GMK]?bps)").matcher(block);
-            if (speedMatcher.find()) {
-                String unit = speedMatcher.group(2).toUpperCase(Locale.ROOT);
-                speed = speedMatcher.group(1) + (unit.startsWith("G") ? "G"
-                        : unit.startsWith("M") ? "M" : unit.startsWith("K") ? "K" : "");
-            }
+            String speed = nokiaConfiguredSpeed(block);
             String wavelength = "";
             Matcher wavelengthMatcher = Pattern.compile(
                     "(?im)^\\s*TX Laser Wavelength\\s*:\\s*([0-9.]+)\\s*nm").matcher(block);
@@ -369,7 +381,15 @@ public final class LiveNodeHealthParser {
         return rows;
     }
 
-    private static String nokiaPortSpeed(String line) {
+    private static String nokiaPortSpeed(String line, String description) {
+        String portDescription = safe(description).toUpperCase(Locale.ROOT);
+        // Nokia may report the inserted optic (for example 10GBASE-LR) in the
+        // compact row even when a multi-rate access port is configured for 1G.
+        // The platform description identifies these 10/100/1G ports reliably.
+        if (portDescription.contains("10/100/GIG ETHERNET")
+                || portDescription.contains("10/100/1000")) {
+            return "1G";
+        }
         String value = safe(line).toUpperCase(Locale.ROOT);
         if (value.contains("400GBASE") || value.contains("400G")) return "400G";
         if (value.contains("100GBASE") || value.contains("C100G")) return "100G";
@@ -380,6 +400,26 @@ public final class LiveNodeHealthParser {
         if (value.contains("GIGE") || value.contains("XCME")) return "1G";
         if (value.contains("FASTE")) return "100M";
         return "";
+    }
+
+    private static String nokiaConfiguredSpeed(String block) {
+        String oper = nokiaSpeedField(block, "Oper Speed");
+        if (!oper.isEmpty() && !oper.matches("^0(?:\\.0+)?[GMK]?$")) {
+            return oper;
+        }
+        String configured = nokiaSpeedField(block, "Config Speed");
+        return configured.isEmpty() ? oper : configured;
+    }
+
+    private static String nokiaSpeedField(String block, String label) {
+        Matcher matcher = Pattern.compile("(?i)" + Pattern.quote(label)
+                + "\\s*:\\s*([0-9.]+)\\s*([GMK]?bps)").matcher(safe(block));
+        if (!matcher.find()) {
+            return "";
+        }
+        String unit = matcher.group(2).toUpperCase(Locale.ROOT);
+        return matcher.group(1) + (unit.startsWith("G") ? "G"
+                : unit.startsWith("M") ? "M" : unit.startsWith("K") ? "K" : "");
     }
 
     private static List<PortSnapshot> parseHuaweiInterfaceDescription(String transcript) {

@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.43",
-    "url":  "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-latest.zip",
-    "sha256":  "5cf88dbfc320cb4ffd83f33fb08535151820f2a03dcfe63450500627d9ccc3d5",
-    "notes":  "Released 1.1.43: Make automatic updates resilient to interrupted GitHub downloads with retry and GitHub Asset API fallback."
+  "version": "1.1.44",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.44.zip",
+  "sha256": "06017c53471fcc73024e428ec941341dbb0b0993e93a3c3a3f8705ac0f8a2ea4",
+  "notes": "Released 1.1.44: Fix ZTE ARP VPN-INSTANCE values, improve Nokia/ZTE live port-speed parsing, harden TRUE Link Optical checkpoint publishing and server log automation, and make release dependencies reproducible."
 }

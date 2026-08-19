@@ -26,6 +26,7 @@ NEW_SITE_QUEUE_MAX_ROUNDS="${BOT_NEW_SITE_QUEUE_MAX_ROUNDS:-${BOT_SITE_UPDATE_MA
 SITE_UPDATE_RESULT_FILE="$LOG_DIR/.true-linkoptical-site-update-result.$$"
 NEW_SITE_QUEUE_FILE="$LOG_DIR/.true-linkoptical-new-site-queue.$$"
 NEW_SITE_QUEUE_AUDIT="$LOG_DIR/true-linkoptical-new-site-queue-$(date +%Y%m%d-%H%M%S).log"
+TARGETED_RING_STAGING_INPUT_DIR="$LOG_DIR/.true-access-ring-refresh-staging.$$"
 PRIMARY_CLEAN_TOTAL_LOG="${BOT_CLEAN_TOTAL_LOG_BEFORE_RUN:-0}"
 PRIMARY_KEEP_TOTAL_LOG_HISTORY=1
 
@@ -58,8 +59,31 @@ restart_mapviewer_after_deferred_publish() {
 }
 
 latest_map_lldp() {
-  find "$MAPVIEWER_INPUT_DIR" -maxdepth 1 -type f -name 'DataLLDP_Neighbor_*.csv' \
+  local input_dir="${1:-$MAPVIEWER_INPUT_DIR}"
+  find "$input_dir" -maxdepth 1 -type f -name 'DataLLDP_Neighbor_*.csv' \
     -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-
+}
+
+latest_map_file() {
+  local input_dir="$1"
+  local pattern="$2"
+  find "$input_dir" -maxdepth 1 -type f -name "$pattern" \
+    -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-
+}
+
+seed_targeted_ring_staging_input() {
+  mkdir -p "$TARGETED_RING_STAGING_INPUT_DIR"
+  local pattern source
+  for pattern in \
+    'DataLLDP_Neighbor_*.csv' \
+    'DataPort_*.csv' \
+    'DataDescription_MB_*.csv' \
+    'DataCPU_Memory_*.csv'; do
+    source="$(latest_map_file "$MAPVIEWER_INPUT_DIR" "$pattern")"
+    if [[ -n "$source" && -f "$source" ]]; then
+      cp -p "$source" "$TARGETED_RING_STAGING_INPUT_DIR/$(basename "$source")"
+    fi
+  done
 }
 
 case "$MODE" in
@@ -178,6 +202,14 @@ fi
 cleanup() {
   rm -f "$SITE_UPDATE_RESULT_FILE" "$SITE_UPDATE_RESULT_FILE.tmp."* 2>/dev/null || true
   rm -f "$NEW_SITE_QUEUE_FILE" "$NEW_SITE_QUEUE_FILE.tmp."* 2>/dev/null || true
+  case "$TARGETED_RING_STAGING_INPUT_DIR" in
+    "$LOG_DIR"/.true-access-ring-refresh-staging.*)
+      if [[ -d "$TARGETED_RING_STAGING_INPUT_DIR" ]]; then
+        find "$TARGETED_RING_STAGING_INPUT_DIR" -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -delete 2>/dev/null || true
+        rmdir "$TARGETED_RING_STAGING_INPUT_DIR" 2>/dev/null || true
+      fi
+      ;;
+  esac
   if [[ -f "$CYCLE_LOCK_DIR/pid" ]] && [[ "$(cat "$CYCLE_LOCK_DIR/pid" 2>/dev/null || true)" == "$$" ]]; then
     rm -rf "$CYCLE_LOCK_DIR"
   fi
@@ -295,6 +327,10 @@ log "Collection and recursive discovery finished. Exporting all completed Total_
 rm -f "$SITE_UPDATE_RESULT_FILE"
 set +e
 if [[ "$INITIAL_MAPVIEWER_RESTART_PENDING" == "1" ]]; then
+  seed_targeted_ring_staging_input
+  log "[PUBLISH] Building the initial merged snapshot in isolated staging; live MapViewer remains on its current cache until Ring validation completes."
+  MAPVIEWER_INPUT_DIR="$TARGETED_RING_STAGING_INPUT_DIR" \
+  MAPVIEWER_DIR="$MAPVIEWER_DIR" \
   MAPVIEWER_RESTART_AFTER_MERGE=false \
   BOT_DIST_DIR="$BOT_DIST_DIR" \
   BOT_SITE_UPDATE_RESULT_FILE="$SITE_UPDATE_RESULT_FILE" \
@@ -316,7 +352,11 @@ fi
 
 targeted_ring_rounds="disabled"
 if [[ "$TARGETED_RING_ENABLED" == "1" && -n "$RING_BASELINE_LLDP" && -f "$RING_BASELINE_LLDP" ]]; then
-  RING_CURRENT_LLDP="$(latest_map_lldp)"
+  if [[ "$INITIAL_MAPVIEWER_RESTART_PENDING" == "1" ]]; then
+    RING_CURRENT_LLDP="$(latest_map_lldp "$TARGETED_RING_STAGING_INPUT_DIR")"
+  else
+    RING_CURRENT_LLDP="$(latest_map_lldp)"
+  fi
   if [[ -n "$RING_CURRENT_LLDP" && -f "$RING_CURRENT_LLDP" && "$RING_CURRENT_LLDP" != "$RING_BASELINE_LLDP" ]]; then
     log "[RING-REFRESH] Checking the published topology for changed TRUE Access Rings."
     set +e
@@ -328,11 +368,24 @@ if [[ "$TARGETED_RING_ENABLED" == "1" && -n "$RING_BASELINE_LLDP" && -f "$RING_B
     TRUE_CHECKPOINT_RETRY_THREADS="$CHECKPOINT_RETRY_THREADS" \
     BOT_TARGETED_RING_DEFER_MAPVIEWER_RESTART=1 \
     BOT_TARGETED_RING_INITIAL_RESTART_PENDING="$INITIAL_MAPVIEWER_RESTART_PENDING" \
+    BOT_TARGETED_RING_FINAL_PUBLICATION_REQUIRED="$INITIAL_MAPVIEWER_RESTART_PENDING" \
+    TRUE_RING_REFRESH_STAGING_INPUT_DIR="$TARGETED_RING_STAGING_INPUT_DIR" \
       "$TARGETED_RING_SCRIPT" "$RING_BASELINE_LLDP" "$RING_CURRENT_LLDP" 2>&1 | tee -a "$RUN_LOG"
     targeted_ring_status="${PIPESTATUS[0]}"
     set -e
     if [[ "$targeted_ring_status" -ne 0 ]]; then
       log "[ERROR] Targeted Access Ring refresh failed with status=$targeted_ring_status. Publishing the successfully merged fallback snapshot."
+      set +e
+      MAPVIEWER_INPUT_DIR="$MAPVIEWER_INPUT_DIR" \
+      MAPVIEWER_DIR="$MAPVIEWER_DIR" \
+      MAPVIEWER_RESTART_AFTER_MERGE=false \
+      BOT_DIST_DIR="$BOT_DIST_DIR" \
+        "$FINAL_PUBLISH_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+      fallback_publish_status="${PIPESTATUS[0]}"
+      set -e
+      if [[ "$fallback_publish_status" -ne 0 ]]; then
+        log "[ERROR] Fallback live publication also failed with status=$fallback_publish_status."
+      fi
       fallback_restart_status=0
       restart_mapviewer_after_deferred_publish "targeted Access Ring failure fallback" || fallback_restart_status="$?"
       if [[ "$fallback_restart_status" -ne 0 ]]; then
@@ -345,6 +398,14 @@ if [[ "$TARGETED_RING_ENABLED" == "1" && -n "$RING_BASELINE_LLDP" && -f "$RING_B
   else
     log "[RING-REFRESH][WARN] Final publication did not create a comparable LLDP snapshot; targeted comparison was skipped."
     targeted_ring_rounds="skipped"
+    if [[ "$INITIAL_MAPVIEWER_RESTART_PENDING" == "1" ]]; then
+      log "[PUBLISH] Publishing fallback live snapshot because staged Ring comparison was unavailable."
+      MAPVIEWER_INPUT_DIR="$MAPVIEWER_INPUT_DIR" \
+      MAPVIEWER_DIR="$MAPVIEWER_DIR" \
+      MAPVIEWER_RESTART_AFTER_MERGE=false \
+      BOT_DIST_DIR="$BOT_DIST_DIR" \
+        "$FINAL_PUBLISH_SCRIPT" 2>&1 | tee -a "$RUN_LOG"
+    fi
   fi
 fi
 
