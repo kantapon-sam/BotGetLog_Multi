@@ -54,8 +54,7 @@ public final class TrueLiveNodeProbeCli {
                 lastResult = Telnet_Multi.runLiveProbe(gateway,
                         config.gatewayUsername, config.gatewayPassword,
                         ip, config.nodeUsername, config.nodePassword,
-                        cmdSet, node, commands, includesOptical(metrics)
-                                && (isNokia(cmdSet) || isHuawei(cmdSet)));
+                        cmdSet, node, commands, shouldExpandPortDetails(cmdSet, metrics));
                 if (lastResult.success || "INVALID_CREDENTIALS".equals(lastResult.status)) {
                     break;
                 }
@@ -307,6 +306,13 @@ public final class TrueLiveNodeProbeCli {
 
     private static boolean isHuawei(String cmdSet) {
         return cmdSet != null && cmdSet.trim().toUpperCase(Locale.ROOT).startsWith("H");
+    }
+
+    private static boolean shouldExpandPortDetails(String cmdSet, String metrics) {
+        if (isNokia(cmdSet)) {
+            return includesPorts(metrics);
+        }
+        return isHuawei(cmdSet) && includesOptical(metrics);
     }
 
     private static String errorJson(String node, String ip, String cmdSet,

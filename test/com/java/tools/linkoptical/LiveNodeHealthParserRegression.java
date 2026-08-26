@@ -21,10 +21,25 @@ public final class LiveNodeHealthParserRegression {
             verify(args[2], "HW-LLDP-Link_OPTIC", "Huawei");
         }
         verifyNokiaCompactLiveTranscript();
+        verifyNokiaDescriptionSpeedToken();
         verifyZteBriefAndCrcTranscript();
         verifyZtePortClassSpeedOverrides();
         verifyHuaweiCompactLiveTranscript();
         verifyHuaweiCopperDistanceTranscript();
+    }
+
+    private static void verifyNokiaDescriptionSpeedToken() {
+        String transcript = "<LIVE>show port\n"
+                + "10/2/c22/1    Up    Yes  Up      9212 9212    - netw null xcme\n"
+                + "A:NOKIA-LIVE#show port description\n"
+                + "Port Id        Description\n"
+                + "10/2/c22/1     To_CBR0208_DC-SW-02_100G_2/2\n";
+        List<LiveNodeHealthParser.PortSnapshot> ports
+                = LiveNodeHealthParser.parsePorts("NOKIA-LIVE", "10.0.0.1",
+                        "N-LLDP-Link_OPTIC", transcript);
+        if (ports.size() != 1 || !"100G".equals(ports.get(0).speed)) {
+            throw new AssertionError("Nokia _100G_ description token was not normalized.");
+        }
     }
 
     private static void verifyNokiaCompactLiveTranscript() {
@@ -35,8 +50,10 @@ public final class LiveNodeHealthParserRegression {
                 + "1/1/1         Up    Yes  Up      9212 9212    - netw null xcme   GIGE-LX  10KM\n"
                 + "1/1/2         Up    No   Down    9212 9212    - accs qinq xgige  10GBASE-LR  *\n"
                 + "8/1/c1/1      Up    Yes  Up      9212 9212    - netw null c100g  100GBASE-LR4 *\n"
+                + "1/1/c2/1      Up    No   Down    9212 9212    - netw null xcme\n"
                 + "A/1           Up    No   Down    1514 1514    - netw null faste\n"
                 + "10/1/15       Down  No   Down    9212 9212    - netw null xcme   10GBASE-LR  *\n"
+                + "10/2/c23/1    Up    No   Down    9212 9212    - netw null xcme\n"
                 + "A:NOKIA-LIVE#show port 1/1/1\n"
                 + "Description        : To_DN-B\n"
                 + "Interface          : 1/1/1                      Oper Speed       : 1 Gbps\n"
@@ -51,16 +68,23 @@ public final class LiveNodeHealthParserRegression {
                 + "Interface          : 10/1/15                    Oper Speed       : N/A\n"
                 + "Link-level         : Ethernet                   Config Speed     : 1 Gbps\n"
                 + "Oper State         : down\n"
+                + "A:NOKIA-LIVE#show port 1/1/c2/1\n"
+                + "Description        : 100-Gig Ethernet\n"
+                + "Interface          : 1/1/c2/1                   Oper Speed       : N/A\n"
+                + "Link-level         : Ethernet                   Config Speed     : 100 Gbps\n"
+                + "Oper State         : down\n"
                 + "A:NOKIA-LIVE#show port description\n"
                 + "Port Id        Description\n"
                 + "1/1/1          To_DN-B\n"
                 + "1/1/2          Reserved_For_Rehoming\n"
-                + "10/1/15        10/100/Gig Ethernet SFP\n";
+                + "1/1/c2/1       100-Gig Ethernet\n"
+                + "10/1/15        10/100/Gig Ethernet SFP\n"
+                + "10/2/c23/1     100-Gig Ethernet\n";
         List<LiveNodeHealthParser.PortSnapshot> ports
                 = LiveNodeHealthParser.parsePorts("NOKIA-LIVE", "10.0.0.1",
                         "N-LLDP-Link_OPTIC", transcript);
-        if (ports.size() != 5) {
-            throw new AssertionError("Nokia compact live parser expected 5 ports, got " + ports.size());
+        if (ports.size() != 7) {
+            throw new AssertionError("Nokia compact live parser expected 7 ports, got " + ports.size());
         }
         if (!"UP".equals(ports.get(0).portStatus) || !"1G".equals(ports.get(0).speed)) {
             throw new AssertionError("Nokia 1G live port state/speed was not parsed.");
@@ -86,11 +110,17 @@ public final class LiveNodeHealthParserRegression {
         if (!"UP".equals(ports.get(2).portStatus) || !"100G".equals(ports.get(2).speed)) {
             throw new AssertionError("Nokia connector port state/speed was not parsed.");
         }
-        if (!"DOWN".equals(ports.get(3).portStatus) || !"100M".equals(ports.get(3).speed)) {
+        if (!"DOWN".equals(ports.get(3).portStatus) || !"100G".equals(ports.get(3).speed)) {
+            throw new AssertionError("Nokia DOWN port did not fall back to Config Speed.");
+        }
+        if (!"DOWN".equals(ports.get(4).portStatus) || !"100M".equals(ports.get(4).speed)) {
             throw new AssertionError("Nokia management port state/speed was not parsed.");
         }
-        if (!"DOWN".equals(ports.get(4).portStatus) || !"1G".equals(ports.get(4).speed)) {
+        if (!"DOWN".equals(ports.get(5).portStatus) || !"1G".equals(ports.get(5).speed)) {
             throw new AssertionError("Nokia configured 1G speed did not override the compact 10G optic hint.");
+        }
+        if (!"DOWN".equals(ports.get(6).portStatus) || !"100G".equals(ports.get(6).speed)) {
+            throw new AssertionError("Nokia 100-Gig description did not correct a compact row without detail output.");
         }
         System.out.println("Nokia compact live transcript: ports=" + ports.size());
     }

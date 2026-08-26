@@ -1,6 +1,6 @@
 {
-  "version": "1.1.44",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.44.zip",
-  "sha256": "06017c53471fcc73024e428ec941341dbb0b0993e93a3c3a3f8705ac0f8a2ea4",
-  "notes": "Released 1.1.44: Fix ZTE ARP VPN-INSTANCE values, improve Nokia/ZTE live port-speed parsing, harden TRUE Link Optical checkpoint publishing and server log automation, and make release dependencies reproducible."
+  "version": "1.1.45",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.45.zip",
+  "sha256": "a39bfbd354e443e1eb23940dc7b553973afb64e137931249f88c6417e675ca44",
+  "notes": "Released 1.1.45: Correct vendor command sets from verified completed logs, persist runtime vendor detection, and fix Nokia 100G live port speed parsing."
 }

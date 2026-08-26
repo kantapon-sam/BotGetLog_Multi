@@ -1017,6 +1017,13 @@ public class Telnet_Multi {
                 || text.contains("[TIMEOUT-Checklogin]");
     }
 
+    static List<String> selectNokiaSpeedVerificationPorts(
+            String summaryResponse, String descriptionResponse,
+            LinkedHashSet<String> alreadyExpanded, int maxPorts) {
+        return CredentialProbe.extractNokiaSpeedVerificationPorts(
+                summaryResponse, descriptionResponse, alreadyExpanded, maxPorts);
+    }
+
     private static final class CredentialProbe implements AutoCloseable {
 
         private final TelnetClient telnet = new TelnetClient();
@@ -1156,6 +1163,10 @@ public class Telnet_Multi {
                 throw new IOException("Live node session is not connected.");
             }
             StringBuilder transcript = new StringBuilder(8192);
+            String nokiaPortSummaryResponse = "";
+            LinkedHashSet<String> expandedNokiaPorts = new LinkedHashSet<String>();
+            Pattern nokiaDetailCommand = Pattern.compile(
+                    "(?i)^show\\s+port\\s+([A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4})$");
             if (commands == null || commands.isEmpty()) {
                 return transcript.toString();
             }
@@ -1166,6 +1177,12 @@ public class Telnet_Multi {
             for (String command : commands) {
                 String safeCommand = safeTrim(command);
                 if (safeCommand.isEmpty()) {
+                    continue;
+                }
+                Matcher nokiaDetailMatcher = nokiaDetailCommand.matcher(safeCommand);
+                if (includeActivePortDetails && nokiaDetailMatcher.matches()
+                        && expandedNokiaPorts.contains(
+                                nokiaDetailMatcher.group(1).toLowerCase(Locale.ROOT))) {
                     continue;
                 }
                 transcript.append(liveTranscriptCommand(safeCommand)).append('\n');
@@ -1179,8 +1196,32 @@ public class Telnet_Multi {
                 if (isTimeoutResponse(response)) {
                     return response;
                 }
+                if (includeActivePortDetails && nokiaDetailMatcher.matches()) {
+                    expandedNokiaPorts.add(
+                            nokiaDetailMatcher.group(1).toLowerCase(Locale.ROOT));
+                }
                 if (includeActivePortDetails && "show port".equalsIgnoreCase(safeCommand)) {
+                    nokiaPortSummaryResponse = response == null ? "" : response;
                     for (String port : extractNokiaActivePorts(response, 64)) {
+                        expandedNokiaPorts.add(port.toLowerCase(Locale.ROOT));
+                        String detailCommand = "show port " + port;
+                        transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
+                        write(detailCommand);
+                        String detailResponse = readUntilPromptOnlyLarge("#", ">");
+                        transcript.append(detailResponse == null ? "" : detailResponse).append('\n');
+                        if (isTimeoutResponse(detailResponse)) {
+                            return detailResponse;
+                        }
+                        sleepQuietly(50);
+                    }
+                }
+                if (includeActivePortDetails
+                        && "show port description".equalsIgnoreCase(safeCommand)
+                        && !nokiaPortSummaryResponse.isEmpty()) {
+                    int remaining = Math.max(0, 64 - expandedNokiaPorts.size());
+                    for (String port : extractNokiaSpeedVerificationPorts(
+                            nokiaPortSummaryResponse, response, expandedNokiaPorts, remaining)) {
+                        expandedNokiaPorts.add(port.toLowerCase(Locale.ROOT));
                         String detailCommand = "show port " + port;
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
@@ -1245,6 +1286,53 @@ public class Telnet_Multi {
                 }
             }
             return new ArrayList<String>(ports);
+        }
+
+        private static List<String> extractNokiaSpeedVerificationPorts(
+                String summaryResponse, String descriptionResponse,
+                LinkedHashSet<String> alreadyExpanded, int maxPorts) {
+            LinkedHashMap<String, String> ambiguousPorts = new LinkedHashMap<String, String>();
+            List<String> ports = new ArrayList<String>();
+            if (summaryResponse == null || summaryResponse.isEmpty()
+                    || descriptionResponse == null || descriptionResponse.isEmpty()
+                    || maxPorts <= 0) {
+                return ports;
+            }
+            Pattern summaryRow = Pattern.compile(
+                    "(?m)^\\s*([A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4})\\s+"
+                    + "(Up|Down)\\s+(Yes|No)\\s+(Up|Down)\\b.*$",
+                    Pattern.CASE_INSENSITIVE);
+            Pattern genericPortType = Pattern.compile("\\b(?:gige|xcme)\\b",
+                    Pattern.CASE_INSENSITIVE);
+            Matcher summaryMatcher = summaryRow.matcher(summaryResponse);
+            while (summaryMatcher.find()) {
+                String line = summaryMatcher.group(0);
+                if (genericPortType.matcher(line).find()) {
+                    String port = summaryMatcher.group(1);
+                    ambiguousPorts.put(port.toLowerCase(Locale.ROOT), port);
+                }
+            }
+            if (ambiguousPorts.isEmpty()) {
+                return ports;
+            }
+            Pattern descriptionRow = Pattern.compile(
+                    "(?m)^\\s*([A-Za-z0-9]+(?:/[A-Za-z0-9]+){1,4})\\s{2,}(.+?)\\s*$");
+            Pattern explicitCapacity = Pattern.compile(
+                    ".*\\b(?:400|100|50|40|25|10)"
+                    + "(?:GBASE|GE|[ -]?GIG(?:ABIT)?|[ -]?G)\\b.*",
+                    Pattern.CASE_INSENSITIVE);
+            Matcher descriptionMatcher = descriptionRow.matcher(descriptionResponse);
+            while (descriptionMatcher.find() && ports.size() < maxPorts) {
+                String key = descriptionMatcher.group(1).toLowerCase(Locale.ROOT);
+                String port = ambiguousPorts.get(key);
+                if (port == null
+                        || (alreadyExpanded != null && alreadyExpanded.contains(key))
+                        || !explicitCapacity.matcher(descriptionMatcher.group(2)).matches()) {
+                    continue;
+                }
+                ports.add(port);
+            }
+            return ports;
         }
 
         private static List<String> extractHuaweiActivePorts(String response, int maxPorts) {
@@ -1960,6 +2048,7 @@ public class Telnet_Multi {
     }
 
     public Telnet_Multi(String server, String User_server, String PW_server, String Loopback, String User_CLLS, String PW_CLLS, String cmdSet, String Device, int Num_row, String User_L2, String PW_L2) {
+        final String configuredCmdSet = cmdSet;
         //   background monitor  ()
         startWrongVendorMonitor(new PathFile());
         startCommandCompletionMonitor(new PathFile());
@@ -1992,6 +2081,8 @@ public class Telnet_Multi {
 
             File completedEquivalentLog = findEquivalentCompletedLog(Loopback, Device, cmdSet, Num_row);
             if (completedEquivalentLog != null) {
+                recordVendorAdjustmentFromVerifiedLog(completedEquivalentLog,
+                        Num_row, Loopback, Device, configuredCmdSet, cmdSet);
                 String skipMsg = String.format("[SKIP] Completed equivalent log already exists for %s (%s) [%s] -> %s",
                         Device, Loopback, cmdSet, completedEquivalentLog.getName());
                 System.out.println(skipMsg);
@@ -2046,6 +2137,8 @@ public class Telnet_Multi {
             // ===============================================================================================
             File completedEquivalentLogAfterVendor = findEquivalentCompletedLog(Loopback, Device, cmdSet, Num_row);
             if (completedEquivalentLogAfterVendor != null) {
+                recordVendorAdjustmentFromVerifiedLog(completedEquivalentLogAfterVendor,
+                        Num_row, Loopback, Device, configuredCmdSet, cmdSet);
                 String skipMsg = String.format("[SKIP] Completed equivalent log already exists after vendor adjust for %s (%s) [%s] -> %s",
                         Device, Loopback, cmdSet, completedEquivalentLogAfterVendor.getName());
                 System.out.println(skipMsg);
@@ -2113,6 +2206,8 @@ public class Telnet_Multi {
                                         + " (reloaded commands rows=" + newR + ")\n");
                                 System.out.println("[INFO] Prompt vendor detect adjusted cmdSet: " + cmdSet + " -> " + adjustedCmdSet
                                         + " (reloaded commands rows=" + newR + ")");
+                                TrueDeviceInventoryUpdater.recordVendorAdjustment(
+                                        Num_row, Loopback, Device, cmdSet, adjustedCmdSet);
                                 cmdSet = adjustedCmdSet;
                                 r = newR;
                             } else {
@@ -2257,6 +2352,8 @@ public class Telnet_Multi {
                                             + " (reloaded commands rows=" + newR + ")\n");
                                     System.out.println("[INFO] Prompt vendor detect adjusted cmdSet: " + cmdSet + " -> " + adjustedCmdSet
                                             + " (reloaded commands rows=" + newR + ")");
+                                    TrueDeviceInventoryUpdater.recordVendorAdjustment(
+                                            Num_row, Loopback, Device, cmdSet, adjustedCmdSet);
                                     cmdSet = adjustedCmdSet;
                                     r = newR;
                                 } else {
@@ -2809,6 +2906,8 @@ public class Telnet_Multi {
 //  
             File logDir = new File(FileInput.getLog());
             File logFile = new File(logDir, fileName);
+            recordVendorAdjustmentFromVerifiedLog(logFile,
+                    Num_row, Loopback, Device, configuredCmdSet, cmdSet);
             double fileSizeKB = logFile.exists() ? (logFile.length() / 1024.0) : 0.0;
 
 //  -
@@ -5213,7 +5312,7 @@ public class Telnet_Multi {
         return fallback;
     }
 
-    private static String detectVendorFromPrompt(String text, String fallbackVendor, boolean preLoginNokia) {
+    static String detectVendorFromPrompt(String text, String fallbackVendor, boolean preLoginNokia) {
         String fallback = (fallbackVendor == null || fallbackVendor.trim().isEmpty())
                 ? "HW"
                 : fallbackVendor.trim().toUpperCase();
@@ -5273,7 +5372,7 @@ public class Telnet_Multi {
         if (trimmed.isEmpty()) {
             return "";
         }
-        if (trimmed.matches("(?i)^\\*?a:[^\\r\\n#]*#.*")) {
+        if (trimmed.matches("(?i)^\\*?[ab]:[^\\r\\n#]*#.*")) {
             return "N";
         }
         if (trimmed.matches("^<[^\\r\\n>]+>.*")) {
@@ -5330,12 +5429,29 @@ public class Telnet_Multi {
         return detectVendorFromPrompt(sampleText, fallbackVendor, false);
     }
 
-    private static String adjustCmdSetVendorFromLog(File logFile, String cmdSet) {
+    static String adjustCmdSetVendorFromLog(File logFile, String cmdSet) {
         if (cmdSet == null || cmdSet.trim().isEmpty() || cmdSet.indexOf('-') < 0) {
             return cmdSet == null ? "" : cmdSet.trim();
         }
         String detectedVendor = detectVendorFromLog(logFile, cmdSet);
         return detectedVendor + cmdSet.substring(cmdSet.indexOf('-'));
+    }
+
+    private static void recordVendorAdjustmentFromVerifiedLog(File logFile,
+            int rowNum, String loopback, String device,
+            String configuredCmdSet, String runtimeCmdSet) {
+        if (logFile == null || !logFile.isFile()) {
+            return;
+        }
+        String verifiedCmdSet = adjustCmdSetVendorFromLog(logFile, runtimeCmdSet);
+        if (verifiedCmdSet.isEmpty() || verifiedCmdSet.equalsIgnoreCase(configuredCmdSet)) {
+            return;
+        }
+        TrueDeviceInventoryUpdater.recordVendorAdjustment(
+                rowNum, loopback, device, configuredCmdSet, verifiedCmdSet);
+        System.out.println("[AUTO-INPUT] Completed log verified vendor cmdSet: "
+                + configuredCmdSet + " -> " + verifiedCmdSet
+                + " (" + logFile.getName() + ")");
     }
 
     private int reloadCommandsFromExcel(PathFile fileInput, String cmdSet, String[] targetCommand) {

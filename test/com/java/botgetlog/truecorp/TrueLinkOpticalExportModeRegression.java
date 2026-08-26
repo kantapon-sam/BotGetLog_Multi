@@ -16,6 +16,8 @@ public final class TrueLinkOpticalExportModeRegression {
         verifySinceFileParsing();
         verifyModifiedSinceFilter();
         verifyCmdSetExtractionAfterVendorChange();
+        verifyRuntimeVendorDetection();
+        verifyCompletedLogVendorDetection();
         verifyFailureLogClassification();
         verifyNodePromptIsolation();
         verifyAuthFailureIsolation();
@@ -180,6 +182,42 @@ public final class TrueLinkOpticalExportModeRegression {
         assertEquals("PRIMARY_THREAD_20", Telnet_Multi.failurePhaseTag("primary-thread-20"));
         assertEquals("RETRY_THREAD_10", Telnet_Multi.failurePhaseTag(" retry thread 10 "));
         assertEquals("MANUAL", Telnet_Multi.failurePhaseTag(""));
+    }
+
+    private static void verifyRuntimeVendorDetection() {
+        assertEquals("HW", Telnet_Multi.detectVendorFromPrompt(
+                "Welcome\n<RN3-SRT8361-BB>", "N", false));
+        assertEquals("N", Telnet_Multi.detectVendorFromPrompt(
+                "Welcome\nB:RN4-SRT8361-BB#", "HW", false));
+        assertEquals("ZTE", Telnet_Multi.detectVendorFromPrompt(
+                "Chassis model : ZXCTN9000-18EA\nRN-NKT0020-2_NKCNPT0204M#",
+                "N", false));
+    }
+
+    private static void verifyCompletedLogVendorDetection() throws Exception {
+        assertVerifiedLogVendor("<RN3-SRT8361-BB>\n", "N-LLDP-Link_OPTIC",
+                "HW-LLDP-Link_OPTIC");
+        assertVerifiedLogVendor("B:RN4-SRT8361-BB#\n", "HW-LLDP-Link_OPTIC",
+                "N-LLDP-Link_OPTIC");
+        assertVerifiedLogVendor(
+                "Chassis model : ZXCTN9000-18EA\nRN-NKT0020-2_NKCNPT0204M#\n",
+                "N-LLDP-Link_OPTIC", "ZTE-LLDP-Link_OPTIC");
+    }
+
+    private static void assertVerifiedLogVendor(
+            String content, String configuredCmdSet, String expectedCmdSet) throws Exception {
+        File temp = File.createTempFile("true-vendor-detect-", ".txt");
+        try {
+            try (FileOutputStream out = new FileOutputStream(temp)) {
+                out.write(content.getBytes("UTF-8"));
+            }
+            assertEquals(expectedCmdSet,
+                    Telnet_Multi.adjustCmdSetVendorFromLog(temp, configuredCmdSet));
+        } finally {
+            if (!temp.delete() && temp.exists()) {
+                throw new AssertionError("Unable to delete temporary vendor log: " + temp);
+            }
+        }
     }
 
     private static void verifyExactRowSelection() throws Exception {

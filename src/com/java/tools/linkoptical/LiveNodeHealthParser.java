@@ -383,6 +383,30 @@ public final class LiveNodeHealthParser {
 
     private static String nokiaPortSpeed(String line, String description) {
         String portDescription = safe(description).toUpperCase(Locale.ROOT);
+        if (portDescription.contains("400-GIG") || portDescription.contains("400 GIG")
+                || portDescription.contains("400GIG") || portDescription.contains("400GBASE")) {
+            return "400G";
+        }
+        if (portDescription.contains("100-GIG") || portDescription.contains("100 GIG")
+                || portDescription.contains("100GIG") || portDescription.contains("100GBASE")
+                || Pattern.compile("(^|[^0-9])100G([^0-9]|$)").matcher(portDescription).find()) {
+            return "100G";
+        }
+        if (portDescription.contains("40-GIG") || portDescription.contains("40 GIG")
+                || portDescription.contains("40GIG") || portDescription.contains("40GBASE")
+                || Pattern.compile("(^|[^0-9])40G([^0-9]|$)").matcher(portDescription).find()) {
+            return "40G";
+        }
+        if (portDescription.contains("25-GIG") || portDescription.contains("25 GIG")
+                || portDescription.contains("25GIG") || portDescription.contains("25GBASE")
+                || Pattern.compile("(^|[^0-9])25G([^0-9]|$)").matcher(portDescription).find()) {
+            return "25G";
+        }
+        if (portDescription.contains("10-GIG") || portDescription.contains("10 GIG")
+                || portDescription.contains("10GIG") || portDescription.contains("10GBASE")
+                || Pattern.compile("(^|[^0-9])10G([^0-9]|$)").matcher(portDescription).find()) {
+            return "10G";
+        }
         // Nokia may report the inserted optic (for example 10GBASE-LR) in the
         // compact row even when a multi-rate access port is configured for 1G.
         // The platform description identifies these 10/100/1G ports reliably.
