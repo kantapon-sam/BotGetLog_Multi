@@ -3,6 +3,7 @@ package com.java.botgetlog.truecorp;
 import com.java.shared.AppMetadata;
 import com.java.shared.AppConsole;
 import com.java.updater.AutoUpdateManager;
+import com.truelinkoptical.shared.SharedConnectionBudget;
 import java.awt.Toolkit;
 import java.io.*;
 import java.nio.file.*;
@@ -21,6 +22,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import javax.swing.SwingUtilities;
 import org.apache.poi.ooxml.POIXMLException;
 import org.apache.poi.ss.usermodel.*;
@@ -42,6 +44,50 @@ public class BotGetLog_TrueCorp {
     private static final Set<String> rerunOncePerRunKeys = ConcurrentHashMap.newKeySet();
     private static final Object RERUN_TASK_LOCK = new Object();
     private static final AtomicInteger ACTIVE_RERUN_TASKS = new AtomicInteger(0);
+    private static SharedConnectionBudget sharedConnectionBudget;
+    // Keep the registration alive until this JVM exits. A shutdown hook must
+    // not release it while a worker may still own a gateway connection.
+    private static SharedConnectionBudget.Registration sharedBotRegistration;
+
+    private static synchronized SharedConnectionBudget sharedBotBudget() throws IOException {
+        if (sharedConnectionBudget == null) {
+            SharedConnectionBudget budget = SharedConnectionBudget.fromEnvironment();
+            SharedConnectionBudget.Registration registration = budget.registerBot();
+            sharedBotRegistration = registration;
+            sharedConnectionBudget = budget;
+        }
+        return sharedConnectionBudget;
+    }
+
+    static SharedConnectionBudget.Lease awaitSharedBotLease(SharedConnectionBudget budget,
+            BooleanSupplier stopped) throws IOException, InterruptedException {
+        while (!Thread.currentThread().isInterrupted() && !stopped.getAsBoolean()) {
+            SharedConnectionBudget.Lease lease = budget.tryAcquireBot();
+            if (lease != null) {
+                if (Thread.currentThread().isInterrupted() || stopped.getAsBoolean()) {
+                    lease.close();
+                    throw new InterruptedException("Bot stopped while waiting for a shared connection slot.");
+                }
+                return lease;
+            }
+            Thread.sleep(250L);
+        }
+        throw new InterruptedException("Bot stopped while waiting for a shared connection slot.");
+    }
+
+    private static SharedConnectionBudget.Lease acquireSharedBotLease()
+            throws IOException, InterruptedException {
+        return awaitSharedBotLease(sharedBotBudget(), BotGetLog_TrueCorp::isShutdownRequested);
+    }
+
+    private static void closeSharedBotLease(SharedConnectionBudget.Lease lease) {
+        if (lease == null) return;
+        try {
+            lease.close();
+        } catch (IOException ex) {
+            realOut.println("[WARN] Could not release shared connection slot: " + ex.getMessage());
+        }
+    }
 
     //  [Thread Configuration Section]
     boolean isFocusMode = false; //  (Work Mode)
@@ -1300,11 +1346,20 @@ public class BotGetLog_TrueCorp {
                         i + 1,
                         targetsToTry.size()
                 ));
-                Telnet_Multi.LoginValidationResult result = Telnet_Multi.validateCllsCredentials(
-                        server, userServer, pwServer,
-                        target.loopback, currentUsername, currentPassword,
-                        target.cmdSet, target.device
-                );
+                Telnet_Multi.LoginValidationResult result;
+                try (SharedConnectionBudget.Lease lease = acquireSharedBotLease()) {
+                    result = Telnet_Multi.validateCllsCredentials(
+                            server, userServer, pwServer,
+                            target.loopback, currentUsername, currentPassword,
+                            target.cmdSet, target.device
+                    );
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                } catch (IOException ex) {
+                    realOut.println("[ERROR] Shared connection budget unavailable during validation: " + ex.getMessage());
+                    return null;
+                }
 
                 if (result.isSuccess()) {
                     return rememberCllsCredentials(currentUsername, currentPassword);
@@ -1372,6 +1427,13 @@ public class BotGetLog_TrueCorp {
         if (!AppMetadata.isRunningFromIde()
                 && !headlessAutoRun
                 && AutoUpdateManager.checkForUpdatesAtStartup()) {
+            return;
+        }
+        try {
+            sharedBotBudget();
+        } catch (IOException ex) {
+            realOut.println("[ERROR] Shared connection budget unavailable; no gateway connection will be opened: " + ex.getMessage());
+            System.exit(7);
             return;
         }
         backgroundWorkersActive = true;
@@ -2055,6 +2117,8 @@ public class BotGetLog_TrueCorp {
                                     ACTIVE_TASKS.incrementAndGet();
                                     boolean telnetPermitAcquired = false;
                                     GatewayLease gatewayLease = null;
+                                    SharedConnectionBudget.Lease sharedLease = null;
+                                    Telnet_Multi currentConnection = null;
                                     boolean countProgress = false;
                                     try {
                                         if (isShutdownRequested()) {
@@ -2068,6 +2132,7 @@ public class BotGetLog_TrueCorp {
                                         Telnet_Multi.TELNET_LIMIT.acquire();
                                         telnetPermitAcquired = true;
                                         gatewayLease = runGatewayPool.acquire();
+                                        sharedLease = acquireSharedBotLease();
 
                                         if (isShutdownRequested()) {
                                             realOut.printf("[STOP] Skip Row %d %s [%s] after TELNET permit because shutdown was requested%n",
@@ -2099,13 +2164,20 @@ public class BotGetLog_TrueCorp {
                                                 return;
                                             }
 
-                                            Telnet_Multi telnetObj = new Telnet_Multi(
+                                            // A retry opens a fresh connection. Return to admission
+                                            // so queued Live requests get the slot after the prior
+                                            // connection finishes, without interrupting that work.
+                                            if (sharedLease == null) sharedLease = acquireSharedBotLease();
+                                            Telnet_Multi telnetObj = currentConnection = new Telnet_Multi(
                                                     gatewayLease.getServer(), fUsrS, fPwdS,
                                                     fLoop, fUsrC, fPwdC,
                                                     fCmd, fDev, fRowNum,
                                                     fUsrL2, fPwdL2
                                             );
                                             telnetObj.disconnect();
+                                            currentConnection = null;
+                                            closeSharedBotLease(sharedLease);
+                                            sharedLease = null;
 
                                             File completedLog = findLatestCompletedLog(fFile, fRowNum, fLoop, fDev, fCmd, fLastCommand);
                                             if (!telnetObj.hasSessionFailureRecorded() && completedLog != null) {
@@ -2158,6 +2230,8 @@ public class BotGetLog_TrueCorp {
                                         BotGetLog_TrueCorp.recordTaskFailure(e);
                                     } finally {
                                         //  - ()
+                                        if (currentConnection != null) currentConnection.disconnect();
+                                        closeSharedBotLease(sharedLease);
                                         if (gatewayLease != null) {
                                             gatewayLease.close();
                                         }
@@ -3822,6 +3896,8 @@ public class BotGetLog_TrueCorp {
             Runnable reRunTask = () -> {
                 boolean telnetPermitAcquired = false;
                 GatewayLease gatewayLease = null;
+                SharedConnectionBudget.Lease sharedLease = null;
+                Telnet_Multi currentConnection = null;
                 try {
                     if (isShutdownRequested()) {
                         System.out.printf("[RE-RUN]  Skip Row %d | %s | %s because shutdown is in progress%n",
@@ -3847,6 +3923,7 @@ public class BotGetLog_TrueCorp {
                     Telnet_Multi.TELNET_LIMIT.acquire();
                     telnetPermitAcquired = true;
                     gatewayLease = rerunGatewayPool.acquire();
+                    sharedLease = acquireSharedBotLease();
 
                     if (isShutdownRequested()) {
                         System.out.printf("[RE-RUN]  Skip Row %d | %s | %s after TELNET permit because shutdown is in progress%n",
@@ -3857,7 +3934,7 @@ public class BotGetLog_TrueCorp {
                     System.out.printf("[RE-RUN]  Starting re-run Telnet for %s (%s) [%s] via %s (%d/%d sessions)%n",
                             finalDevName, finalIp, finalCmd, gatewayLease.getHost(),
                             gatewayLease.getActiveAtAcquire(), gatewayLease.getMaxSessions());
-                    new Telnet_Multi(
+                    currentConnection = new Telnet_Multi(
                             gatewayLease.getServer(), finalUserServer, finalPwServer,
                             finalIp, finalUserCLLS, finalPwCLLS,
                             finalCmd, finalDevName, rowNum,
@@ -3870,6 +3947,8 @@ public class BotGetLog_TrueCorp {
                 } catch (Exception e) {
                     System.out.println("[RE-RUN] [WARN] Error: " + e.getMessage());
                 } finally {
+                    if (currentConnection != null) currentConnection.disconnect();
+                    closeSharedBotLease(sharedLease);
                     if (gatewayLease != null) {
                         gatewayLease.close();
                     }

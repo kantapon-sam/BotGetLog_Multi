@@ -452,8 +452,7 @@ public final class LiveNodeHealthParser {
             return rows;
         }
         Pattern rowPattern = Pattern.compile(
-                "^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                + "[0-9]+(?:/[0-9]+){2,4}(?:\\([^)]*\\))?)\\s+"
+                "^\\s*(" + HuaweiLivePort.NAME_PATTERN + "(?:\\([^)]*\\))?)\\s+"
                 + "(up|down|\\*down)\\s+(\\S+)(?:\\s+(.*))?$",
                 Pattern.CASE_INSENSITIVE);
         for (String line : transcript.split("\\r?\\n")) {
@@ -480,8 +479,7 @@ public final class LiveNodeHealthParser {
             return rows;
         }
         Pattern startPattern = Pattern.compile(
-                "^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                + "[0-9]+(?:/[0-9]+){2,4})\\s+current state\\s*:\\s*(UP|DOWN)",
+                "^\\s*(\\S+)\\s+current state\\s*:\\s*(.*)$",
                 Pattern.CASE_INSENSITIVE);
         Pattern descriptionPattern = Pattern.compile("^\\s*Description\\s*:\\s*(.*)$",
                 Pattern.CASE_INSENSITIVE);
@@ -498,7 +496,9 @@ public final class LiveNodeHealthParser {
             Matcher start = startPattern.matcher(line);
             if (start.find()) {
                 addHuaweiDetail(rows, currentPort, currentState, description, speed, crcInput);
-                currentPort = start.group(1);
+                // Every interface header ends the previous block, including
+                // logical interfaces: their CRC must not leak into a physical port.
+                currentPort = HuaweiLivePort.isPhysicalPort(start.group(1)) ? start.group(1) : "";
                 currentState = normalizePortStatus(start.group(2));
                 description = "";
                 speed = huaweiPortSpeed(currentPort);
@@ -540,8 +540,7 @@ public final class LiveNodeHealthParser {
             return result;
         }
         Pattern portPattern = Pattern.compile(
-                "^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                + "[0-9]+(?:/[0-9]+){2,4})\\s+current state\\s*:", Pattern.CASE_INSENSITIVE);
+                "^\\s*(\\S+)\\s+current state\\s*:", Pattern.CASE_INSENSITIVE);
         Pattern lanePattern = Pattern.compile(
                 "Rx\\d+\\s+Power:\\s*([-+0-9.]+)dBm,\\s*Tx\\d+\\s+Power:\\s*([-+0-9.]+)dBm",
                 Pattern.CASE_INSENSITIVE);
@@ -553,7 +552,7 @@ public final class LiveNodeHealthParser {
             Matcher portMatcher = portPattern.matcher(line);
             if (portMatcher.find()) {
                 putHuaweiLaneAverage(result, currentPort, txSum, rxSum, laneCount);
-                currentPort = portMatcher.group(1);
+                currentPort = HuaweiLivePort.isPhysicalPort(portMatcher.group(1)) ? portMatcher.group(1) : "";
                 rxSum = txSum = 0.0d;
                 laneCount = 0;
                 continue;

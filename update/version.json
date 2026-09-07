@@ -1,6 +1,6 @@
 {
-  "version": "1.1.45",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.45.zip",
-  "sha256": "a39bfbd354e443e1eb23940dc7b553973afb64e137931249f88c6417e675ca44",
-  "notes": "Released 1.1.45: Correct vendor command sets from verified completed logs, persist runtime vendor detection, and fix Nokia 100G live port speed parsing."
+  "version": "1.1.46",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.46.zip",
+  "sha256": "18e494864cb052d13be929c4432f0dada2510911f971ba6dc9cd7e168cf188d7",
+  "notes": "Released 1.1.46: Fix Huawei dual-rate 100G live inventory, optics and selected-port CRC; include shared Bot/Live connection limits and safe SSH cleanup."
 }

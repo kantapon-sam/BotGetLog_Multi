@@ -2,6 +2,9 @@ package com.java.botgetlog.truecorp;
 
 import com.java.tools.linkoptical.CpuMemoryExporter;
 import com.java.tools.linkoptical.LiveNodeHealthParser;
+import com.java.tools.linkoptical.HuaweiLivePort;
+import com.truelinkoptical.shared.SharedConnectionBudget;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,18 +20,29 @@ public final class TrueLiveNodeProbeCli {
     }
 
     public static void main(String[] args) {
+        int status = run(args);
+        if (status != 0) System.exit(status);
+    }
+
+    static int run(String[] args) {
         Map<String, String> options = parseArgs(args);
         String ip = value(options, "ip");
         String node = value(options, "node");
         String cmdSet = value(options, "cmdset");
         String metrics = normalizeMetrics(value(options, "metrics"));
         String nodeType = value(options, "type");
-        List<String> selectedPorts = parsePortList(value(options, "ports"));
+        List<String> selectedPorts = parsePortList(value(options, "ports"), cmdSet);
         if (ip.isEmpty() || node.isEmpty() || cmdSet.isEmpty()) {
             printResult(errorJson(node, ip, cmdSet, "INVALID_REQUEST",
                     "--ip, --node and --cmdset are required.", 0L));
-            System.exit(2);
-            return;
+            return 2;
+        }
+        boolean hasBudgetTicket = options.containsKey("budget-ticket");
+        String budgetTicket = value(options, "budget-ticket");
+        if (hasBudgetTicket && budgetTicket.isEmpty()) {
+            printResult(errorJson(node, ip, cmdSet, "INVALID_REQUEST",
+                    "--budget-ticket requires a non-empty ticket.", 0L));
+            return 2;
         }
 
         long startedAt = System.currentTimeMillis();
@@ -37,26 +51,36 @@ public final class TrueLiveNodeProbeCli {
             if (!config.isComplete()) {
                 printResult(errorJson(node, ip, cmdSet, "MISSING_CREDENTIALS",
                         "Live probe credentials are not configured.", elapsed(startedAt)));
-                System.exit(3);
-                return;
+                return 3;
             }
 
             List<String> commands = commandsFor(cmdSet, metrics, node, nodeType, selectedPorts);
             if (commands.isEmpty()) {
                 printResult(errorJson(node, ip, cmdSet, "UNSUPPORTED_VENDOR",
                         "Live monitoring supports Nokia, ZTE and Huawei command sets.", elapsed(startedAt)));
-                System.exit(4);
-                return;
+                return 4;
             }
 
+            SharedConnectionBudget budget = SharedConnectionBudget.fromEnvironment();
+            // Main owns the queue ticket; this child owns the physical lease.
+            // A standalone invocation joins the Bot role instead of bypassing
+            // the shared budget. Resource order closes its lease first.
             Telnet_Multi.LiveProbeResult lastResult = null;
-            for (String gateway : config.gatewayServers) {
-                lastResult = Telnet_Multi.runLiveProbe(gateway,
-                        config.gatewayUsername, config.gatewayPassword,
-                        ip, config.nodeUsername, config.nodePassword,
-                        cmdSet, node, commands, shouldExpandPortDetails(cmdSet, metrics));
-                if (lastResult.success || "INVALID_CREDENTIALS".equals(lastResult.status)) {
-                    break;
+            try (SharedConnectionBudget.Registration registration = hasBudgetTicket ? null : budget.registerBot();
+                    SharedConnectionBudget.Lease lease = acquireProbeLease(budget, hasBudgetTicket, budgetTicket)) {
+                if (lease == null) {
+                    printResult(errorJson(node, ip, cmdSet, "BUDGET_BUSY",
+                            "No shared connection slot is currently available; retry this probe.", elapsed(startedAt)));
+                    return 7;
+                }
+                for (String gateway : config.gatewayServers) {
+                    lastResult = Telnet_Multi.runLiveProbe(gateway,
+                            config.gatewayUsername, config.gatewayPassword,
+                            ip, config.nodeUsername, config.nodePassword,
+                            cmdSet, node, commands, shouldExpandPortDetails(cmdSet, metrics));
+                    if (lastResult.success || "INVALID_CREDENTIALS".equals(lastResult.status)) {
+                        break;
+                    }
                 }
             }
 
@@ -65,8 +89,7 @@ public final class TrueLiveNodeProbeCli {
                 String message = lastResult == null ? "No TRUE gateway is configured." : lastResult.message;
                 long elapsedMs = lastResult == null ? elapsed(startedAt) : lastResult.elapsedMs;
                 printResult(errorJson(node, ip, cmdSet, status, message, elapsedMs));
-                System.exit(5);
-                return;
+                return 5;
             }
 
             CpuMemoryExporter.CpuMemorySnapshot snapshot
@@ -76,14 +99,26 @@ public final class TrueLiveNodeProbeCli {
                     ? LiveNodeHealthParser.parsePorts(node, ip, cmdSet, lastResult.transcript)
                     : new ArrayList<LiveNodeHealthParser.PortSnapshot>();
             printResult(successJson(node, ip, cmdSet, metrics, snapshot, ports, lastResult.elapsedMs));
+            return 0;
         } catch (Exception e) {
             String message = e.getMessage();
             if (message == null || message.trim().isEmpty()) {
                 message = e.toString();
             }
             printResult(errorJson(node, ip, cmdSet, "PROBE_ERROR", message, elapsed(startedAt)));
-            System.exit(6);
+            return 6;
         }
+    }
+
+    static SharedConnectionBudget.Lease acquireProbeLease(SharedConnectionBudget budget,
+            boolean hasBudgetTicket, String ticket) throws IOException {
+        if (hasBudgetTicket) {
+            if (ticket == null || ticket.trim().isEmpty()) {
+                throw new IllegalArgumentException("A live budget ticket is required.");
+            }
+            return budget.tryAcquireLive(ticket);
+        }
+        return budget.tryAcquireBot();
     }
 
     static Map<String, String> parseArgs(String[] args) {
@@ -96,7 +131,7 @@ public final class TrueLiveNodeProbeCli {
             if (!token.startsWith("--")) {
                 continue;
             }
-            String key = token.substring(2).toLowerCase(Locale.ROOT);
+            String key = token.substring(2);
             String value = "";
             int equals = key.indexOf('=');
             if (equals >= 0) {
@@ -105,7 +140,7 @@ public final class TrueLiveNodeProbeCli {
             } else if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
                 value = args[++i];
             }
-            result.put(key, value == null ? "" : value.trim());
+            result.put(key.toLowerCase(Locale.ROOT), value == null ? "" : value.trim());
         }
         return result;
     }
@@ -177,10 +212,10 @@ public final class TrueLiveNodeProbeCli {
                 int detailCount = 0;
                 for (String port : selectedPorts == null
                         ? new ArrayList<String>() : selectedPorts) {
-                    if (detailCount >= 5 || !isSafePort(port)) {
+                    if (detailCount >= 5 || !isSafePort(port, value)) {
                         continue;
                     }
-                    commands.put("display interface " + port, Boolean.TRUE);
+                    commands.put("display interface " + HuaweiLivePort.commandArgument(port), Boolean.TRUE);
                     detailCount++;
                 }
             }
@@ -195,14 +230,14 @@ public final class TrueLiveNodeProbeCli {
                 || name.startsWith("RN-") || name.startsWith("AGN-");
     }
 
-    private static List<String> parsePortList(String value) {
+    static List<String> parsePortList(String value, String cmdSet) {
         List<String> ports = new ArrayList<String>();
         if (value == null || value.trim().isEmpty()) {
             return ports;
         }
         for (String token : value.split(",")) {
             String port = token == null ? "" : token.trim();
-            if (isSafePort(port) && !ports.contains(port) && ports.size() < 5) {
+            if (isSafePort(port, cmdSet) && !ports.contains(port) && ports.size() < 5) {
                 ports.add(port);
             }
         }
@@ -211,6 +246,12 @@ public final class TrueLiveNodeProbeCli {
 
     private static boolean isSafePort(String port) {
         return port != null && port.matches("[A-Za-z0-9_.:/-]{1,80}");
+    }
+
+    private static boolean isSafePort(String port, String cmdSet) {
+        return isSafePort(port) || (cmdSet != null
+                && cmdSet.trim().toUpperCase(Locale.ROOT).startsWith("H")
+                && HuaweiLivePort.isDualRatePort(port));
     }
 
     private static String successJson(String node, String ip, String cmdSet, String metrics,

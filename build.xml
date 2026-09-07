@@ -135,6 +135,7 @@
             </manifest>
             <fileset dir="${build.classes.dir}">
                 <include name="com/java/**/*.class"/>
+                <include name="com/truelinkoptical/shared/**/*.class"/>
             </fileset>
         </jar>
 

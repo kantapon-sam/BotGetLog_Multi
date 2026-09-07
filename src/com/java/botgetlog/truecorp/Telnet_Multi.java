@@ -726,17 +726,55 @@ public class Telnet_Multi {
         config.put("server_host_key", mergeJschConfigValue(JSch.getConfig("server_host_key"), "ssh-rsa"));
         config.put("PubkeyAcceptedAlgorithms", mergeJschConfigValue(JSch.getConfig("PubkeyAcceptedAlgorithms"), "ssh-rsa"));
         session.setConfig(config);
-        session.connect(CONNECT_TIMEOUT_MS);
+        return openSshGatewaySession(session);
+    }
 
-        ChannelShell channel = (ChannelShell) session.openChannel("shell");
-        channel.setPty(true);
-        channel.setPtyType("vt100");
-        InputStream inputStream = channel.getInputStream();
-        OutputStream outputStream = channel.getOutputStream();
-        channel.connect(CONNECT_TIMEOUT_MS);
+    private static SshConnectionHandles openSshGatewaySession(Session session) throws Exception {
+        ChannelShell channel = null;
+        InputStream inputStream = null;
+        OutputStream outputStream = null;
+        boolean handedOff = false;
+        try {
+            session.connect(CONNECT_TIMEOUT_MS);
+            channel = (ChannelShell) session.openChannel("shell");
+            channel.setPty(true);
+            channel.setPtyType("vt100");
+            inputStream = channel.getInputStream();
+            outputStream = channel.getOutputStream();
+            channel.connect(CONNECT_TIMEOUT_MS);
 
-        PrintStream printStream = new PrintStream(outputStream, true);
-        return new SshConnectionHandles(session, channel, inputStream, printStream);
+            PrintStream printStream = new PrintStream(outputStream, true);
+            SshConnectionHandles handles = new SshConnectionHandles(session, channel, inputStream, printStream);
+            handedOff = true;
+            return handles;
+        } finally {
+            if (!handedOff) {
+                // The caller cannot reset handles that have not been returned yet.
+                // Disconnect before closing streams so an output close cannot flush to a live socket.
+                try {
+                    if (channel != null) {
+                        channel.disconnect();
+                    }
+                } catch (Exception ignore) {
+                }
+                try {
+                    session.disconnect();
+                } catch (Exception ignore) {
+                }
+                try {
+                    if (outputStream != null) {
+                        outputStream.close();
+                    }
+                } catch (Exception ignore) {
+                }
+                try {
+                    if (inputStream != null) {
+                        inputStream.close();
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+        }
     }
 
     public static String extractGatewayHost(String server) {
@@ -1024,6 +1062,10 @@ public class Telnet_Multi {
                 summaryResponse, descriptionResponse, alreadyExpanded, maxPorts);
     }
 
+    static List<String> selectHuaweiActivePorts(String response, int maxPorts) {
+        return CredentialProbe.extractHuaweiActivePorts(response, maxPorts);
+    }
+
     private static final class CredentialProbe implements AutoCloseable {
 
         private final TelnetClient telnet = new TelnetClient();
@@ -1241,7 +1283,8 @@ public class Telnet_Multi {
                     // 64-port ceiling covers the supported chassis while keeping
                     // a live request within the MapViewer probe timeout.
                     for (String port : extractHuaweiActivePorts(response, 64)) {
-                        String detailCommand = "display interface " + port;
+                        String detailCommand = "display interface "
+                                + com.java.tools.linkoptical.HuaweiLivePort.commandArgument(port);
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
                         String detailResponse = readUntilPromptOnlyLarge("#", ">");
@@ -1341,14 +1384,15 @@ public class Telnet_Multi {
                 return new ArrayList<String>(ports);
             }
             Pattern row = Pattern.compile(
-                    "(?m)^\\s*((?:100GE|50GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|GE|Ethernet)"
-                    + "[0-9]+(?:/[0-9]+){2,4})(?:\\([^)]*\\))?\\s+"
+                    "(?m)^\\s*(" + com.java.tools.linkoptical.HuaweiLivePort.NAME_PATTERN
+                    + ")(?:\\([^)]*\\))?\\s+"
                     + "(up|down|\\*down)\\s+\\S+.*$",
                     Pattern.CASE_INSENSITIVE);
             Matcher matcher = row.matcher(response);
             while (matcher.find() && ports.size() < Math.max(1, maxPorts)) {
                 if ("up".equalsIgnoreCase(matcher.group(2))) {
                     String port = matcher.group(1);
+                    if (!com.java.tools.linkoptical.HuaweiLivePort.isPhysicalPort(port)) continue;
                     if (port.matches("(?i)^GE[0-9].*")) {
                         port = "GigabitEthernet" + port.substring(2);
                     }
