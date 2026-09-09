@@ -138,6 +138,33 @@ private static String buildZtePort(String iface, String subIface, String extVlan
         return s.replace("*", "").trim();
     }
 
+    private static String nokiaInterfaceKey(String serviceId, String ifaceName) {
+        String iface = cleanNokiaValue(ifaceName);
+        return serviceId.isEmpty() ? iface : serviceId + "|" + iface;
+    }
+
+    private static String resolveNokiaInterfaceKey(String serviceId, String ifaceName,
+            Map<String, String> routerIfToPort) {
+        String key = nokiaInterfaceKey(serviceId, ifaceName);
+        if (!ifaceName.endsWith("*")) {
+            return key;
+        }
+        // SR OS marks a truncated ARP interface name with '*'. Only join a
+        // unique prefix in the same router instance; never guess between SAPs.
+        String match = null;
+        for (String candidate : routerIfToPort.keySet()) {
+            boolean sameRouter = serviceId.isEmpty()
+                    ? !candidate.contains("|") : candidate.startsWith(serviceId + "|");
+            if (sameRouter && candidate.startsWith(key)) {
+                if (match != null) {
+                    return "";
+                }
+                match = candidate;
+            }
+        }
+        return match == null ? key : match;
+    }
+
     private static String extractSapPort(String sap) {
         String cleaned = cleanNokiaValue(sap);
         if (cleaned.contains(":")) {
@@ -819,6 +846,9 @@ if (!curIp.isEmpty()) {
             }
 
             String[] rows = raw.toString().split("\\r?\\n");
+            for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                rows[rowIndex] = rows[rowIndex].replaceFirst("^(\\s*)\\*(?=[A-Za-z]:)", "$1");
+            }
 
             for (String row : rows) {
                 String trimmed = row.trim();
@@ -833,12 +863,7 @@ if (!curIp.isEmpty()) {
             for (String row : rows) {
                 String trimmed = row.trim();
 
-                Matcher nameMatcher = Pattern.compile("^Name\\s*:\\s*(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed);
-                if (nameMatcher.find()) {
-                    node = nameMatcher.group(1).trim();
-                }
-
-                Matcher typeMatcher = Pattern.compile("^Type\\s*:\\s*(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed);
+                Matcher typeMatcher = Pattern.compile("^(?:System\\s+)?Type\\s*:\\s*(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed);
                 if (typeMatcher.find()) {
                     model = typeMatcher.group(1).trim();
                 }
@@ -857,11 +882,21 @@ if (!curIp.isEmpty()) {
             Map<String, String> serviceIdToName = new HashMap<>();
 
             boolean inRouterIf = false;
+            String interfaceServiceId = "";
+            String pendingInterfaceName = "";
+            Pattern routerInterfaceCommand = Pattern.compile(
+                    "^[A-Za-z]:.*#\\s*show router(?:\\s+(\\d+))?\\s+interface\\s*$");
+            Pattern routerInterfaceRow = Pattern.compile(
+                    "^(?:(.+?)\\s+)?(Up|Down)\\s+(\\S+)\\s+\\S+\\s+(\\S+)$",
+                    Pattern.CASE_INSENSITIVE);
             for (String row : rows) {
                 String trimmed = row.trim();
 
-                if (trimmed.matches("^[A-Za-z]:.*#\\s*show router interface\\s*$")) {
+                Matcher interfaceCommand = routerInterfaceCommand.matcher(trimmed);
+                if (interfaceCommand.find()) {
                     inRouterIf = true;
+                    interfaceServiceId = interfaceCommand.group(1) == null ? "" : interfaceCommand.group(1);
+                    pendingInterfaceName = "";
                     continue;
                 }
 
@@ -883,21 +918,25 @@ if (!curIp.isEmpty()) {
                         || trimmed.startsWith("-")
                         || trimmed.startsWith("Interface Table")
                         || trimmed.startsWith("Interface-Name")
-                        || trimmed.startsWith("IP-Address")
-                        || row.startsWith("   ")) {
+                        || trimmed.startsWith("IP-Address")) {
                     continue;
                 }
 
-                String[] parts = trimmed.split("\\s+");
-                if (parts.length >= 5) {
-                    String ifName = safe(parts, 0);
-                    String adm = safe(parts, 1);
-                    String opr = safe(parts, 2);
-                    String binding = safe(parts, 4);
-
-                    routerIfToPort.put(cleanNokiaValue(ifName), cleanNokiaValue(binding));
-                    routerIfToPhy.put(cleanNokiaValue(ifName), adm);
-                    routerIfToProto.put(cleanNokiaValue(ifName), safe(opr.split("/"), 0));
+                Matcher interfaceRow = routerInterfaceRow.matcher(trimmed);
+                if (interfaceRow.matches()) {
+                    String ifName = interfaceRow.group(1) == null
+                            ? pendingInterfaceName : interfaceRow.group(1);
+                    if (!ifName.isEmpty()) {
+                        String key = nokiaInterfaceKey(interfaceServiceId, ifName);
+                        routerIfToPort.put(key, cleanNokiaValue(interfaceRow.group(4)));
+                        routerIfToPhy.put(key, interfaceRow.group(2));
+                        routerIfToProto.put(key, safe(interfaceRow.group(3).split("/"), 0));
+                    }
+                    pendingInterfaceName = "";
+                } else if (!trimmed.contains(" ") && !trimmed.contains("\t")
+                        && !trimmed.matches("[0-9a-fA-F:.]+/\\d+")) {
+                    // Long interface names may occupy a line before their status/binding.
+                    pendingInterfaceName = trimmed;
                 }
             }
 
@@ -1065,22 +1104,28 @@ if (!curIp.isEmpty()) {
                     continue;
                 }
 
-                String[] parts = trimmed.split("\\s+");
-                if (parts.length >= 6 && parts[0].matches("^\\d+$")) {
+                String[] parts = trimmed.split("\\s+", 6);
+                if (parts.length >= 6 && parts[0].matches("^\\d+$")
+                        && "VPRN".equalsIgnoreCase(parts[1])) {
                     serviceIdToName.put(cleanNokiaValue(parts[0]), cleanNokiaValue(parts[5]));
                 }
             }
 
-            boolean inBaseArp = false;
+            boolean inRouterArp = false;
+            String routerArpServiceId = "";
+            Pattern routerArpCommand = Pattern.compile(
+                    "^[A-Za-z]:.*#\\s*show router(?:\\s+(\\d+))?\\s+arp\\s*$");
             for (String row : rows) {
                 String trimmed = row.trim();
 
-                if (trimmed.matches("^[A-Za-z]:.*#\\s*show router arp\\s*$")) {
-                    inBaseArp = true;
+                Matcher arpCommand = routerArpCommand.matcher(trimmed);
+                if (arpCommand.find()) {
+                    inRouterArp = true;
+                    routerArpServiceId = arpCommand.group(1) == null ? "" : arpCommand.group(1);
                     continue;
                 }
 
-                if (!inBaseArp) {
+                if (!inRouterArp) {
                     continue;
                 }
 
@@ -1089,7 +1134,7 @@ if (!curIp.isEmpty()) {
                         || trimmed.startsWith("Connection closed by foreign host")
                         || trimmed.startsWith("Script done,")
                         || trimmed.startsWith("Enter IP address")) {
-                    inBaseArp = false;
+                    inRouterArp = false;
                     continue;
                 }
 
@@ -1107,12 +1152,15 @@ if (!curIp.isEmpty()) {
                     String mac = cleanNokiaValue(parts[1]);
                     String arpType = cleanNokiaValue(parts[3]);
                     String ifaceName = cleanNokiaValue(parts[4]);
-                    String binding = cleanNokiaValue(routerIfToPort.getOrDefault(ifaceName, ifaceName));
+                    String key = resolveNokiaInterfaceKey(routerArpServiceId, parts[4], routerIfToPort);
+                    String binding = cleanNokiaValue(routerIfToPort.getOrDefault(key, ifaceName));
+                    String basePort = extractSapPort(binding);
                     String port = resolveNokiaPortDisplay(binding, lagToPorts.get(binding));
-                    String vpn = "Base";
-                    String phy = resolveNokiaPhy(binding, ifaceName, routerIfToPhy, lagToPhy, lagToPorts, portToPhy);
-                    String proto = resolveNokiaProto(binding, ifaceName, routerIfToProto, lagToProto, lagToPorts, portToProto);
-                    String desc = resolveNokiaDesc(binding, ifaceName, lagToDesc, lagToPorts, portToDesc);
+                    String vpn = routerArpServiceId.isEmpty() ? "Base"
+                            : serviceIdToName.getOrDefault(routerArpServiceId, routerArpServiceId);
+                    String phy = resolveNokiaPhy(basePort, key, routerIfToPhy, lagToPhy, lagToPorts, portToPhy);
+                    String proto = resolveNokiaProto(basePort, key, routerIfToProto, lagToProto, lagToPorts, portToProto);
+                    String desc = resolveNokiaDesc(basePort, ifaceName, lagToDesc, lagToPorts, portToDesc);
 
                     Str_ARP_ALL += "\n" + node + "," + model + "," + loopback + ","
                             + ip + "," + mac + ","

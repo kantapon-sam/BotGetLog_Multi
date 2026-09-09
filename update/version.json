@@ -1,6 +1,6 @@
 {
-  "version": "1.1.46",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.46.zip",
-  "sha256": "18e494864cb052d13be929c4432f0dada2510911f971ba6dc9cd7e168cf188d7",
-  "notes": "Released 1.1.46: Fix Huawei dual-rate 100G live inventory, optics and selected-port CRC; include shared Bot/Live connection limits and safe SSH cleanup."
+  "version": "1.1.47",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.47.zip",
+  "sha256": "f456b5163b36ccc54f80cecc2162eacaa0daa9d6fc07a26525b743166426557e",
+  "notes": "Released 1.1.47: Collect Nokia VPRN ARP and interface data by numeric Service ID; join ports and status, read Model from equipment type, and read Node from the device prompt."
 }

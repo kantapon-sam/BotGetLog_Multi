@@ -2887,29 +2887,16 @@ public class Telnet_Multi {
                                 }
                             }
 
-                            String fullLog = sb.toString();
-                            String marker = "show service service-using vprn";
-                            String lowerLog = fullLog.toLowerCase();
-                            int markerIndex = lowerLog.lastIndexOf(marker);
-                            String vprnSection = (markerIndex >= 0) ? fullLog.substring(markerIndex) : fullLog;
-
-                            Pattern vprnPattern = Pattern.compile("(?m)^\\s*(\\d+)\\s+VPRN\\b");
-                            Matcher matcher = vprnPattern.matcher(vprnSection);
-
-                            LinkedHashSet<String> uniqueServiceIds = new LinkedHashSet<>();
-                            while (matcher.find()) {
-                                uniqueServiceIds.add(matcher.group(1).trim());
-                            }
-
-                            if (uniqueServiceIds.isEmpty()) {
+                            List<String> arpCommands = buildNokiaVprnArpCommands(sb.toString());
+                            if (arpCommands.isEmpty()) {
                                 System.out.println("[N-ARP] No VPRN service ID found after 'show service service-using vprn'.");
                                 continue;
                             }
 
-                            System.out.println("[N-ARP] Found " + uniqueServiceIds.size() + " VPRN services -> sending ARP commands...");
+                            System.out.println("[N-ARP] Found " + (arpCommands.size() / 2)
+                                    + " VPRN services -> sending ARP and interface commands...");
 
-                            for (String serviceId : uniqueServiceIds) {
-                                String arpCmd = "show service id " + serviceId + " arp";
+                            for (String arpCmd : arpCommands) {
                                 System.out.println("[N-ARP CMD] " + arpCmd);
                                 if (!executeCommandWithReconnect(Loopback, Device, cmdSet, Num_row, arpCmd)) {
                                     return;
@@ -6023,6 +6010,36 @@ public class Telnet_Multi {
         return matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
                 || isInteractivePromptToken(promptToken)
                 || containsGatewayMenuPrompt(lowerSnapshot);
+    }
+
+    static List<String> buildNokiaVprnArpCommands(String fullLog) {
+        List<String> commands = new ArrayList<>();
+        String marker = "show service service-using vprn";
+        String log = fullLog == null ? "" : fullLog;
+        int markerIndex = log.toLowerCase(Locale.ROOT).lastIndexOf(marker);
+        if (markerIndex < 0) {
+            return commands;
+        }
+        String section = log.substring(markerIndex + marker.length());
+        LinkedHashSet<String> serviceIds = new LinkedHashSet<>();
+        Pattern serviceRow = Pattern.compile("^\\s*(\\d+)\\s+VPRN\\b", Pattern.CASE_INSENSITIVE);
+        for (String row : section.split("\\r?\\n")) {
+            String trimmed = row.trim();
+            if (trimmed.matches("^\\*?[A-Za-z]:.*#.*$")
+                    || trimmed.startsWith("Matching Services")
+                    || trimmed.startsWith("Connection closed by foreign host")) {
+                break;
+            }
+            Matcher matcher = serviceRow.matcher(row);
+            if (matcher.find()) {
+                serviceIds.add(matcher.group(1));
+            }
+        }
+        for (String serviceId : serviceIds) {
+            commands.add("show router " + serviceId + " arp");
+            commands.add("show router " + serviceId + " interface");
+        }
+        return commands;
     }
 
     private boolean executeCommandWithReconnect(String Loopback, String Device, String cmdSet, int Num_row, String command) {
