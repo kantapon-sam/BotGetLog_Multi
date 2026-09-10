@@ -75,44 +75,25 @@ public class CheckARP {
         return trimmed.matches("^<[^>]+>" + Pattern.quote(command) + "$");
     }
 
+    // Huawei widens long interface names without preserving a two-space column
+    // separator. Parse the ARP fields themselves; I - is one TYPE value.
+    private static final Pattern HUAWEI_ARP_ROW = Pattern.compile(
+            "^((?:\\d{1,3}\\.){3}\\d{1,3})\\s+(\\S+)\\s+"
+            + "(?:(\\d+)\\s+)?([A-Za-z][A-Za-z0-9-]*(?:\\s+-)?)\\s+"
+            + "(\\S+)(?:\\s+(\\S.*))?$");
+
     private static String[] parseHuaweiArpLine(String line) {
         if (line == null) {
             return null;
         }
-
-        String trimmed = line.trim();
-        if (!trimmed.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+\\s+.+$")) {
+        Matcher row = HUAWEI_ARP_ROW.matcher(line.trim());
+        if (!row.matches()) {
             return null;
         }
-
-        String[] parts = trimmed.split("\\s{2,}");
-        if (parts.length < 4) {
-            return null;
-        }
-
-        String ip = safe(parts, 0);
-        String mac = safe(parts, 1);
-        String expire = "";
-        String type = "";
-        String iface = "";
-        String vpn = "";
-
-        if (safe(parts, 2).matches("^\\d+$")) {
-            expire = safe(parts, 2);
-            type = safe(parts, 3);
-            iface = safe(parts, 4);
-            vpn = safe(parts, 5);
-        } else {
-            type = safe(parts, 2);
-            iface = safe(parts, 3);
-            vpn = safe(parts, 4);
-        }
-
-        if (!ip.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$") || mac.isEmpty() || iface.isEmpty()) {
-            return null;
-        }
-
-        return new String[]{ip, mac, expire, type, iface, vpn};
+        return new String[]{row.group(1), row.group(2),
+            row.group(3) == null ? "" : row.group(3),
+            row.group(4).replaceAll("\\s+", " "), row.group(5),
+            row.group(6) == null ? "" : row.group(6).trim()};
     }
 
 private static String buildZtePort(String iface, String subIface, String extVlan) {

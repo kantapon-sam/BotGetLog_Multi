@@ -1,6 +1,6 @@
 {
-  "version": "1.1.47",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.47.zip",
-  "sha256": "f456b5163b36ccc54f80cecc2162eacaa0daa9d6fc07a26525b743166426557e",
-  "notes": "Released 1.1.47: Collect Nokia VPRN ARP and interface data by numeric Service ID; join ports and status, read Model from equipment type, and read Node from the device prompt."
+  "version": "1.1.48",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.48.zip",
+  "sha256": "3804fa566298470503cf35d9d4870c972c6a8235d13e7bd0dac8d45a90a8dda4",
+  "notes": "Released 1.1.48: Separate Huawei ARP Interface and VPN-INSTANCE with single-space columns; restore PHY, Protocol and Description matching. Preserve deployed gateway pacing and device prompt detection."
 }

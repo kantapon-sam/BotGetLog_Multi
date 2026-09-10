@@ -709,6 +709,23 @@ public class Telnet_Multi {
 
     private static SshConnectionHandles openSshGatewayAttempt(GatewayEndpoint endpoint, String userServer,
             String pwServer, SshAuthMode authMode) throws Exception {
+        com.truelinkoptical.shared.GatewayConnectionPacer pacer =
+                com.truelinkoptical.shared.GatewayConnectionPacer.fromEnvironment(endpoint.host, endpoint.port, userServer);
+        pacer.awaitStart();
+        try {
+            return openPacedSshGatewayAttempt(endpoint, userServer, pwServer, authMode);
+        } catch (Exception failure) {
+            try { pacer.gatewayFailed(); }
+            catch (Exception pacingFailure) { failure.addSuppressed(pacingFailure); }
+            throw failure;
+        }
+    }
+
+    /** Lets adapters avoid applying a second delay around an already paced core. */
+    public static boolean managesGatewayPacing() { return true; }
+
+    private static SshConnectionHandles openPacedSshGatewayAttempt(GatewayEndpoint endpoint, String userServer,
+            String pwServer, SshAuthMode authMode) throws Exception {
         JSch jsch = new JSch();
         try {
             jsch.removeAllIdentity();
@@ -852,6 +869,21 @@ public class Telnet_Multi {
     public static LiveProbeResult runLiveProbe(String server, String userServer, String pwServer,
             String loopback, String userCLLS, String pwCLLS, String cmdSet, String device,
             List<String> commands, boolean includeActivePortDetails) {
+        return runLiveProbeInternal(server, userServer, pwServer, loopback, userCLLS, pwCLLS,
+                cmdSet, device, commands, null, includeActivePortDetails);
+    }
+
+    /** Select only an approved command snapshot after checking the authenticated node prompt. */
+    public static LiveProbeResult runLiveProbeAutoVendor(String server, String userServer, String pwServer,
+            String loopback, String userCLLS, String pwCLLS, String cmdSet, String device,
+            Map<String, List<String>> commandSets, boolean includeActivePortDetails) {
+        return runLiveProbeInternal(server, userServer, pwServer, loopback, userCLLS, pwCLLS,
+                cmdSet, device, java.util.Collections.<String>emptyList(), commandSets, includeActivePortDetails);
+    }
+
+    private static LiveProbeResult runLiveProbeInternal(String server, String userServer, String pwServer,
+            String loopback, String userCLLS, String pwCLLS, String cmdSet, String device,
+            List<String> commands, Map<String, List<String>> commandSets, boolean includeActivePortDetails) {
         long startedAt = System.currentTimeMillis();
         try (CredentialProbe probe = new CredentialProbe()) {
             LoginValidationResult login = probe.validate(server, userServer, pwServer,
@@ -860,14 +892,30 @@ public class Telnet_Multi {
                 return LiveProbeResult.failure(login.status.name(), login.message,
                         System.currentTimeMillis() - startedAt);
             }
+            String effectiveCmdSet = cmdSet;
+            if (commandSets != null) {
+                effectiveCmdSet = commandSetForPrompt(probe.lastPromptToken, cmdSet);
+                commands = commandSets.get(effectiveCmdSet.toUpperCase(Locale.ROOT));
+                if (commands == null || commands.isEmpty()) {
+                    return LiveProbeResult.failure("UNSUPPORTED_VENDOR",
+                            "No approved " + effectiveCmdSet + " commands in the job workbook. Device prompt: " + probe.lastPromptToken,
+                            System.currentTimeMillis() - startedAt);
+                }
+                if (effectiveCmdSet.startsWith("ZTE-") && !probe.ensureZtePrivilegedMode()) {
+                    return LiveProbeResult.failure("PRIVILEGE_FAILED",
+                            "ZTE enable did not reach privileged (#) mode. Collection stopped before log commands.",
+                            System.currentTimeMillis() - startedAt);
+                }
+            }
             String transcript = probe.executeCommands(commands, includeActivePortDetails);
+            if (commandSets != null && effectiveCmdSet.startsWith("ZTE-")) transcript = transcript.replace(ZTE_ENABLE_PASSWORD, "[REDACTED]");
             if (isTimeoutResponse(transcript)) {
                 return LiveProbeResult.failure("COMMAND_TIMEOUT",
                         "Timed out while reading live commands on " + describeValidationTarget(loopback, device, cmdSet) + ".",
                         System.currentTimeMillis() - startedAt);
             }
-            return LiveProbeResult.success(transcript,
-                    System.currentTimeMillis() - startedAt);
+            return new LiveProbeResult(true, "OK", "Live commands completed.", transcript,
+                    System.currentTimeMillis() - startedAt, effectiveCmdSet, commands);
         } catch (Exception e) {
             String message = e.getMessage();
             if (message == null || message.trim().isEmpty()) {
@@ -885,14 +933,23 @@ public class Telnet_Multi {
         public final String message;
         public final String transcript;
         public final long elapsedMs;
+        public final String effectiveCmdSet;
+        public final List<String> executedCommands;
 
         private LiveProbeResult(boolean success, String status, String message,
                 String transcript, long elapsedMs) {
+            this(success, status, message, transcript, elapsedMs, "", java.util.Collections.<String>emptyList());
+        }
+
+        private LiveProbeResult(boolean success, String status, String message,
+                String transcript, long elapsedMs, String effectiveCmdSet, List<String> commands) {
             this.success = success;
             this.status = safeTrim(status);
             this.message = safeTrim(message);
             this.transcript = transcript == null ? "" : transcript;
             this.elapsedMs = Math.max(0L, elapsedMs);
+            this.effectiveCmdSet = safeTrim(effectiveCmdSet);
+            this.executedCommands = java.util.Collections.unmodifiableList(new ArrayList<String>(commands == null ? java.util.Collections.<String>emptyList() : commands));
         }
 
         static LiveProbeResult success(String transcript, long elapsedMs) {
@@ -902,6 +959,13 @@ public class Telnet_Multi {
         static LiveProbeResult failure(String status, String message, long elapsedMs) {
             return new LiveProbeResult(false, status, message, "", elapsedMs);
         }
+    }
+
+    static String commandSetForPrompt(String prompt, String cmdSet) {
+        String token = extractPromptToken(prompt);
+        if (token.isEmpty() || !(token.endsWith("#") || token.endsWith(">"))) return cmdSet;
+        int dash = cmdSet.indexOf('-');
+        return dash > 0 ? detectVendorFromPrompt(token, extractVendorPrefix(cmdSet), false) + cmdSet.substring(dash) : cmdSet;
     }
 
     private static String safeTrim(String value) {
@@ -1196,6 +1260,19 @@ public class Telnet_Multi {
             }
         }
 
+        private boolean ensureZtePrivilegedMode() {
+            if (!isSingleSidedGreaterPromptToken(lastPromptToken)) return true;
+            write("enable");
+            String response = readUntilAny("ssword:", "#", ">");
+            if (isTimeoutResponse(response) || containsLoginFailureText(response)) return false;
+            if (containsAuthPromptText(response)) {
+                writeNoShow(ZTE_ENABLE_PASSWORD);
+                response = readUntilAny("#", ">");
+                if (isTimeoutResponse(response) || containsLoginFailureText(response) || containsAuthPromptText(response)) return false;
+            }
+            return lastPromptToken.endsWith("#");
+        }
+
         private String executeCommands(List<String> commands) throws IOException {
             return executeCommands(commands, false);
         }
@@ -1408,6 +1485,7 @@ public class Telnet_Multi {
             List<String> errors = new ArrayList<>();
 
             for (GatewayEndpoint candidate : candidates) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Gateway connection interrupted");
                 try {
                     String gatewayReady;
                     if (candidate.protocol == GatewayProtocol.SSH) {
@@ -1827,6 +1905,7 @@ public class Telnet_Multi {
         List<String> errors = new ArrayList<>();
 
         for (GatewayEndpoint candidate : candidates) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Gateway connection interrupted");
             logwork("[INFO] Gateway attempt: " + candidate.displayTarget() + "\n");
             System.out.println("[INFO] Gateway attempt: " + candidate.displayTarget());
             try {
