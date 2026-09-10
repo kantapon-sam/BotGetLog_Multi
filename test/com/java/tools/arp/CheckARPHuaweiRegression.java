@@ -27,6 +27,46 @@ public final class CheckARPHuaweiRegression {
           +"Global-VE1.3333              up      up       Service, with comma\n<AN-TEST>\n";
         String result=CheckARP.Sub(new BufferedReader(new StringReader(log)),"[1]192.0.2.254_AN-TEST_HW-ARP_2026-09-11");
         for(String expected:new String[]{",I -,Eth-Trunk302.2002,full-VPN-100,up,up,\"Example:site-A\"",",D-0,Eth-Trunk302.2027,full-VPN-200,up,down,\"Example:site-B\"",",D-0,Global-VE1.3333,MPLS-VPN,up,up,\"Service, with comma\""})if(!result.contains(expected))throw new AssertionError("Missing "+expected+" in "+result);
-        System.out.println("PASS Huawei ARP: field spacing, long IPv4, missing expiry/VPN, static/dynamic types, interface joins and CSV descriptions");
+        annotatedStatesAndQuotes();
+        System.out.println("PASS Huawei ARP: field spacing, interface joins, annotated states, quoted/comma/wrapped/empty descriptions");
+    }
+
+    static void annotatedStatesAndQuotes() throws Exception {
+        String[][] cases = {
+            {"up(E)", "down", "\"Example:V100(Backup)\""},
+            {"up", "up(s)", "Service \"Primary\", site A"},
+            {"*down", "down", "Administratively disabled"},
+            {"down", "down", ""},
+            {"up", "up(s)", ""},
+            {"up(E)", "down", "Example:V200"},
+            {"up", "up", "Wrapped description continued with \"quotes\", and comma"},
+            {"^down", "down(s)", "Annotated state"}
+        };
+        StringBuilder log = new StringBuilder("<AN-TEST>display arp all\n");
+        for (int i = 0; i < cases.length; i++) {
+            log.append("192.0.2.").append(i + 1)
+               .append(" 0011-2233-4455 I - Eth-Trunk348.").append(2001 + i).append(" VPN\n");
+        }
+        log.append("Total:8\n<AN-TEST>display interface description\n")
+           .append("*down: administratively down\n(E): E-Trunk down\n(s): spoofing\n")
+           .append("Interface PHY Protocol Description\n");
+        for (int i = 0; i < cases.length; i++) {
+            log.append("Eth-Trunk348.").append(2001 + i).append(" ")
+               .append(cases[i][0]).append(" ").append(cases[i][1]);
+            if (!cases[i][2].isEmpty()) log.append(" ").append(i == 6
+                    ? "Wrapped description\n                                             continued with \"quotes\", and comma"
+                    : cases[i][2]);
+            log.append("\n");
+        }
+        log.append("  <AN-TEST>\n");
+        String csv = CheckARP.Sub(new BufferedReader(new StringReader(log.toString())),
+                "[1]192.0.2.254_AN-TEST_HW-ARP_2026-09-11");
+        String[] lines = csv.trim().split("\n");
+        if (lines.length != cases.length) throw new AssertionError("Incorrect row count: " + csv);
+        for (int i = 0; i < cases.length; i++) {
+            String suffix = ",VPN," + cases[i][0] + "," + cases[i][1] + ",\""
+                    + cases[i][2].replace("\"", "\"\"") + "\"";
+            if (!lines[i].endsWith(suffix)) throw new AssertionError("Expected " + suffix + " in " + lines[i]);
+        }
     }
 }

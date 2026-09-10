@@ -39,14 +39,14 @@ public class CheckARP {
             }
             descBuilder.append(desParts[k]);
         }
-        return "\"" + descBuilder.toString().trim() + "\"";
+        return quote(descBuilder.toString());
     }
 
     private static String quote(String text) {
         if (text == null) {
             return "\"\"";
         }
-        return "\"" + text.trim() + "\"";
+        return "\"" + text.trim().replace("\"", "\"\"") + "\"";
     }
 
     private static String extractHuaweiPromptNode(String line) {
@@ -348,12 +348,12 @@ private static String buildZtePort(String iface, String subIface, String extVlan
 
                 if (isHuaweiCommandLine(line, "display interface description")) {
 
+                    // Keep Huawei state annotations in their own columns. In
+                    // particular, up(s) must not become Protocol=up, Description=(s).
+                    String state = "[\\*\\^]?(?:up|down)(?:\\([A-Za-z]+\\))*";
                     Pattern gePattern = Pattern.compile(
-                            "^([A-Za-z0-9/\\-\\.\\(\\)]+)\\s+(up|down|\\*down)\\s+(up|down|\\*down)\\s*(.*)$"
-                    );
-                    Pattern simplePattern = Pattern.compile(
-                            "^([A-Za-z0-9/\\-\\.\\(\\):]+)\\s+(.*)$"
-                    );
+                            "^([A-Za-z0-9/\\-\\.\\(\\):]+)\\s+(" + state
+                            + ")\\s+(" + state + ")(?:\\s+(.*))?$");
 
                     String lastIface = null;
                     String lastPhy = "";
@@ -361,7 +361,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                     String lastDesc = "";
 
                     while ((line = br.readLine()) != null) {
-                        if (line.startsWith("<")) {
+                        if (line.trim().startsWith("<")) {
                             if (lastIface != null) {
                                 des_all += "\n" + lastIface + "," + lastPhy + "," + lastProto + "," + lastDesc;
                             }
@@ -374,7 +374,6 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                         }
 
                         Matcher m = gePattern.matcher(trimmed);
-                        Matcher m2 = simplePattern.matcher(trimmed);
 
                         if (m.find()) {
                             if (lastIface != null) {
@@ -382,18 +381,9 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                             }
 
                             lastIface = m.group(1).trim();
-                            lastPhy = m.group(2).replace("*", "").trim();
-                            lastProto = m.group(3).replace("*", "").trim();
-                            lastDesc = m.group(4).trim();
-                        } else if (m2.find()) {
-                            if (lastIface != null) {
-                                des_all += "\n" + lastIface + "," + lastPhy + "," + lastProto + "," + lastDesc;
-                            }
-
-                            lastIface = m2.group(1).trim();
-                            lastPhy = "";
-                            lastProto = "";
-                            lastDesc = m2.group(2).trim();
+                            lastPhy = m.group(2);
+                            lastProto = m.group(3);
+                            lastDesc = m.group(4) == null ? "" : m.group(4).trim();
                         } else {
                             if (lastIface != null) {
                                 if (trimmed.matches("^\\d+\\s+Interface.*") && lastDesc.matches(".*\\d$")) {
