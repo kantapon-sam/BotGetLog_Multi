@@ -28,7 +28,8 @@ public final class CheckARPHuaweiRegression {
         String result=CheckARP.Sub(new BufferedReader(new StringReader(log)),"[1]192.0.2.254_AN-TEST_HW-ARP_2026-09-11");
         for(String expected:new String[]{",I -,Eth-Trunk302.2002,full-VPN-100,up,up,\"Example:site-A\"",",D-0,Eth-Trunk302.2027,full-VPN-200,up,down,\"Example:site-B\"",",D-0,Global-VE1.3333,MPLS-VPN,up,up,\"Service, with comma\""})if(!result.contains(expected))throw new AssertionError("Missing "+expected+" in "+result);
         annotatedStatesAndQuotes();
-        System.out.println("PASS Huawei ARP: field spacing, interface joins, annotated states, quoted/comma/wrapped/empty descriptions");
+        flattenedDescriptionWraps();
+        System.out.println("PASS Huawei ARP: field spacing, interface joins, annotated states, quoted/comma/wrapped/empty descriptions, terminal wrap padding");
     }
 
     static void annotatedStatesAndQuotes() throws Exception {
@@ -67,6 +68,72 @@ public final class CheckARPHuaweiRegression {
             String suffix = ",VPN," + cases[i][0] + "," + cases[i][1] + ",\""
                     + cases[i][2].replace("\"", "\"\"") + "\"";
             if (!lines[i].endsWith(suffix)) throw new AssertionError("Expected " + suffix + " in " + lines[i]);
+        }
+    }
+
+    static String spaces(int count) {
+        char[] chars = new char[count];
+        Arrays.fill(chars, ' ');
+        return new String(chars);
+    }
+
+    static void flattenedDescriptionWraps() throws Exception {
+        String[] descriptions = {
+            "To_CN-MTG-1_HWNE5KE_10G_1/1/3_10.207.0.21_TLR01531",
+            "To_RNC-CMI8362X_Ericsson_Iub(CP/UP)_CAX-A",
+            "\"Test_LTE850_Nodeb_CMI6743_BKFT_Vlan3303\"",
+            "\"To_Huawei_BSC-CMI7201Q_A interface_(CP)_RFT1_N/A_072013001A\"",
+            "HUAWEI, GigabitEthernet4/0/0.2001 Interface",
+            "*temp link  To_RN-CMI1000-1_CMICMI5401M_HWCX16A_10G_2/1/23_10.163.10.101*",
+            "DPI Phase 3 to SW-Extreme",
+            "Service  \"Primary\", site A",
+            "",
+            "12345678901234567890123456789012 " + "word after a real space",
+            "123456789012345678901234567890123" + " word starts on the next terminal line"
+        };
+        for (int descriptionColumn : new int[]{47, 55}) {
+            StringBuilder log = new StringBuilder("<AN-TEST>display arp all\n");
+            for (int i = 0; i < descriptions.length + 2; i++) {
+                log.append("192.0.2.").append(i + 1)
+                   .append(" 0011-2233-4455 I - GE1/0/").append(i).append(" VPN\n");
+            }
+            log.append("Total:").append(descriptions.length + 2)
+               .append("\n<AN-TEST>display interface description\n")
+               .append(String.format("%-30s%-8s", "Interface", "PHY"))
+               .append(String.format("%-" + (descriptionColumn - 38) + "s", "Protocol"))
+               .append("Description\n");
+            for (int i = 0; i < descriptions.length; i++) {
+                log.append(String.format("%-30s%-8s", "GE1/0/" + i, "*down"))
+                   .append(String.format("%-" + (descriptionColumn - 38) + "s", "down"));
+                String desc = descriptions[i];
+                int fragmentWidth = 80 - descriptionColumn;
+                for (int offset = 0; offset < desc.length(); offset += fragmentWidth) {
+                    if (offset > 0) log.append(spaces(descriptionColumn));
+                    log.append(desc, offset, Math.min(offset + fragmentWidth, desc.length()));
+                }
+                log.append('\n');
+            }
+            // Wide intentional spacing away from a wrap and a too-short gap
+            // at column 80 must survive unchanged.
+            String[] literal = {"A" + spaces(descriptionColumn) + "B",
+                "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+                    .substring(0, 80 - descriptionColumn) + spaces(descriptionColumn - 1) + "B"};
+            for (int i = 0; i < literal.length; i++) {
+                log.append(String.format("%-30s%-8s", "GE1/0/" + (descriptions.length + i), "up"))
+                   .append(String.format("%-" + (descriptionColumn - 38) + "s", "up"))
+                   .append(literal[i]).append('\n');
+            }
+            log.append("<AN-TEST>\n");
+            String[] rows = CheckARP.Sub(new BufferedReader(new StringReader(log.toString())),
+                    "[1]192.0.2.254_AN-TEST_HW-ARP_2026-09-11").trim().split("\n");
+            if (rows.length != descriptions.length + literal.length) throw new AssertionError("Missing ARP rows");
+            for (int i = 0; i < rows.length; i++) {
+                String expected = i < descriptions.length ? descriptions[i] : literal[i - descriptions.length];
+                String states = i < descriptions.length ? ",VPN,*down,down," : ",VPN,up,up,";
+                String suffix = states + "\"" + expected.replace("\"", "\"\"") + "\"";
+                if (!rows[i].endsWith(suffix)) throw new AssertionError("Column " + descriptionColumn
+                        + " expected " + suffix + " in " + rows[i]);
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 {
-  "version": "1.1.50",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.50.zip",
-  "sha256": "a2048c78771a8b19a9f5ad8924e00b688096aea70fa80f3542051aacf64a5a43",
-  "notes": "Released 1.1.50: Share a persistent daily collection budget across TRUE automatic and selected retries, reserve LLDP endpoint pairs once per day, and retain logs when the daily limit is reached."
+  "version": "1.1.51",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.51.zip",
+  "sha256": "b0a5426e9e6e840325a4c30a6745dd7707cc5e6d684d3daa74064c539e19d5ef",
+  "notes": "Released 1.1.51: Repair Huawei ARP description padding from flattened terminal wraps while preserving real spaces, status fields, saved logs and collection behavior."
 }

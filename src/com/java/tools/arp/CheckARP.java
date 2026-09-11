@@ -96,6 +96,35 @@ public class CheckARP {
             row.group(6) == null ? "" : row.group(6).trim()};
     }
 
+    private static String unwrapHuaweiDescriptionPadding(String line, int descriptionColumn) {
+        // Some saved Huawei tables flatten 80-column terminal wraps into one
+        // line, retaining the continuation's indentation. Remove only that
+        // column padding; spaces inside the description still belong to it.
+        final int terminalWidth = 80;
+        if (descriptionColumn <= 0 || descriptionColumn >= terminalWidth) {
+            return line;
+        }
+        StringBuilder unwrapped = new StringBuilder(line.length());
+        int copiedThrough = 0;
+        for (int boundary = terminalWidth;
+                boundary + descriptionColumn < line.length(); boundary += terminalWidth) {
+            boolean padding = true;
+            for (int i = boundary; i < boundary + descriptionColumn; i++) {
+                if (line.charAt(i) != ' ') {
+                    padding = false;
+                    break;
+                }
+            }
+            if (!padding) {
+                break;
+            }
+            unwrapped.append(line, copiedThrough, boundary);
+            copiedThrough = boundary + descriptionColumn;
+        }
+        return copiedThrough == 0 ? line
+                : unwrapped.append(line, copiedThrough, line.length()).toString();
+    }
+
 private static String buildZtePort(String iface, String subIface, String extVlan) {
     String i = iface == null ? "" : iface.trim();
     String s = subIface == null ? "" : subIface.trim();
@@ -359,6 +388,7 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                     String lastPhy = "";
                     String lastProto = "";
                     String lastDesc = "";
+                    int descriptionColumn = -1;
 
                     while ((line = br.readLine()) != null) {
                         if (line.trim().startsWith("<")) {
@@ -369,13 +399,22 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                         }
 
                         String trimmed = line.trim();
-                        if (trimmed.isEmpty() || trimmed.startsWith("Interface")) {
+                        if (trimmed.startsWith("Interface")) {
+                            descriptionColumn = line.indexOf("Description");
+                            continue;
+                        }
+                        if (trimmed.isEmpty()) {
                             continue;
                         }
 
                         Matcher m = gePattern.matcher(trimmed);
 
                         if (m.find()) {
+                            String unwrapped = unwrapHuaweiDescriptionPadding(line, descriptionColumn);
+                            if (!line.equals(unwrapped)) {
+                                m = gePattern.matcher(unwrapped.trim());
+                                m.find();
+                            }
                             if (lastIface != null) {
                                 des_all += "\n" + lastIface + "," + lastPhy + "," + lastProto + "," + lastDesc;
                             }
