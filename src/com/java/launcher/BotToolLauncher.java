@@ -67,9 +67,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.51: Repair Huawei ARP description padding from flattened terminal wraps while
-    // preserving real spaces, status fields, saved logs and collection behavior.
-    private static final String FALLBACK_VERSION = "1.1.51";
+    // Version 1.1.52: Fix missing Nokia GPS/GNSS Current State in CSV exports and live port parsing
+    // by reading Oper Status alongside Admin Status, while preserving Ethernet Oper State parsing.
+    private static final String FALLBACK_VERSION = "1.1.52";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

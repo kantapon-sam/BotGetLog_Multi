@@ -1,6 +1,6 @@
 {
-  "version": "1.1.51",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.51.zip",
-  "sha256": "b0a5426e9e6e840325a4c30a6745dd7707cc5e6d684d3daa74064c539e19d5ef",
-  "notes": "Released 1.1.51: Repair Huawei ARP description padding from flattened terminal wraps while preserving real spaces, status fields, saved logs and collection behavior."
+  "version": "1.1.52",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.52.zip",
+  "sha256": "64454b66077cbae609f2561b661562327b1af6797b46f2895c9278f8fc493e34",
+  "notes": "Released 1.1.52: Fix missing Nokia GPS/GNSS Current State in CSV exports and live port parsing by reading Oper Status alongside Admin Status, while preserving Ethernet Oper State parsing."
 }

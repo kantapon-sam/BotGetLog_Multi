@@ -1283,15 +1283,16 @@ Pattern pHasNeighbor = Pattern.compile(
                     if (s.find()) {
                         operSpeed = s.group(1).trim();
                     }
-                } else if (l.startsWith("Admin State")) {
-                    Matcher m = Pattern.compile("Admin State\\s*:\\s*(\\S+)").matcher(l);
+                } else if (l.startsWith("Admin State") || l.startsWith("Admin Status")
+                        || l.startsWith("Oper State") || l.startsWith("Oper Status")) {
+                    // GNSS ports put Admin Status and Oper Status on the same line.
+                    Matcher m = Pattern.compile("\\bAdmin (?:State|Status)\\s*:\\s*(\\S+)").matcher(l);
                     if (m.find()) {
                         adminState = m.group(1).trim();
                     }
-                } else if (l.startsWith("Oper State")) {
-                    Matcher m = Pattern.compile("Oper State\\s*:\\s*([A-Za-z]+)").matcher(l);
-                    if (m.find()) {
-                        operState = m.group(1).trim();
+                    Matcher oper = Pattern.compile("\\bOper (?:State|Status)\\s*:\\s*([A-Za-z]+)").matcher(l);
+                    if (oper.find()) {
+                        operState = oper.group(1).trim();
                     }
                 } else if (l.startsWith("TX Laser Wavelength")) {
                     Matcher m = Pattern.compile("TX Laser Wavelength\\s*:\\s*([0-9]+\\s*nm)", Pattern.CASE_INSENSITIVE).matcher(l);

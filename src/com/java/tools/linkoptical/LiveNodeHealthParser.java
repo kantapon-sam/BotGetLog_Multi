@@ -331,7 +331,8 @@ public final class LiveNodeHealthParser {
             }
             String state = "UNKNOWN";
             Matcher stateMatcher = Pattern.compile(
-                    "(?im)^\\s*Oper State\\s*:\\s*([A-Za-z]+)").matcher(block);
+                    "(?im)^[ \\t]*(?:Admin (?:State|Status)[ \\t]*:[ \\t]*\\S+[ \\t]+)?"
+                    + "Oper (?:State|Status)[ \\t]*:[ \\t]*([A-Za-z]+)").matcher(block);
             if (stateMatcher.find()) {
                 state = normalizePortStatus(stateMatcher.group(1));
             }
