@@ -9,6 +9,7 @@ parsed.
 
 import argparse
 import collections
+import datetime
 import re
 import sys
 import zipfile
@@ -27,7 +28,8 @@ LOG_IDENTITY_RE = re.compile(
     r"(?P<date>\d{4}-\d{2}-\d{2})\.txt$",
     re.IGNORECASE,
 )
-NODE_TYPE_RE = re.compile(r"^(PN|DN|AN)\d*[-_]", re.IGNORECASE)
+SUPPORTED_NODE_TYPES = {"PN", "DN", "AN", "RN", "AGN"}
+NODE_TYPE_RE = re.compile(r"^(PN|DN|AN|RN|AGN)\d*[-_]", re.IGNORECASE)
 
 
 def qname(local_name):
@@ -127,6 +129,7 @@ def selected_workbook_nodes(workbook_path, sheet_name, requested_types):
         with archive.open(sheet_path) as handle:
             headers = {}
             run_column = ""
+            group_column = ""
             device_column = ""
             ip_column = ""
             for _, row in ET.iterparse(handle, events=("end",)):
@@ -146,6 +149,7 @@ def selected_workbook_nodes(workbook_path, sheet_name, requested_types):
                         if normalize_header(value)
                     }
                     run_column = headers.get("run", "")
+                    group_column = headers.get("group", "")
                     device_column = headers.get("devicename", "")
                     ip_column = headers.get("loopbackip", "")
                     if not run_column or not device_column:
@@ -159,16 +163,19 @@ def selected_workbook_nodes(workbook_path, sheet_name, requested_types):
                     row.clear()
                     continue
                 device_name = values.get(device_column, "").strip().upper()
-                match = NODE_TYPE_RE.match(device_name)
-                if match:
-                    node_type = match.group(1).upper()
-                    if node_type in requested_types:
-                        canonical = canonical_device_name(device_name)
-                        ip = normalize_ip(values.get(ip_column, "")) if ip_column else ""
-                        selected_rows[row_number] = (node_type, canonical, ip)
-                        add_device_identity(selected_devices, canonical, node_type, ip)
-                        add_identity(selected_ips, ip, node_type)
-                        selected_counts[node_type] += 1
+                workbook_group = values.get(group_column, "").strip().upper() if group_column else ""
+                if workbook_group:
+                    node_type = workbook_group
+                else:
+                    match = NODE_TYPE_RE.match(device_name)
+                    node_type = match.group(1).upper() if match else ""
+                if node_type in requested_types:
+                    canonical = canonical_device_name(device_name)
+                    ip = normalize_ip(values.get(ip_column, "")) if ip_column else ""
+                    selected_rows[row_number] = (node_type, canonical, ip)
+                    add_device_identity(selected_devices, canonical, node_type, ip)
+                    add_identity(selected_ips, ip, node_type)
+                    selected_counts[node_type] += 1
                 row.clear()
     return selected_rows, selected_devices, selected_ips, selected_counts
 
@@ -256,6 +263,8 @@ def main():
     parser.add_argument("--total-log-dir", required=True)
     parser.add_argument("--types", default="PN,DN,AN")
     parser.add_argument("--sheet", default="deviceList_TRUE")
+    parser.add_argument("--daily-budget-dir", type=Path)
+    parser.add_argument("--daily-limit", type=int, default=3)
     parser.add_argument(
         "--keep-newest",
         action="store_true",
@@ -271,7 +280,8 @@ def main():
         node_type = raw_type.strip().upper()
         if node_type and node_type not in requested_types:
             requested_types.append(node_type)
-    unsupported_types = [node_type for node_type in requested_types if node_type not in {"PN", "DN", "AN"}]
+    all_logs = requested_types == ["ALL"]
+    unsupported_types = [] if all_logs else [node_type for node_type in requested_types if node_type not in SUPPORTED_NODE_TYPES]
 
     if not workbook_path.is_file():
         parser.error("Workbook not found: {}".format(workbook_path))
@@ -287,7 +297,7 @@ def main():
         args.sheet,
         requested_types,
     )
-    if not selected_rows:
+    if not selected_rows and not all_logs:
         print("[ERROR] No enabled workbook rows matched types={}".format(",".join(requested_types)), file=sys.stderr)
         return 2
 
@@ -298,6 +308,8 @@ def main():
         node_type, method, identity = match_log_type(
             path, selected_rows, selected_devices, selected_ips, requested_types
         )
+        if all_logs:
+            node_type, method = "ALL", "all"
         if node_type:
             item = (path, node_type, method, identity)
             matching_files.append(item)
@@ -338,6 +350,33 @@ def main():
             )
         )
 
+    if args.daily_budget_dir is not None:
+        if not 1 <= args.daily_limit <= 20:
+            raise ValueError("Invalid daily collection limit")
+        config = args.daily_budget_dir / "config.properties"
+        if config.exists():
+            settings = read_properties(config)
+            if settings.get("version") != "1" or settings.get("limit") != str(args.daily_limit):
+                raise ValueError("Daily budget configuration differs; cleanup deferred")
+        day = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).date().isoformat()
+        eligible = []
+        for item in files_to_remove:
+            identity = item[3]
+            ip_match = re.match(r"^\[\d+\](\d{1,3}(?:\.\d{1,3}){3})_", item[0].name)
+            ip = identity["ip"] if identity else (ip_match.group(1) if ip_match else "")
+            if not ip:
+                print("[DAILY-BUDGET] Retain log with unknown IP: {}".format(item[0].name))
+                continue
+            count_file = args.daily_budget_dir / day / "counts" / (ip + ".properties")
+            count = int(read_properties(count_file)["used"]) if count_file.exists() else 0
+            if count < 0:
+                raise ValueError("Invalid daily count; cleanup deferred")
+            if count >= args.daily_limit:
+                print("[DAILY-BUDGET] Retain {}: daily quota exhausted".format(ip))
+            else:
+                eligible.append(item)
+        files_to_remove = eligible
+
     if not args.apply:
         print("[DRY-RUN] No Total_Log files were removed.")
         return 0
@@ -353,6 +392,10 @@ def main():
         )
     )
     return 0
+
+
+def read_properties(path):
+    return dict(line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines() if "=" in line)
 
 
 if __name__ == "__main__":

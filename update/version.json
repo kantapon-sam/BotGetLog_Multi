@@ -1,6 +1,6 @@
 {
-  "version": "1.1.49",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.49.zip",
-  "sha256": "cb14e77cf0e326efe4393c2f8901d5fdc19d46b0b7e03957855ebd81a4cea9a0",
-  "notes": "Released 1.1.49: Fix Huawei ARP PHY and Protocol annotations such as up(E) and up(s); preserve quoted and wrapped interface descriptions in valid CSV fields."
+  "version": "1.1.50",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.50.zip",
+  "sha256": "a2048c78771a8b19a9f5ad8924e00b688096aea70fa80f3542051aacf64a5a43",
+  "notes": "Released 1.1.50: Share a persistent daily collection budget across TRUE automatic and selected retries, reserve LLDP endpoint pairs once per day, and retain logs when the daily limit is reached."
 }

@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -241,6 +242,35 @@ final class TrueLinkOpticalAutoMode {
 
     static int clearSelectedLogsBeforeManualRun(File logDir, Selection selection) {
         return clearSelectedLogsBeforeManualRun(logDir, selection, null);
+    }
+
+    static Selection applyDailyBudget(Selection selection, Sheet deviceSheet) throws java.io.IOException {
+        DailyCollectionBudget.activate();
+        DailyCollectionBudget budget = DailyCollectionBudget.active();
+        Set<String> ips = selectedIps(selection, deviceSheet);
+        Set<String> blocked = Collections.emptySet();
+        String pairsFile = DailyCollectionBudget.pairsFile();
+        if (!pairsFile.isEmpty()) {
+            if (selection.isAllSites()) throw new java.io.IOException("Pair reservations require an exact selected queue");
+            blocked = budget.reservePairs(DailyCollectionBudget.readPairs(java.nio.file.Paths.get(pairsFile)), ips);
+        }
+        LinkedHashMap<Integer,List<String>> rows = new LinkedHashMap<>();
+        Set<String> seen = new HashSet<>();
+        for (Map.Entry<Integer,List<String>> entry : selection.getCmdSetsByRow().entrySet()) {
+            String ip = normalizeIp(BotGetLog_TrueCorp.getCell(deviceSheet.getRow(entry.getKey() - 1), 3));
+            if (blocked.contains(ip) || !budget.available(ip)) {
+                System.out.println("[DAILY-BUDGET] DEFER selected Row " + entry.getKey() + " " + ip + "; existing logs retained");
+                continue;
+            }
+            // Several physical links or duplicate workbook rows for one IP use one collection.
+            List<String> commands = new ArrayList<>();
+            for (String command : entry.getValue()) {
+                if (seen.add(ip + "|" + command)) commands.add(command);
+            }
+            if (!commands.isEmpty()) rows.put(entry.getKey(), commands);
+        }
+        return new Selection(selection.enabled, selection.allSites, selection.incremental,
+                selection.query, rows, selection.previewRows);
     }
 
     static int clearSelectedLogsBeforeManualRun(File logDir, Selection selection, Sheet deviceSheet) {

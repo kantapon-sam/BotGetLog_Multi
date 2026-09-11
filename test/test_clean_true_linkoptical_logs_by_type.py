@@ -1,4 +1,6 @@
 import subprocess
+import datetime
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -73,7 +75,7 @@ class CleanTrueLinkOpticalLogsByTypeTest(unittest.TestCase):
     def run_cleaner(self, *extra):
         return subprocess.run(
             [
-                "python",
+                sys.executable,
                 str(SCRIPT),
                 "--workbook",
                 str(self.workbook),
@@ -103,6 +105,43 @@ class CleanTrueLinkOpticalLogsByTypeTest(unittest.TestCase):
         self.assertFalse(self.old.exists())
         self.assertFalse(self.new.exists())
         self.assertTrue(self.unrelated.exists())
+
+    def seed_budget(self, ip, value, day=None):
+        root = self.base / "budget"
+        if day is None:
+            day = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).date().isoformat()
+        counter = root / day / "counts" / (ip + ".properties")
+        counter.parent.mkdir(parents=True, exist_ok=True)
+        counter.write_text("used=" + value + "\n", encoding="utf-8")
+        return root
+
+    def test_primary_cleanup_preserves_exhausted_ip(self):
+        budget = self.seed_budget("10.85.159.146", "3")
+        self.run_cleaner("--daily-budget-dir", str(budget), "--apply")
+        self.assertFalse(self.old.exists())
+        self.assertTrue(self.new.exists())
+        self.assertTrue(self.unrelated.exists())
+
+    def test_all_cleanup_honors_quota_and_retains_unknown_identity(self):
+        budget = self.seed_budget("10.167.1.1", "3")
+        unknown = self.logs / "unknown.txt"
+        unknown.write_text("keep")
+        self.run_cleaner("--types", "ALL", "--daily-budget-dir", str(budget), "--apply")
+        self.assertFalse(self.old.exists())
+        self.assertFalse(self.new.exists())
+        self.assertTrue(self.unrelated.exists())
+        self.assertTrue(unknown.exists())
+
+    def test_corrupt_budget_fails_before_deleting_any_log(self):
+        budget = self.seed_budget("10.85.159.146", "bad")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_cleaner("--daily-budget-dir", str(budget), "--apply")
+        self.assertTrue(all(p.exists() for p in (self.old, self.new, self.unrelated)))
+
+    def test_previous_day_does_not_block_primary_cleanup(self):
+        budget = self.seed_budget("10.85.159.146", "3", "2000-01-01")
+        self.run_cleaner("--daily-budget-dir", str(budget), "--apply")
+        self.assertFalse(self.new.exists())
 
 
 if __name__ == "__main__":

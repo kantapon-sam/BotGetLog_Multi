@@ -67,9 +67,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.49: Fix Huawei ARP PHY and Protocol annotations such as up(E) and up(s); preserve
-    // quoted and wrapped interface descriptions in valid CSV fields.
-    private static final String FALLBACK_VERSION = "1.1.49";
+    // Version 1.1.50: Share a persistent daily collection budget across TRUE automatic and selected
+    // retries, reserve LLDP endpoint pairs once per day, and retain logs when the daily limit is
+    // reached.
+    private static final String FALLBACK_VERSION = "1.1.50";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

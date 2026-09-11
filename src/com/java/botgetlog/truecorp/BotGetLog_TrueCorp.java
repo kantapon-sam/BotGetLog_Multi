@@ -1617,6 +1617,7 @@ public class BotGetLog_TrueCorp {
                             linkOpticalSelection.getCommandCount());
                     realOut.printf("[AUTO-LINK] Export mode for this collection pass: %s%n",
                             linkOpticalExportMode);
+                    linkOpticalSelection = TrueLinkOpticalAutoMode.applyDailyBudget(linkOpticalSelection, trueDeviceSheet);
                     if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
                         int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
                                 new File(FileInput.getLog()), linkOpticalSelection, trueDeviceSheet);
@@ -1902,6 +1903,9 @@ public class BotGetLog_TrueCorp {
                         if (totalNodes == 0) {
                             if (linkOpticalSelection.isEnabled()) {
                                 realOut.println(" No TRUE Link Optical command selected.");
+                                TrueLinkOpticalAutoMode.writeNewSiteQueue(
+                                        TrueLinkOpticalAutoMode.getNewSiteQueueFile(args), java.util.Collections.emptyList());
+                                requestImmediateShutdown("No eligible TRUE collection remains", 0);
                             } else {
                                 realOut.println(" No command marked as Y in Excel.");
                             }
@@ -2005,6 +2009,15 @@ public class BotGetLog_TrueCorp {
                                 int rowIdx = rowNum - 1;
                                 String firstCommand = getFirstCommandFromCmdSheet(workbook, cmdSet);
                                 String lastCommand = getLastCommandFromCmdSheet(workbook, cmdSet);
+
+                                if (!DailyCollectionBudget.canCollect(Loopback)) {
+                                    realOut.printf("[DAILY-BUDGET] DEFER Row %d %s; daily limit reached, existing logs retained%n", rowNum, Loopback);
+                                    synchronized (progress) {
+                                        progress[0]++;
+                                        printProgress(progress[0] * 100.0 / totalNodes, progress[0], totalNodes);
+                                    }
+                                    continue;
+                                }
 
                                 boolean alreadyDone = false;
                                 boolean alreadyDoneAsSuccess = false;
@@ -2168,6 +2181,10 @@ public class BotGetLog_TrueCorp {
                                             // so queued Live requests get the slot after the prior
                                             // connection finishes, without interrupting that work.
                                             if (sharedLease == null) sharedLease = acquireSharedBotLease();
+                                            if (!DailyCollectionBudget.startCollection(fLoop, attempt == 1 ? "PRIMARY_OR_SELECTED" : "INCOMPLETE_RETRY")) {
+                                                terminalFailureRecorded = true;
+                                                break;
+                                            }
                                             Telnet_Multi telnetObj = currentConnection = new Telnet_Multi(
                                                     gatewayLease.getServer(), fUsrS, fPwdS,
                                                     fLoop, fUsrC, fPwdC,
@@ -2208,6 +2225,11 @@ public class BotGetLog_TrueCorp {
                                             }
 
                                             if (attempt < maxAttempts) {
+                                                if (!DailyCollectionBudget.canCollect(fLoop)) {
+                                                    realOut.printf("[DAILY-BUDGET] DEFER retry %s; daily limit reached, incomplete log retained%n", fLoop);
+                                                    terminalFailureRecorded = true;
+                                                    break;
+                                                }
                                                 realOut.printf("[RETRY] Row %d %s (%s) [%s] because TRUE command boundary was not complete (attempt %d/%d)%n",
                                                         fRowNum, fDev, fLoop, fCmd, attempt + 1, maxAttempts);
                                                 archiveIncompleteMatchingLogs(fFile, fRowNum, fLoop, fDev, fCmd,
@@ -3934,6 +3956,7 @@ public class BotGetLog_TrueCorp {
                     System.out.printf("[RE-RUN]  Starting re-run Telnet for %s (%s) [%s] via %s (%d/%d sessions)%n",
                             finalDevName, finalIp, finalCmd, gatewayLease.getHost(),
                             gatewayLease.getActiveAtAcquire(), gatewayLease.getMaxSessions());
+                    if (!DailyCollectionBudget.startCollection(finalIp, "BACKGROUND_RETRY")) return;
                     currentConnection = new Telnet_Multi(
                             gatewayLease.getServer(), finalUserServer, finalPwServer,
                             finalIp, finalUserCLLS, finalPwCLLS,

@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOT_DIST_DIR="${BOT_DIST_DIR:-$APP_DIR/dist}"
-MAPVIEWER_INPUT_DIR="${MAPVIEWER_INPUT_DIR:-/home/transportsftp/LLDP_MapViewer/_input}"
+MAPVIEWER_INPUT_DIR="${MAPVIEWER_INPUT_DIR:-/transport/LLDP_MapViewer/_input}"
 MAPVIEWER_LOG_DIR="${MAPVIEWER_LOG_DIR:-$(cd "$(dirname "$MAPVIEWER_INPUT_DIR")" && pwd)/_logs}"
 LLDP_DATA_QUALITY_FILE="${LLDP_DATA_QUALITY_FILE:-$MAPVIEWER_LOG_DIR/lldp_data_quality_latest.csv}"
 MAPVIEWER_DIR="${MAPVIEWER_DIR:-$(cd "$(dirname "$MAPVIEWER_INPUT_DIR")" && pwd)}"
@@ -11,7 +11,7 @@ DTAC_LLDPMAP_MANUAL_DIR="${DTAC_LLDPMAP_MANUAL_DIR:-$MAPVIEWER_DIR/_manual_dtac_
 LINKOPTICAL_MERGE_SCRIPT="${LINKOPTICAL_MERGE_SCRIPT:-$MAPVIEWER_DIR/scripts/merge_linkoptical_manual_dtac.sh}"
 LINKOPTICAL_ALL_COMPLETED_EXPORT_SCRIPT="${LINKOPTICAL_ALL_COMPLETED_EXPORT_SCRIPT:-$MAPVIEWER_DIR/scripts/export_true_linkoptical_all_completed.sh}"
 GRD_USERINPUT_SYNC_SCRIPT="${GRD_USERINPUT_SYNC_SCRIPT:-$MAPVIEWER_DIR/scripts/sync_grd_nodes_to_user_input.sh}"
-JAVA_BIN="${JAVA_BIN:-/home/transportsftp/java8/bin/java}"
+JAVA_BIN="${JAVA_BIN:-/transport/java8/bin/java}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 JAR_PATH="${JAR_PATH:-$BOT_DIST_DIR/BotGetLog_TrueCorp.jar}"
 FINAL_PUBLISH_SCRIPT="${FINAL_PUBLISH_SCRIPT:-$APP_DIR/publish_true_linkoptical_all_completed_to_mapviewer.sh}"
@@ -76,6 +76,8 @@ clean_total_log_before_run() {
       --workbook "$BOT_DIST_DIR/UserInterface_Input.xlsx" \
       --total-log-dir "$total_log_dir" \
       --types "$clean_types" \
+      --daily-budget-dir "${TRUE_DAILY_COLLECTION_BUDGET_DIR:-$BOT_DIST_DIR/_output/System_Log/daily-collection-budget}" \
+      --daily-limit "${TRUE_DAILY_COLLECTION_LIMIT:-3}" \
       --apply 2>&1 | tee -a "$RUN_LOG"
     return 0
   fi
@@ -87,8 +89,12 @@ clean_total_log_before_run() {
     return 0
   fi
 
-  find "$total_log_dir" -maxdepth 1 -type f -name '*.txt' -delete
-  log "[CLEAN] Removed $count existing Total_Log file(s) before all-site run."
+  "$PYTHON_BIN" "$TYPE_LOG_CLEAN_SCRIPT" \
+    --workbook "$BOT_DIST_DIR/UserInterface_Input.xlsx" \
+    --total-log-dir "$total_log_dir" --types ALL \
+    --daily-budget-dir "${TRUE_DAILY_COLLECTION_BUDGET_DIR:-$BOT_DIST_DIR/_output/System_Log/daily-collection-budget}" \
+    --daily-limit "${TRUE_DAILY_COLLECTION_LIMIT:-3}" \
+    --apply 2>&1 | tee -a "$RUN_LOG"
 }
 
 sync_nodes_to_user_input() {
