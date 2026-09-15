@@ -1,6 +1,6 @@
 {
-  "version": "1.1.52",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.52.zip",
-  "sha256": "64454b66077cbae609f2561b661562327b1af6797b46f2895c9278f8fc493e34",
-  "notes": "Released 1.1.52: Fix missing Nokia GPS/GNSS Current State in CSV exports and live port parsing by reading Oper Status alongside Admin Status, while preserving Ethernet Oper State parsing."
+  "version": "1.1.53",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.53.zip",
+  "sha256": "33f4d1f0004c4e88f5f46b785d1dd8f7ab56061cf0a903337cbce8b1d9fd6fdb",
+  "notes": "Released 1.1.53: Add show lacp internal to the standard ZTE LLDP command set before quit. Huawei and Nokia commands are unchanged."
 }
