@@ -1,6 +1,6 @@
 {
-  "version": "1.1.55",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.55.zip",
-  "sha256": "dcdf64716e37afb4aea46c6e1dea113262b1e9e785d1e83ec95e209e0c6f1d98",
-  "notes": "Released 1.1.55: Use a single Group Interface column in LLDP CSV exports. Preserve verified Smartgroup, Eth-Trunk and LAG names and legacy DTAC compatibility."
+  "version": "1.1.56",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.56.zip",
+  "sha256": "22a7f49ae2c9a26ade9ee5fc02d119d5d3845fa88bc812cda198c9f16a0ba5c6",
+  "notes": "Released 1.1.56: Add Group Description to LLDP CSV and collect Nokia show lag description."
 }

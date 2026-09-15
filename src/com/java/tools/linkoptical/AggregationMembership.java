@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 /** Explicit local bundle membership only; traffic and descriptions never imply membership. */
 final class AggregationMembership {
-    static final String HEADER = "Group Interface";
+    static final String HEADER = "Group Interface,Group Description";
     private static final Pattern PROMPT = Pattern.compile("^\\S+[>#].*$");
     private static final Pattern NEXT_COMMAND = Pattern.compile("^(?:show|quit|logout|exit|terminal)\\b.*", Pattern.CASE_INSENSITIVE);
     private static final Pattern ZTE_LACP_COMMAND = Pattern.compile("^(?:\\S+[>#]\\s*)?show\\s+lacp\\s+internal\\s*$", Pattern.CASE_INSENSITIVE);
@@ -31,6 +31,11 @@ final class AggregationMembership {
     private static final Pattern NOKIA_INTERFACE = Pattern.compile("^Interface\\s*:\\s*(\\S+).*$", Pattern.CASE_INSENSITIVE);
     private static final Pattern NOKIA_LAG = Pattern.compile("\\bin\\s+LAG\\s+(\\d+)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern NOKIA_SUMMARY = Pattern.compile("^([0-9]+(?:/[a-zA-Z0-9]+){1,4}(?::[0-9]+)?)\\s+(?:Up|Down)\\s+(?:Yes|No)\\s+\\S+\\s+[0-9]+\\s+[0-9]+\\s+([0-9]+)\\s+.*$");
+    private static final Pattern NOKIA_DESCRIPTION_COMMAND = Pattern.compile("^(?:\\S+[>#]\\s*)?show\\s+lag(?:\\s+[0-9]+)?\\s+description\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NOKIA_DESCRIPTION_ROW = Pattern.compile("^([0-9]+)(?:\\([^)]*\\))?\\s+(?:up|down)\\s+(?:up|down)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NOKIA_DESCRIPTION_MEMBER = Pattern.compile("^[0-9]+(?:/[a-zA-Z0-9]+){1,4}(?::[0-9]+)?\\s+.*$");
+    private boolean nokiaDescriptions;
+    private String pendingNokiaGroup = "", pendingNokiaDescription = "";
     private final String vendor;
     private final Map<String, Map<String, String>> members = new LinkedHashMap<String, Map<String, String>>();
     private final Map<String, String> descriptions = new LinkedHashMap<String, String>();
@@ -59,7 +64,7 @@ final class AggregationMembership {
         String text = line.trim();
         if ("ZTE".equals(vendor)) zte(text);
         else if ("HW".equals(vendor)) huawei(text);
-        else if ("N".equals(vendor)) nokia(text);
+        else if ("N".equals(vendor)) nokia(line);
     }
 
     private void zte(String text) {
@@ -102,7 +107,30 @@ final class AggregationMembership {
         }
     }
 
-    private void nokia(String text) {
+    private void nokia(String line) {
+        String text = line.trim();
+        if (NOKIA_DESCRIPTION_COMMAND.matcher(text).matches()) {
+            flushNokiaDescription(); nokiaDescriptions = true; nokiaPort = ""; nokiaSummary = false; return;
+        }
+        if (PROMPT.matcher(text).matches() || NEXT_COMMAND.matcher(text).matches()) {
+            flushNokiaDescription(); nokiaDescriptions = false;
+        }
+        if (nokiaDescriptions) {
+            Matcher group = NOKIA_DESCRIPTION_ROW.matcher(text);
+            if (group.matches()) {
+                flushNokiaDescription(); pendingNokiaGroup = "lag-" + group.group(1);
+                pendingNokiaDescription = group.group(2); return;
+            }
+            if (NOKIA_DESCRIPTION_MEMBER.matcher(text).matches() || text.startsWith("=")) {
+                flushNokiaDescription(); return;
+            }
+            // CLI wraps at the Description column. A member description must
+            // never be appended to the parent LAG description.
+            if (!pendingNokiaGroup.isEmpty() && !text.isEmpty() && line.matches("^\\s{20,}.*")) {
+                pendingNokiaDescription += text;
+            }
+            return;
+        }
         if (PROMPT.matcher(text).matches()) { nokiaPort = ""; nokiaSummary = false; }
         if (text.startsWith("Port") && text.contains("LAG/")) nokiaSummary = true;
         Matcher summary = NOKIA_SUMMARY.matcher(text);
@@ -124,12 +152,22 @@ final class AggregationMembership {
         }
     }
 
+    private void flushNokiaDescription() {
+        if (!pendingNokiaGroup.isEmpty()) recordDescription(pendingNokiaGroup, pendingNokiaDescription);
+        pendingNokiaGroup = ""; pendingNokiaDescription = "";
+    }
+
     private void description(String text) {
         if (descriptionGroup.isEmpty() || !DESCRIPTION.matcher(text).matches()) return;
         String value = text.substring(text.indexOf(':') + 1).trim();
-        String old = descriptions.get(descriptionGroup);
-        if (old != null && !old.equals(value)) conflictingDescriptions.add(descriptionGroup);
-        descriptions.put(descriptionGroup, value);
+        recordDescription(descriptionGroup, value);
+    }
+
+    private void recordDescription(String group, String value) {
+        if ("N/A".equalsIgnoreCase(value) || "(Not Specified)".equalsIgnoreCase(value)) value = "";
+        String old = descriptions.get(group);
+        if (old != null && !old.equals(value)) conflictingDescriptions.add(group);
+        descriptions.put(group, value);
     }
 
     private void add(String port, String group, String state) {
@@ -141,6 +179,7 @@ final class AggregationMembership {
     }
 
     String[] fields(String port) {
+        flushNokiaDescription();
         Map<String, String> groups = members.get(normalize(port));
         if (groups == null || groups.isEmpty()) return new String[]{"", "", ""};
         if (groups.size() != 1) return new String[]{"", "", "CONFLICT"};
@@ -151,7 +190,8 @@ final class AggregationMembership {
     }
 
     String append(String row, String port) {
-        return row + "," + csv(fields(port)[0]);
+        String[] fields = fields(port);
+        return row + "," + csv(fields[0]) + "," + csv(fields[1]);
     }
 
     /** Keep the original NeighborDes column at index 20 in the filtered export. */

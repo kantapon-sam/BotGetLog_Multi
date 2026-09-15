@@ -56,10 +56,20 @@ public final class AggregationMembershipRegression {
         AggregationMembership quotes = parse("HW", "Eth-Trunk1 current state : UP", "Description: MB, \"primary\"", "PortName Status Weight", "100GE1/0/0 UP 1");
         String[] original = new String[20]; Arrays.fill(original, "x");original[4]="\"a,b\"";
         String row=String.join(",",original), enriched=quotes.append(row,"100GE1/0/0");
-        equal("Group Interface", AggregationMembership.HEADER);
-        equal(row+",Eth-Trunk1",enriched);
-        equal(row+",NEIGHBOR,Eth-Trunk1",AggregationMembership.insertNeighborDescription(enriched,"NEIGHBOR"));
-        equal(row+",", conflict.append(row,"100GE1/0/0"));
+        equal("Group Interface,Group Description", AggregationMembership.HEADER);
+        equal(row+",Eth-Trunk1,\"MB, \"\"primary\"\"\"",enriched);
+        equal(row+",NEIGHBOR,Eth-Trunk1,\"MB, \"\"primary\"\"\"",AggregationMembership.insertNeighborDescription(enriched,"NEIGHBOR"));
+        equal(row+",,", conflict.append(row,"100GE1/0/0"));
+        if (args.length > 3) {
+            for (String line : java.nio.file.Files.readAllLines(java.nio.file.Paths.get(args[3]), java.nio.charset.StandardCharsets.UTF_8)) nokia.accept(line);
+            equal("To_SW_MGMT_EDFA_MHR7963_IP_10.148.157.6", nokia.fields("1/1/3")[1]);
+            equal("To_DN-MHR1603-1_SR12_LG2_10.167.52.32", nokia.fields("2/1/1")[1]);
+        }
+        AggregationMembership wrapped = parse("N", "Interface : 1/1/1", "Oper State : up - Active in LAG 2",
+                "A:TEST#show lag description", "2(e) up up Core, \"primary\"_10.",
+                "                                           0.0.2", "  1/1/1 up active up Member description",
+                "                                           DO_NOT_APPEND", "A:TEST#show port", "2(e) up up Wrong command");
+        equal("Core, \"primary\"_10.0.0.2", wrapped.fields("1/1/1")[1]);
         System.out.println("AGGREGATION_MEMBERSHIP_OK: real ZTE/Huawei/Nokia, MB/BB trunk separation, subinterfaces, old logs, inactive members, command boundaries, conflicts and CSV escaping");
     }
 }
