@@ -1,6 +1,6 @@
 {
-  "version": "1.1.56",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.56.zip",
-  "sha256": "22a7f49ae2c9a26ade9ee5fc02d119d5d3845fa88bc812cda198c9f16a0ba5c6",
-  "notes": "Released 1.1.56: Add Group Description to LLDP CSV and collect Nokia show lag description."
+  "version": "1.1.57",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.57.zip",
+  "sha256": "4b39fbc479abefa1fc7ecd26236be5b8d4098d656e38a264f86106c64c1e5f9e",
+  "notes": "Released 1.1.57: Fix Huawei/Nokia/ZTE detection around warning banners and report rejected commands as failures."
 }

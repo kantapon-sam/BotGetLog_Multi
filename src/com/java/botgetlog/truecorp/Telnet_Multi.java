@@ -671,12 +671,9 @@ public class Telnet_Multi {
                         return sb.toString();
                     }
 
-                    for (String normalizedPattern : normalizedPatterns) {
-                        if (normalizedPattern != null
-                                && !normalizedPattern.isEmpty()
-                                && lowerTail.indexOf(normalizedPattern) >= 0) {
-                            return sb.toString();
-                        }
+                    if (matchesAnyPattern(lowerTail, extractPromptToken(lowerTail),
+                            safePatterns, normalizedPatterns)) {
+                        return sb.toString();
                     }
                 }
 
@@ -3016,6 +3013,10 @@ public class Telnet_Multi {
 //  
             File logDir = new File(FileInput.getLog());
             File logFile = new File(logDir, fileName);
+            if (!validateCollectedCommands(logFile, Num_row, Loopback, Device, cmdSet)) {
+                disconnect();
+                return;
+            }
             recordVendorAdjustmentFromVerifiedLog(logFile,
                     Num_row, Loopback, Device, configuredCmdSet, cmdSet);
             double fileSizeKB = logFile.exists() ? (logFile.length() / 1024.0) : 0.0;
@@ -3226,6 +3227,15 @@ public class Telnet_Multi {
         }
         if (!promptToken.endsWith(pattern)) {
             return false;
+        }
+        // A banner border (including its first streamed character) is not a
+        // device prompt. Keep supported hostname/configuration punctuation.
+        if (!promptToken.matches(".*[A-Za-z0-9].*")
+                || promptToken.matches(".*\\s.*")) {
+            return false;
+        }
+        if (">".equals(pattern) && promptToken.matches("(?i)^\\*?[ab]:.*")) {
+            return false; // Nokia hierarchy separators precede the final '#'.
         }
 
         if ("#".equals(pattern) && hasUnclosedBracketPrompt(promptToken)) {
@@ -5416,9 +5426,6 @@ public class Telnet_Multi {
             return promptVendor;
         }
 
-        if ("N".equals(fallback)) {
-            return "HW";
-        }
         return fallback;
     }
 
@@ -5428,47 +5435,23 @@ public class Telnet_Multi {
                 : fallbackVendor.trim().toUpperCase();
 
         if (text == null || text.trim().isEmpty()) {
-            if ("N".equals(fallback)) {
-                return "HW";
-            }
             return fallback;
         }
 
         String promptToken = extractPromptToken(text);
-        if (!promptToken.isEmpty()) {
-            char lastChar = promptToken.charAt(promptToken.length() - 1);
-            if (lastChar == '>') {
-                if (isHuaweiAnglePromptToken(promptToken)) {
-                    return "HW";
-                }
-                if (isSingleSidedGreaterPromptToken(promptToken)) {
-                    return "ZTE";
-                }
-                return fallback;
+        String detected = detectVendorFromLogLine(promptToken);
+        if (!detected.isEmpty()) {
+            return detected;
+        }
+        String[] lines = text.split("[\\r\\n]+");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            detected = detectVendorFromLogLine(lines[i]);
+            if (!detected.isEmpty()) {
+                return detected;
             }
-            if (lastChar == '#') {
-                return promptToken.contains(":") ? "N" : "ZTE";
-            }
-        }
-
-        String low = text.toLowerCase();
-        if (low.matches("(?s).*:[^\\r\\n]*#.*")) {
-            return "N";
-        }
-        if (low.matches("(?s).*<[^\\r\\n>]+>.*")) {
-            return "HW";
-        }
-        if (containsSingleSidedGreaterPromptLine(text)) {
-            return "ZTE";
-        }
-        if (low.contains("#")) {
-            return "ZTE";
         }
         if (preLoginNokia) {
             return "N";
-        }
-        if ("N".equals(fallback)) {
-            return "HW";
         }
         return fallback;
     }
@@ -5482,16 +5465,14 @@ public class Telnet_Multi {
         if (trimmed.isEmpty()) {
             return "";
         }
-        if (trimmed.matches("(?i)^\\*?[ab]:[^\\r\\n#]*#.*")) {
+        if (trimmed.matches("(?i)^\\*?[ab]:[A-Za-z0-9_][A-Za-z0-9_.:/()>*=-]*#.*")) {
             return "N";
         }
-        if (trimmed.matches("^<[^\\r\\n>]+>.*")) {
+        if (trimmed.matches("^<[A-Za-z0-9_][A-Za-z0-9_.:/()-]*>.*")
+                || trimmed.matches("^\\[[~*]?[A-Za-z0-9_][A-Za-z0-9_.:/()-]*\\].*")) {
             return "HW";
         }
-        if (trimmed.matches("(?i)^[A-Za-z0-9._:-]+>.*")) {
-            return "ZTE";
-        }
-        if (trimmed.matches("(?i)^[^\\s<:][^\\r\\n#]*#.*")) {
+        if (trimmed.matches("^[A-Za-z0-9_][A-Za-z0-9_.:/-]*(?:\\([A-Za-z0-9_.:/-]+\\))?[#>].*")) {
             return "ZTE";
         }
         return "";
@@ -6195,6 +6176,21 @@ public class Telnet_Multi {
         }
         sessionFailureRecorded = true;
         Connection_failed(Num_row, Loopback, Device, cmdSet, reason);
+    }
+
+    private boolean validateCollectedCommands(File logFile, int row, String ip, String device, String cmdSet) {
+        if (!hasWrongVendorSignal(logFile)) {
+            return true;
+        }
+        recordSessionFailureOnce(row, ip, device, cmdSet,
+                "_[CmdSet rejected - device reported command error]");
+        // Emit the existing terminal failure contract, never END/SUCCESS, even
+        // when all commands returned a prompt and the session exited normally.
+        String event = String.format("[FAIL] %s (%s, %s) at %s - Device rejected one or more commands",
+                ip, device, cmdSet, LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+        System.out.println(event);
+        logwork(event + "\n");
+        return false;
     }
 
     private boolean recoverRemoteClosedSession(String Loopback, String Device, String cmdSet,
