@@ -1,6 +1,6 @@
 {
-  "version": "1.1.53",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.53.zip",
-  "sha256": "33f4d1f0004c4e88f5f46b785d1dd8f7ab56061cf0a903337cbce8b1d9fd6fdb",
-  "notes": "Released 1.1.53: Add show lacp internal to the standard ZTE LLDP command set before quit. Huawei and Nokia commands are unchanged."
+  "version": "1.1.54",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.54.zip",
+  "sha256": "3cc4551ae0611af90132e757993bcdab8aa62d4a429586b6ccd0fb5c0cef027e",
+  "notes": "Released 1.1.54: Append Smartgroup, Eth-Trunk and LAG membership to LLDP CSV exports while preserving existing columns and compatibility with legacy DTAC files."
 }

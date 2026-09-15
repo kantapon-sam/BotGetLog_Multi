@@ -252,7 +252,9 @@ public class Link_Optical {
                     + "Rx Min warning range(dBm),"
                     + "CRC,"
                     + "Version,"
-                    + "Equipment\n";
+                    + "Equipment";
+            String originalHeader = header;
+            header += "," + AggregationMembership.HEADER + "\n";
 
             if (inputFiles == null) {
                 throw new Exception("Input folder not found or empty");
@@ -293,12 +295,16 @@ public class Link_Optical {
                 }
                 System.out.println("[PROCESS] Reading " + lldpFile.getName());
 
-                BufferedReader br = new BufferedReader(new FileReader(lldpFile));
                 String pathOutput = stripTxtExtension(lldpFile.getName());
-
-                String chunk = Check_Link_Optical.Sub(br, pathOutput);
-                fwAll.write(chunk);
-                br.close();
+                AggregationMembership aggregation = new AggregationMembership(pathOutput);
+                try (BufferedReader br = aggregation.reader(new FileReader(lldpFile))) {
+                    String chunk = Check_Link_Optical.Sub(br, pathOutput);
+                    for (String legacyRow : chunk.split("\\r?\\n")) {
+                        if (legacyRow.trim().isEmpty()) continue;
+                        String[] values = splitCsvLineSimple(legacyRow);
+                        fwAll.write(aggregation.append(legacyRow, values.length > 2 ? values[2] : "") + "\n");
+                    }
+                }
             }
             fwAll.close();
             System.out.println("[INFO] Generated " + output_LLDP);
@@ -321,7 +327,7 @@ public class Link_Optical {
             BufferedReader csvReader = new BufferedReader(new FileReader(fullFile));
             FileWriter fw2 = new FileWriter(filteredFile, false);
 
-            String header2 = header.replace("\n", "") + ",NeighborDes\n";
+            String header2 = originalHeader + ",NeighborDes," + AggregationMembership.HEADER + "\n";
             fw2.write(header2);
 
             String row;
@@ -350,7 +356,7 @@ public class Link_Optical {
                         continue;
                     }
 
-                    fw2.write(row + "," + neighborDes + "\n");
+                    fw2.write(AggregationMembership.insertNeighborDescription(row, neighborDes) + "\n");
                 }
             }
 

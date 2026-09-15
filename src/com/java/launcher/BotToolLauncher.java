@@ -67,9 +67,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.53: Add show lacp internal to the standard ZTE LLDP command set before quit.
-    // Huawei and Nokia commands are unchanged.
-    private static final String FALLBACK_VERSION = "1.1.53";
+    // Version 1.1.54: Append Smartgroup, Eth-Trunk and LAG membership to LLDP CSV exports while
+    // preserving existing columns and compatibility with legacy DTAC files.
+    private static final String FALLBACK_VERSION = "1.1.54";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
