@@ -1,6 +1,6 @@
 {
-  "version": "1.1.54",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.54.zip",
-  "sha256": "3cc4551ae0611af90132e757993bcdab8aa62d4a429586b6ccd0fb5c0cef027e",
-  "notes": "Released 1.1.54: Append Smartgroup, Eth-Trunk and LAG membership to LLDP CSV exports while preserving existing columns and compatibility with legacy DTAC files."
+  "version": "1.1.55",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.55.zip",
+  "sha256": "dcdf64716e37afb4aea46c6e1dea113262b1e9e785d1e83ec95e209e0c6f1d98",
+  "notes": "Released 1.1.55: Use a single Group Interface column in LLDP CSV exports. Preserve verified Smartgroup, Eth-Trunk and LAG names and legacy DTAC compatibility."
 }

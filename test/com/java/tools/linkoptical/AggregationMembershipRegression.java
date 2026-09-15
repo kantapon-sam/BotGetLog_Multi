@@ -56,8 +56,10 @@ public final class AggregationMembershipRegression {
         AggregationMembership quotes = parse("HW", "Eth-Trunk1 current state : UP", "Description: MB, \"primary\"", "PortName Status Weight", "100GE1/0/0 UP 1");
         String[] original = new String[20]; Arrays.fill(original, "x");original[4]="\"a,b\"";
         String row=String.join(",",original), enriched=quotes.append(row,"100GE1/0/0");
-        equal(row+",Eth-Trunk1,\"MB, \"\"primary\"\"\",UP",enriched);
-        equal(row+",NEIGHBOR,Eth-Trunk1,\"MB, \"\"primary\"\"\",UP",AggregationMembership.insertNeighborDescription(enriched,"NEIGHBOR"));
+        equal("Group Interface", AggregationMembership.HEADER);
+        equal(row+",Eth-Trunk1",enriched);
+        equal(row+",NEIGHBOR,Eth-Trunk1",AggregationMembership.insertNeighborDescription(enriched,"NEIGHBOR"));
+        equal(row+",", conflict.append(row,"100GE1/0/0"));
         System.out.println("AGGREGATION_MEMBERSHIP_OK: real ZTE/Huawei/Nokia, MB/BB trunk separation, subinterfaces, old logs, inactive members, command boundaries, conflicts and CSV escaping");
     }
 }

@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 /** Explicit local bundle membership only; traffic and descriptions never imply membership. */
 final class AggregationMembership {
-    static final String HEADER = "Aggregation Interface,Aggregation Description,Aggregation Member State";
+    static final String HEADER = "Group Interface";
     private static final Pattern PROMPT = Pattern.compile("^\\S+[>#].*$");
     private static final Pattern NEXT_COMMAND = Pattern.compile("^(?:show|quit|logout|exit|terminal)\\b.*", Pattern.CASE_INSENSITIVE);
     private static final Pattern ZTE_LACP_COMMAND = Pattern.compile("^(?:\\S+[>#]\\s*)?show\\s+lacp\\s+internal\\s*$", Pattern.CASE_INSENSITIVE);
@@ -151,9 +151,7 @@ final class AggregationMembership {
     }
 
     String append(String row, String port) {
-        StringBuilder result = new StringBuilder(row);
-        for (String field : fields(port)) result.append(',').append(csv(field));
-        return result.toString();
+        return row + "," + csv(fields(port)[0]);
     }
 
     /** Keep the original NeighborDes column at index 20 in the filtered export. */
@@ -168,7 +166,7 @@ final class AggregationMembership {
                 return row.substring(0, i + 1) + csv(value) + "," + row.substring(i + 1);
             }
         }
-        throw new IllegalArgumentException("LLDP row is missing its aggregation columns");
+        throw new IllegalArgumentException("LLDP row is missing its Group Interface column");
     }
 
     private static String normalize(String port) {

@@ -67,9 +67,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.54: Append Smartgroup, Eth-Trunk and LAG membership to LLDP CSV exports while
-    // preserving existing columns and compatibility with legacy DTAC files.
-    private static final String FALLBACK_VERSION = "1.1.54";
+    // Version 1.1.55: Use a single Group Interface column in LLDP CSV exports. Preserve verified
+    // Smartgroup, Eth-Trunk and LAG names and legacy DTAC compatibility.
+    private static final String FALLBACK_VERSION = "1.1.55";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
