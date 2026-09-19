@@ -96,6 +96,8 @@ public class BotGetLog_TrueCorp {
     private static final long RETRY_DELAY_MS = 3000;
     private static final int MAX_RETRY = 3;
     private static final int MAX_RERUN_IF_LOG_INCOMPLETE = 1;
+    private static final int MAX_NETWORK_RERUN_ROUNDS = 3;
+    private static final long DEFAULT_NETWORK_RERUN_DELAY_MS = 30_000L;
     private static final long DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 120000L;
     private static final AtomicInteger ACTIVE_TASKS = new AtomicInteger(0);
 //  Summary counters
@@ -108,6 +110,8 @@ public class BotGetLog_TrueCorp {
     public static final AtomicInteger vendorFailCount = new AtomicInteger(0);
     public static final AtomicInteger logMissingFailCount = new AtomicInteger(0);
     public static final AtomicInteger cmdSetFailCount = new AtomicInteger(0);
+    private static final ThreadLocal<Boolean> SUPPRESS_RETRY_RESULT_ACCOUNTING
+            = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static volatile boolean alarmEnabled = true;
     private static volatile boolean backgroundWorkersActive = true;
     private static java.util.Timer antiSleepTimer;
@@ -122,6 +126,8 @@ public class BotGetLog_TrueCorp {
         vendorFailCount.set(0);
         logMissingFailCount.set(0);
         cmdSetFailCount.set(0);
+        rerunOncePerRunKeys.clear();
+        SUPPRESS_RETRY_RESULT_ACCOUNTING.remove();
     }
 
     public static int getSuccessCount() {
@@ -165,26 +171,50 @@ public class BotGetLog_TrueCorp {
     }
 
     public static void recordAuthFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(authFailCount);
     }
 
     public static void recordNetworkFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(networkFailCount);
     }
 
+    private static void recordRecoveredNetworkTask() {
+        successCount.incrementAndGet();
+        failCount.updateAndGet(value -> Math.max(0, value - 1));
+        networkFailCount.updateAndGet(value -> Math.max(0, value - 1));
+    }
+
     public static void recordIncompleteFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(incompleteFailCount);
     }
 
     public static void recordVendorFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(vendorFailCount);
     }
 
     public static void recordLogMissingFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(logMissingFailCount);
     }
 
     public static void recordCmdSetFailure() {
+        if (Boolean.TRUE.equals(SUPPRESS_RETRY_RESULT_ACCOUNTING.get())) {
+            return;
+        }
         incrementFailure(cmdSetFailCount);
     }
 
@@ -543,6 +573,60 @@ public class BotGetLog_TrueCorp {
             this.loopback = safeValue(loopback);
             this.cmdSet = safeValue(cmdSet);
             this.cmdSetOrder = cmdSetOrder;
+        }
+    }
+
+    private static final class NetworkRetryTask {
+        final NodeCommandTask task;
+        final PathFile fileInput;
+        final String userServer;
+        final String passwordServer;
+        final String userClls;
+        final String passwordClls;
+        final String userL2;
+        final String passwordL2;
+        final String firstCommand;
+        final String lastCommand;
+
+        NetworkRetryTask(NodeCommandTask task, PathFile fileInput,
+                String userServer, String passwordServer,
+                String userClls, String passwordClls,
+                String userL2, String passwordL2,
+                String firstCommand, String lastCommand) {
+            this.task = task;
+            this.fileInput = fileInput;
+            this.userServer = safeValue(userServer);
+            this.passwordServer = safeValue(passwordServer);
+            this.userClls = safeValue(userClls);
+            this.passwordClls = safeValue(passwordClls);
+            this.userL2 = safeValue(userL2);
+            this.passwordL2 = safeValue(passwordL2);
+            this.firstCommand = safeValue(firstCommand);
+            this.lastCommand = safeValue(lastCommand);
+        }
+
+        String key() {
+            return task.rowNum + "|" + task.loopback + "|"
+                    + normalizeCmdSetFamily(task.cmdSet);
+        }
+    }
+
+    private enum NetworkRetryStatus {
+        SUCCESS,
+        NETWORK_FAILED,
+        NON_NETWORK_FAILED,
+        STOPPED
+    }
+
+    private static final class NetworkRetryResult {
+        final NetworkRetryTask retryTask;
+        final NetworkRetryStatus status;
+        final String detail;
+
+        NetworkRetryResult(NetworkRetryTask retryTask, NetworkRetryStatus status, String detail) {
+            this.retryTask = retryTask;
+            this.status = status;
+            this.detail = safeValue(detail);
         }
     }
 
@@ -1985,6 +2069,8 @@ public class BotGetLog_TrueCorp {
                         statusThread.start();
 
                         final int[] progress = {0};
+                        final ConcurrentMap<String, NetworkRetryTask> networkRetryQueue
+                                = new ConcurrentHashMap<>();
                         commandBatchLoop:
                         for (Map.Entry<Integer, List<NodeCommandTask>> batchEntry : cmdSetBatches.entrySet()) {
                             if (isShutdownRequested()) {
@@ -2124,6 +2210,10 @@ public class BotGetLog_TrueCorp {
                                 final String fUsrL2 = User_L2, fPwdL2 = PW_L2;
                                 final String fFirstCommand = firstCommand;
                                 final String fLastCommand = lastCommand;
+                                final NetworkRetryTask fNetworkRetryTask = new NetworkRetryTask(
+                                        task, fFile,
+                                        fUsrS, fPwdS, fUsrC, fPwdC, fUsrL2, fPwdL2,
+                                        fFirstCommand, fLastCommand);
 
                                 try {
                                     batchFutures.add(exec.submit(() -> {
@@ -2205,6 +2295,12 @@ public class BotGetLog_TrueCorp {
                                             }
 
                                             if (telnetObj.hasSessionFailureRecorded()) {
+                                                if (telnetObj.hasRetryableNetworkFailureRecorded()) {
+                                                    networkRetryQueue.putIfAbsent(
+                                                            fNetworkRetryTask.key(), fNetworkRetryTask);
+                                                    realOut.printf("[RETRY-QUEUE][TRUE] Queued Row %d %s (%s) [%s] after network failure%n",
+                                                            fRowNum, fDev, fLoop, fCmd);
+                                                }
                                                 terminalFailureRecorded = true;
                                                 break;
                                             }
@@ -2220,6 +2316,10 @@ public class BotGetLog_TrueCorp {
                                             File latestLog = findLatestMatchingLog(fFile, fRowNum, fLoop, fCmd);
                                             if (latestLog != null && hasConnectionFailureSignalInLog(latestLog)) {
                                                 BotGetLog_TrueCorp.recordNetworkFailure();
+                                                networkRetryQueue.putIfAbsent(
+                                                        fNetworkRetryTask.key(), fNetworkRetryTask);
+                                                realOut.printf("[RETRY-QUEUE][TRUE] Queued Row %d %s (%s) [%s] after connection-failure log%n",
+                                                        fRowNum, fDev, fLoop, fCmd);
                                                 terminalFailureRecorded = true;
                                                 break;
                                             }
@@ -2292,6 +2392,10 @@ public class BotGetLog_TrueCorp {
                             }
 
                             realOut.printf("[INFO] Completed CmdSet-%d batch%n", cmdSetOrder);
+                        }
+
+                        if (!isShutdownRequested() && !networkRetryQueue.isEmpty()) {
+                            runNetworkRetryQueue(exec, runGatewayPool, networkRetryQueue);
                         }
 
                         boolean stoppedByRequest = isShutdownRequested();
@@ -3508,6 +3612,205 @@ public class BotGetLog_TrueCorp {
                 || lower.contains("telnet read timed out")
                 || lower.contains("connectexception")
                 || lower.contains("[error] telnet");
+    }
+
+    private static long networkRerunDelayMs() {
+        String configured = System.getProperty("botgetlog.network.rerun.delay.ms", "").trim();
+        if (!configured.isEmpty()) {
+            try {
+                return Math.max(0L, Long.parseLong(configured));
+            } catch (NumberFormatException ignored) {
+                realOut.println("[RETRY-QUEUE][TRUE] Invalid botgetlog.network.rerun.delay.ms; using 30000 ms.");
+            }
+        }
+        return DEFAULT_NETWORK_RERUN_DELAY_MS;
+    }
+
+    static int networkRerunRoundLimit() {
+        return MAX_NETWORK_RERUN_ROUNDS;
+    }
+
+    private static boolean waitBeforeNetworkRerun(int round, int queuedCount) {
+        long remaining = networkRerunDelayMs();
+        if (remaining <= 0L) return !isShutdownRequested();
+        realOut.printf("[RETRY-QUEUE][TRUE] Waiting %.1f seconds before round %d/%d (%d node(s))%n",
+                remaining / 1000.0, round, MAX_NETWORK_RERUN_ROUNDS, queuedCount);
+        while (remaining > 0L && !isShutdownRequested()) {
+            long slice = Math.min(remaining, 500L);
+            try {
+                Thread.sleep(slice);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            remaining -= slice;
+        }
+        return !isShutdownRequested();
+    }
+
+    private static NetworkRetryResult runNetworkRetryAttempt(NetworkRetryTask retryTask,
+            GatewayPool gatewayPool, int round) {
+        NodeCommandTask task = retryTask.task;
+        if (isShutdownRequested()) {
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "shutdown requested");
+        }
+
+        File completedBeforeRun = findLatestCompletedLog(
+                retryTask.fileInput, task.rowNum, task.loopback, task.device,
+                task.cmdSet, retryTask.lastCommand);
+        if (completedBeforeRun != null) {
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.SUCCESS,
+                    "completed log already exists: " + completedBeforeRun.getName());
+        }
+
+        archiveIncompleteMatchingLogs(retryTask.fileInput, task.rowNum, task.loopback,
+                task.device, task.cmdSet, retryTask.firstCommand, retryTask.lastCommand,
+                "network retry queue round " + round);
+
+        boolean telnetPermitAcquired = false;
+        GatewayLease gatewayLease = null;
+        SharedConnectionBudget.Lease sharedLease = null;
+        Telnet_Multi connection = null;
+        try {
+            Telnet_Multi.TELNET_LIMIT.acquire();
+            telnetPermitAcquired = true;
+            gatewayLease = gatewayPool.acquire();
+            sharedLease = acquireSharedBotLease();
+
+            if (isShutdownRequested()) {
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "shutdown requested");
+            }
+            if (!DailyCollectionBudget.startCollection(task.loopback,
+                    "NETWORK_RETRY_R" + round)) {
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED,
+                        "daily collection limit reached");
+            }
+
+            realOut.printf("[RETRY-QUEUE][TRUE] Round %d/%d running Row %d %s (%s) [%s] via %s%n",
+                    round, MAX_NETWORK_RERUN_ROUNDS, task.rowNum, task.device,
+                    task.loopback, task.cmdSet, gatewayLease.getHost());
+
+            // Retry attempts refine the result of the original task. Do not add a
+            // second summary result while Telnet_Multi reports this attempt.
+            SUPPRESS_RETRY_RESULT_ACCOUNTING.set(Boolean.TRUE);
+            try {
+                connection = new Telnet_Multi(
+                        gatewayLease.getServer(), retryTask.userServer, retryTask.passwordServer,
+                        task.loopback, retryTask.userClls, retryTask.passwordClls,
+                        task.cmdSet, task.device, task.rowNum,
+                        retryTask.userL2, retryTask.passwordL2);
+            } finally {
+                SUPPRESS_RETRY_RESULT_ACCOUNTING.remove();
+            }
+
+            connection.disconnect();
+            File completedLog = findLatestCompletedLog(
+                    retryTask.fileInput, task.rowNum, task.loopback, task.device,
+                    task.cmdSet, retryTask.lastCommand);
+            if (!connection.hasSessionFailureRecorded() && completedLog != null) {
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.SUCCESS,
+                        "log complete: " + completedLog.getName());
+            }
+
+            File latestLog = findLatestMatchingLog(retryTask.fileInput,
+                    task.rowNum, task.loopback, task.cmdSet);
+            boolean retryableNetworkFailure = connection.hasRetryableNetworkFailureRecorded()
+                    || (latestLog != null && hasConnectionFailureSignalInLog(latestLog));
+            if (retryableNetworkFailure) {
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.NETWORK_FAILED,
+                        "connection/network failure");
+            }
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED,
+                    connection.hasSessionFailureRecorded()
+                            ? "non-network terminal failure"
+                            : "connection succeeded but log is incomplete");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "interrupted");
+        } catch (Exception e) {
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED,
+                    e.getMessage());
+        } finally {
+            SUPPRESS_RETRY_RESULT_ACCOUNTING.remove();
+            if (connection != null) connection.disconnect();
+            closeSharedBotLease(sharedLease);
+            if (gatewayLease != null) gatewayLease.close();
+            if (telnetPermitAcquired) Telnet_Multi.TELNET_LIMIT.release();
+        }
+    }
+
+    private static void runNetworkRetryQueue(ThreadPoolExecutor exec, GatewayPool gatewayPool,
+            ConcurrentMap<String, NetworkRetryTask> initialQueue) {
+        if (exec == null || exec.isShutdown() || initialQueue == null || initialQueue.isEmpty()) {
+            return;
+        }
+
+        LinkedHashMap<String, NetworkRetryTask> queue = new LinkedHashMap<>();
+        List<NetworkRetryTask> ordered = new ArrayList<>(initialQueue.values());
+        ordered.sort(Comparator.comparingInt(value -> value.task.rowNum));
+        for (NetworkRetryTask retryTask : ordered) queue.putIfAbsent(retryTask.key(), retryTask);
+
+        int recovered = 0;
+        int finalNetworkFailures = 0;
+        for (int round = 1; round <= MAX_NETWORK_RERUN_ROUNDS && !queue.isEmpty(); round++) {
+            if (!waitBeforeNetworkRerun(round, queue.size())) break;
+
+            realOut.printf("[RETRY-QUEUE][TRUE] Starting round %d/%d with %d node(s)%n",
+                    round, MAX_NETWORK_RERUN_ROUNDS, queue.size());
+            List<NetworkRetryTask> submittedTasks = new ArrayList<>();
+            List<Future<NetworkRetryResult>> futures = new ArrayList<>();
+            for (NetworkRetryTask retryTask : queue.values()) {
+                if (isShutdownRequested() || exec.isShutdown()) break;
+                submittedTasks.add(retryTask);
+                final int retryRound = round;
+                futures.add(exec.submit(() -> runNetworkRetryAttempt(
+                        retryTask, gatewayPool, retryRound)));
+            }
+
+            LinkedHashMap<String, NetworkRetryTask> nextQueue = new LinkedHashMap<>();
+            int roundRecovered = 0;
+            for (int i = 0; i < futures.size(); i++) {
+                NetworkRetryTask retryTask = submittedTasks.get(i);
+                NetworkRetryResult result;
+                try {
+                    result = futures.get(i).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    result = new NetworkRetryResult(retryTask,
+                            NetworkRetryStatus.NON_NETWORK_FAILED,
+                            cause == null ? e.getMessage() : cause.getMessage());
+                }
+
+                if (result.status == NetworkRetryStatus.SUCCESS) {
+                    recovered++;
+                    roundRecovered++;
+                    recordRecoveredNetworkTask();
+                    realOut.printf("[RETRY-QUEUE][TRUE] Recovered Row %d %s (%s) in round %d/%d: %s%n",
+                            retryTask.task.rowNum, retryTask.task.device, retryTask.task.loopback,
+                            round, MAX_NETWORK_RERUN_ROUNDS, result.detail);
+                } else if (result.status == NetworkRetryStatus.NETWORK_FAILED
+                        && round < MAX_NETWORK_RERUN_ROUNDS) {
+                    nextQueue.putIfAbsent(retryTask.key(), retryTask);
+                } else {
+                    if (result.status == NetworkRetryStatus.NETWORK_FAILED) {
+                        finalNetworkFailures++;
+                    }
+                    realOut.printf("[RETRY-QUEUE][TRUE] Final Row %d %s (%s) status=%s reason=%s%n",
+                            retryTask.task.rowNum, retryTask.task.device, retryTask.task.loopback,
+                            result.status, result.detail);
+                }
+            }
+
+            queue = nextQueue;
+            realOut.printf("[RETRY-QUEUE][TRUE] Completed round %d/%d: recovered=%d queuedForNext=%d%n",
+                    round, MAX_NETWORK_RERUN_ROUNDS, roundRecovered, queue.size());
+        }
+
+        realOut.printf("[RETRY-QUEUE][TRUE] Finished: recovered=%d finalNetworkFailed=%d maxRounds=%d%n",
+                recovered, finalNetworkFailures + queue.size(), MAX_NETWORK_RERUN_ROUNDS);
     }
 
     private static String normalizeCmdSetFamily(String cmdSet) {

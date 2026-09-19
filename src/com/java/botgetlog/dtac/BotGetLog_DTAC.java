@@ -37,6 +37,8 @@ public class BotGetLog_DTAC {
     private static final String CMDSET_SHEET = "cmdSet";
 
     private static final int MAX_RERUN_IF_LOG_INCOMPLETE = 1;
+    private static final int MAX_NETWORK_RERUN_ROUNDS = 3;
+    private static final long DEFAULT_NETWORK_RERUN_DELAY_MS = 30_000L;
     private static final int FIRST_COMMAND_HEAD_BYTES_TO_SCAN = 128 * 1024;
     private static final int FIRST_COMMAND_HEAD_LINES_TO_SCAN = 120;
     private static final int LAST_COMMAND_TAIL_BYTES_TO_SCAN = 256 * 1024;
@@ -840,6 +842,137 @@ public class BotGetLog_DTAC {
                 "Task finished without a known result", maxAttempts, null);
     }
 
+    private static String retryQueueKey(DeviceTask task) {
+        if (task == null) return "";
+        return task.rowNum + "|" + task.ip.trim() + "|" + task.cmdSet.trim().toUpperCase(Locale.ROOT);
+    }
+
+    static int networkRerunRoundLimit() {
+        return MAX_NETWORK_RERUN_ROUNDS;
+    }
+
+    static boolean isNetworkRetryEligible(boolean success, String failureType) {
+        return !success && FailureType.NETWORK_FAILED.name().equals(failureType);
+    }
+
+    private static long networkRerunDelayMs() {
+        String configured = System.getProperty("botgetlog.network.rerun.delay.ms", "").trim();
+        if (!configured.isEmpty()) {
+            try {
+                return Math.max(0L, Long.parseLong(configured));
+            } catch (NumberFormatException ignored) {
+                System.out.println("[RETRY-QUEUE][DTAC] Invalid botgetlog.network.rerun.delay.ms; using 30000 ms.");
+            }
+        }
+        return DEFAULT_NETWORK_RERUN_DELAY_MS;
+    }
+
+    private static boolean waitBeforeNetworkRerun(int round, int queuedCount) {
+        long remaining = networkRerunDelayMs();
+        if (remaining <= 0L) return !stopRequested;
+        System.out.printf("[RETRY-QUEUE][DTAC] Waiting %.1f seconds before round %d/%d (%d node(s))%n",
+                remaining / 1000.0, round, MAX_NETWORK_RERUN_ROUNDS, queuedCount);
+        while (remaining > 0L && !stopRequested) {
+            long slice = Math.min(remaining, 500L);
+            try {
+                Thread.sleep(slice);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            remaining -= slice;
+        }
+        return !stopRequested;
+    }
+
+    private static List<DeviceTask> collectNetworkRetryQueue(List<DeviceTask> orderedTasks,
+            Map<String, TaskRunResult> finalResults) {
+        LinkedHashMap<String, DeviceTask> queue = new LinkedHashMap<>();
+        if (orderedTasks == null) return new ArrayList<>();
+        for (DeviceTask task : orderedTasks) {
+            TaskRunResult result = finalResults.get(retryQueueKey(task));
+            if (result != null && isNetworkRetryEligible(
+                    result.success, result.failureType.name())) {
+                queue.putIfAbsent(retryQueueKey(task), task);
+            }
+        }
+        return new ArrayList<>(queue.values());
+    }
+
+    private static void runNetworkRetryQueue(ThreadPoolExecutor exec,
+            List<DeviceTask> orderedTasks, String sshUser, String sshPass,
+            ConcurrentMap<String, TaskRunResult> finalResults) {
+        List<DeviceTask> queue = collectNetworkRetryQueue(orderedTasks, finalResults);
+        if (queue.isEmpty() || exec == null || exec.isShutdown()) {
+            return;
+        }
+
+        int recovered = 0;
+        for (int round = 1; round <= MAX_NETWORK_RERUN_ROUNDS && !queue.isEmpty(); round++) {
+            if (!waitBeforeNetworkRerun(round, queue.size())) break;
+
+            System.out.printf("[RETRY-QUEUE][DTAC] Starting round %d/%d with %d node(s)%n",
+                    round, MAX_NETWORK_RERUN_ROUNDS, queue.size());
+            List<DeviceTask> submittedTasks = new ArrayList<>();
+            List<Future<TaskRunResult>> futures = new ArrayList<>();
+            for (DeviceTask task : queue) {
+                if (stopRequested || exec.isShutdown()) break;
+                submittedTasks.add(task);
+                final int retryRound = round;
+                futures.add(exec.submit(() -> {
+                    File completedLog = findLatestMatchingLogFile(
+                            task.rowNum, task.cmdSetCandidates);
+                    if (completedLog != null && containsPromptPlusFirstAndLastCommand(
+                            completedLog, task.firstCommands, task.lastCommands)) {
+                        System.out.printf("[RETRY-QUEUE][DTAC] Skip [%d]%s (%s); completed log already exists: %s%n",
+                                task.rowNum, task.deviceName, task.ip, completedLog.getName());
+                        return TaskRunResult.success(task, 0, completedLog);
+                    }
+                    System.out.printf("[RETRY-QUEUE][DTAC] Round %d/%d running [%d]%s (%s) cmdSet=%s%n",
+                            retryRound, MAX_NETWORK_RERUN_ROUNDS, task.rowNum,
+                            task.deviceName, task.ip, task.cmdSet);
+                    return runTaskWithCompletionCheck(task, sshUser, sshPass);
+                }));
+            }
+
+            List<DeviceTask> nextQueue = new ArrayList<>();
+            int roundRecovered = 0;
+            for (int i = 0; i < futures.size(); i++) {
+                DeviceTask task = submittedTasks.get(i);
+                TaskRunResult result;
+                try {
+                    result = futures.get(i).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    result = TaskRunResult.failure(task, FailureType.UNKNOWN,
+                            cause == null ? e.getMessage() : cause.getMessage(), 0, null);
+                }
+                TaskRunResult previous = finalResults.put(retryQueueKey(task), result);
+                replaceRegisteredTaskResult(previous, result);
+                if (result.success) {
+                    roundRecovered++;
+                    recovered++;
+                    System.out.printf("[RETRY-QUEUE][DTAC] Recovered [%d]%s (%s) in round %d/%d%n",
+                            task.rowNum, task.deviceName, task.ip, round, MAX_NETWORK_RERUN_ROUNDS);
+                } else if (isNetworkRetryEligible(result.success, result.failureType.name())
+                        && round < MAX_NETWORK_RERUN_ROUNDS) {
+                    nextQueue.add(task);
+                }
+            }
+
+            queue = nextQueue;
+            System.out.printf("[RETRY-QUEUE][DTAC] Completed round %d/%d: recovered=%d queuedForNext=%d%n",
+                    round, MAX_NETWORK_RERUN_ROUNDS, roundRecovered, queue.size());
+        }
+
+        int finalNetworkFailures = collectNetworkRetryQueue(orderedTasks, finalResults).size();
+        System.out.printf("[RETRY-QUEUE][DTAC] Finished: recovered=%d finalNetworkFailed=%d maxRounds=%d%n",
+                recovered, finalNetworkFailures, MAX_NETWORK_RERUN_ROUNDS);
+    }
+
     public static synchronized boolean prepareRerunSession(int[] rowNums, String[] loopbacks,
                                                            String[] devices, String[] cmdSets) {
         try {
@@ -1141,6 +1274,56 @@ public class BotGetLog_DTAC {
         }
     }
 
+    private static void decrementCounter(AtomicInteger counter) {
+        counter.updateAndGet(value -> Math.max(0, value - 1));
+    }
+
+    private static void unregisterTaskResult(TaskRunResult result) {
+        if (result == null) {
+            decrementCounter(failedTaskCount);
+            decrementCounter(unknownFailedTaskCount);
+            return;
+        }
+        if (result.success) {
+            decrementCounter(successTaskCount);
+            return;
+        }
+        if (result.failureType == FailureType.STOPPED) {
+            decrementCounter(stoppedTaskCount);
+            return;
+        }
+
+        decrementCounter(failedTaskCount);
+        switch (result.failureType) {
+            case AUTH_FAILED:
+                decrementCounter(authFailedTaskCount);
+                break;
+            case NETWORK_FAILED:
+                decrementCounter(networkFailedTaskCount);
+                break;
+            case COMMAND_INCOMPLETE:
+                decrementCounter(commandIncompleteTaskCount);
+                break;
+            case VENDOR_MISMATCH:
+                decrementCounter(vendorMismatchTaskCount);
+                break;
+            case LOG_MISSING:
+                decrementCounter(logMissingTaskCount);
+                break;
+            case VALIDATION_MISSING:
+                decrementCounter(validationMissingTaskCount);
+                break;
+            default:
+                decrementCounter(unknownFailedTaskCount);
+                break;
+        }
+    }
+
+    private static void replaceRegisteredTaskResult(TaskRunResult previous, TaskRunResult replacement) {
+        unregisterTaskResult(previous);
+        registerTaskResult(replacement);
+    }
+
 
     public static void main(String[] args) {
         Dialog.setLAF();
@@ -1207,6 +1390,7 @@ public class BotGetLog_DTAC {
 
         List<Future<?>> futures = new ArrayList<>();
         final List<TaskRunResult> failedResults = Collections.synchronizedList(new ArrayList<>());
+        final ConcurrentMap<String, TaskRunResult> finalResults = new ConcurrentHashMap<>();
         final String finalSshUser = sshUser;
         final String finalSshPass = sshPass;
 
@@ -1219,10 +1403,8 @@ public class BotGetLog_DTAC {
                         result = runTaskWithCompletionCheck(task, finalSshUser, finalSshPass);
                     }
                 } finally {
+                    finalResults.put(retryQueueKey(task), result);
                     registerTaskResult(result);
-                    if (result != null && !result.success && result.failureType != FailureType.STOPPED) {
-                        failedResults.add(result);
-                    }
                     int done = completedTasks.incrementAndGet();
                     System.out.printf("Finished %d / %d : [%d]%s (%s) cmdSet=%s result=%s attempts=%d reason=%s%n",
                             done, totalTasks, task.rowNum, task.deviceName, task.ip, task.cmdSet,
@@ -1239,6 +1421,22 @@ public class BotGetLog_DTAC {
                 if (stopRequested) break;
                 f.get();
             } catch (Exception ignored) {}
+        }
+
+        if (!stopRequested) {
+            runNetworkRetryQueue(executor, jobList, finalSshUser, finalSshPass, finalResults);
+        }
+
+        for (DeviceTask task : jobList) {
+            TaskRunResult result = finalResults.get(retryQueueKey(task));
+            if (result == null) {
+                result = TaskRunResult.stopped(task, 0);
+                finalResults.put(retryQueueKey(task), result);
+                registerTaskResult(result);
+            }
+            if (!result.success && result.failureType != FailureType.STOPPED) {
+                failedResults.add(result);
+            }
         }
 
         boolean stoppedManually = stopRequested;

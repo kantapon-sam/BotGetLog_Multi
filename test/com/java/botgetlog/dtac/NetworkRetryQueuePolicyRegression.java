@@ -1,0 +1,30 @@
+package com.java.botgetlog.dtac;
+
+public final class NetworkRetryQueuePolicyRegression {
+
+    private NetworkRetryQueuePolicyRegression() {
+    }
+
+    public static void main(String[] args) {
+        assertEquals(3, BotGetLog_DTAC.networkRerunRoundLimit());
+        assertTrue(BotGetLog_DTAC.isNetworkRetryEligible(false, "NETWORK_FAILED"));
+        assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(true, "NETWORK_FAILED"));
+        assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(false, "AUTH_FAILED"));
+        assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(false, "COMMAND_INCOMPLETE"));
+        System.out.println("PASS NetworkRetryQueuePolicyRegression DTAC");
+    }
+
+    private static void assertTrue(boolean value) {
+        if (!value) throw new AssertionError("Expected true");
+    }
+
+    private static void assertFalse(boolean value) {
+        if (value) throw new AssertionError("Expected false");
+    }
+
+    private static void assertEquals(int expected, int actual) {
+        if (expected != actual) {
+            throw new AssertionError("Expected " + expected + ", got " + actual);
+        }
+    }
+}

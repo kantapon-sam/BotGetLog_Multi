@@ -379,9 +379,14 @@ public class Telnet_Multi {
     StringBuilder LOG = new StringBuilder();
     private boolean vendorMismatch = false;
     private boolean sessionFailureRecorded = false;
+    private boolean retryableNetworkFailureRecorded = false;
 
     public boolean hasSessionFailureRecorded() {
         return sessionFailureRecorded;
+    }
+
+    public boolean hasRetryableNetworkFailureRecorded() {
+        return retryableNetworkFailureRecorded;
     }
 
     //   log 
@@ -2182,6 +2187,7 @@ public class Telnet_Multi {
         this.l2Username = User_L2 == null ? "" : User_L2;
         this.l2Password = PW_L2 == null ? "" : PW_L2;
         this.sessionFailureRecorded = false;
+        this.retryableNetworkFailureRecorded = false;
         try {
             //  - Telnet  Semaphore
 
@@ -4647,6 +4653,8 @@ public class Telnet_Multi {
         try {
             sessionFailureRecorded = true;
             String cleanReason = reason.startsWith("_") ? reason.substring(1) : reason;
+            String normalizedReason = cleanReason.toLowerCase(Locale.ROOT);
+            retryableNetworkFailureRecorded = isRetryableNetworkFailureReason(normalizedReason);
             String timeNow = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String dateTag = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
 
@@ -4689,7 +4697,7 @@ public class Telnet_Multi {
             }
 
             logwork("[FAIL] " + message + "\n");
-            String reasonLower = cleanReason.toLowerCase(Locale.ROOT);
+            String reasonLower = normalizedReason;
             if (reasonLower.contains("wrong vendor")) {
                 BotGetLog_TrueCorp.recordVendorFailure();
             } else if (reasonLower.contains("auth") || reasonLower.contains("password rejected")
@@ -4709,6 +4717,27 @@ public class Telnet_Multi {
         } catch (IOException ex) {
             System.out.println(ex.toString());
         }
+    }
+
+    static boolean isRetryableNetworkFailureReason(String reason) {
+        if (reason == null) {
+            return false;
+        }
+        String lower = reason.toLowerCase(Locale.ROOT);
+        if (lower.contains("auth") || lower.contains("password rejected")
+                || lower.contains("login failed") || lower.contains("wrong vendor")
+                || lower.contains("cmdset") || lower.contains("cmd set")) {
+            return false;
+        }
+        return lower.contains("connection failed")
+                || lower.contains("connection timed out")
+                || lower.contains("no login prompt")
+                || lower.contains("no response after password")
+                || lower.contains("remote closed")
+                || lower.contains("command timeout")
+                || lower.contains("stream error")
+                || lower.contains("connect exception")
+                || lower.contains("ssh gateway");
     }
 
     private static final Object LOG_LOCK = new Object();
