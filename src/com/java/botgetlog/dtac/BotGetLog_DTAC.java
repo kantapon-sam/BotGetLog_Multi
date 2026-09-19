@@ -79,6 +79,7 @@ public class BotGetLog_DTAC {
     private static final AtomicInteger unknownFailedTaskCount = new AtomicInteger(0);
     private static volatile int totalTasks = 0;
     private static volatile boolean stopRequested = false;
+    private static volatile boolean runFullyCompleted = false;
     private static volatile boolean alarmEnabled = true;
     private static volatile int normalThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
     private static volatile int currentThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
@@ -1224,6 +1225,7 @@ public class BotGetLog_DTAC {
         monitorRerunKeys.clear();
         monitorSafetyThread = null;
         stopRequested = false;
+        runFullyCompleted = false;
         alarmEnabled = true;
         turboMode = false;
         currentThreadPoolSize = DEFAULT_THREAD_POOL_SIZE;
@@ -1445,6 +1447,7 @@ public class BotGetLog_DTAC {
         shutdownExecutor();
         writeSummary(totalTasks, stoppedManually, failedResults);
         System.out.println("=== END ===");
+        runFullyCompleted = true;
     }
 
     private static Workbook openInputWorkbookWithRetry() throws Exception {
@@ -2258,6 +2261,7 @@ public class BotGetLog_DTAC {
         shutdownExecutor();
     }
     public static boolean isStopRequested() { return stopRequested; }
+    public static boolean isRunFullyCompleted() { return runFullyCompleted; }
     public static boolean isAlarmEnabled() { return alarmEnabled; }
     public static void setAlarmEnabled(boolean enabled) { alarmEnabled = enabled; }
     public static ExecutorService getExecutor() { return executor; }

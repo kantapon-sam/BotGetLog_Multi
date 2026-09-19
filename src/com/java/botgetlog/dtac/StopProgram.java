@@ -330,11 +330,21 @@ public class StopProgram extends JFrame implements ActionListener {
         int success = BotGetLog_DTAC.getSuccessTaskCount();
         int failed = BotGetLog_DTAC.getFailedTaskCount();
         int stopped = BotGetLog_DTAC.getStoppedTaskCount();
+        boolean runFullyCompleted = BotGetLog_DTAC.isRunFullyCompleted();
+        boolean primaryPassCompleted = total > 0 && done >= total;
 
         double percent = total <= 0 ? 0.0 : (done * 100.0 / total);
-        progressLabel.setText(String.format("%d / %d tasks completed (%.1f%%)", done, total, percent));
+        if (primaryPassCompleted && !runFullyCompleted) {
+            progressLabel.setText(String.format(
+                    "%d / %d primary tasks complete - retry queue/finalizing", done, total));
+        } else {
+            progressLabel.setText(String.format(
+                    "%d / %d tasks completed (%.1f%%)", done, total, percent));
+        }
         progressBar.setValue((int) Math.round(percent));
-        progressBar.setString(String.format("%.1f%%", percent));
+        progressBar.setString(primaryPassCompleted && !runFullyCompleted
+                ? "Retry queue / finalizing"
+                : String.format("%.1f%%", percent));
 
         ExecutorService exec = BotGetLog_DTAC.getExecutor();
         int active = 0;
@@ -359,8 +369,12 @@ public class StopProgram extends JFrame implements ActionListener {
                 BotGetLog_DTAC.getValidationMissingTaskCount()));
 
         updateTimeEstimate(total, done);
+        if (primaryPassCompleted && !runFullyCompleted) {
+            lblEtaValue.setText("Primary pass completed - retry queue/finalization in progress");
+            lblRemainingValue.setText("Remaining: waiting for all retry rounds and summary");
+        }
 
-        if (!finishedShown && total > 0 && done >= total) {
+        if (shouldShowFinished(total, done, runFullyCompleted, finishedShown)) {
             finishedShown = true;
             String message = failed > 0
                     ? "DTAC jobs finished with " + failed + " failed task(s).\nPlease check Summary_DTAC and Failed_DTAC files."
@@ -370,6 +384,11 @@ public class StopProgram extends JFrame implements ActionListener {
             dispose();
             System.exit(0);
         }
+    }
+
+    static boolean shouldShowFinished(int total, int done,
+            boolean runFullyCompleted, boolean finishedAlreadyShown) {
+        return !finishedAlreadyShown && runFullyCompleted && total > 0 && done >= total;
     }
 
     private void updateTimeEstimate(int total, int done) {

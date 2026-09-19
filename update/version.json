@@ -1,6 +1,6 @@
 {
-  "version": "1.1.58",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.58.zip",
-  "sha256": "467259aa0bbcf59c99888005167844e38ed661b26b560c7b86d4e4a1b6dd91be",
-  "notes": "Released 1.1.58: Queue TRUE and DTAC network failures for up to three rerun rounds, with completed-log checks and fresh retry state for every Run."
+  "version": "1.1.59",
+  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.59.zip",
+  "sha256": "6c1041dd9134c5629c0b44ba4d10d376056b7df9fc027dc4ce8184654ec2f048",
+  "notes": "Released 1.1.59: Keep DTAC running until all queued network retries and final summary work are complete."
 }

@@ -11,6 +11,10 @@ public final class NetworkRetryQueuePolicyRegression {
         assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(true, "NETWORK_FAILED"));
         assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(false, "AUTH_FAILED"));
         assertFalse(BotGetLog_DTAC.isNetworkRetryEligible(false, "COMMAND_INCOMPLETE"));
+        assertFalse(StopProgram.shouldShowFinished(1744, 1744, false, false));
+        assertTrue(StopProgram.shouldShowFinished(1744, 1744, true, false));
+        assertFalse(StopProgram.shouldShowFinished(1744, 1743, true, false));
+        assertFalse(StopProgram.shouldShowFinished(1744, 1744, true, true));
         System.out.println("PASS NetworkRetryQueuePolicyRegression DTAC");
     }
 
