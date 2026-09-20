@@ -356,6 +356,7 @@ function Assert-RequiredReleaseArtifacts {
         "ARP.jar",
         "PTP.jar",
         "MPLS_LSP.jar",
+        "SID.jar",
         "Segment_Routing_Prefix.jar",
         "ISIS_Peer.jar",
         "Deleted_Log_Checker.jar",

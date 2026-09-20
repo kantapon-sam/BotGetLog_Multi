@@ -9,6 +9,7 @@ Included tools:
 - ARP.jar
 - PTP.jar
 - MPLS_LSP.jar
+- SID.jar
 - Segment_Routing_Prefix.jar
 - ISIS_Peer.jar
 - Deleted_Log_Checker.jar
@@ -30,3 +31,4 @@ Default input files:
 Update behavior:
 - The updater replaces application jars, defaults, lib, updater, and README.TXT.
 - The updater keeps UserInterface_Input.xlsx and _output.
+- SID.jar exports Huawei, ZTE, and Nokia loopback/SID rows. Segment_Routing_Prefix.jar remains as a compatibility entry point.

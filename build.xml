@@ -229,6 +229,23 @@
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/shared/ToolDialogHelper.class"/>
                 <include name="com/java/tools/segmentroutingprefix/**/*.class"/>
+                <include name="com/java/tools/sid/**/*.class"/>
+            </fileset>
+        </jar>
+
+        <jar destfile="${dist.dir}/SID.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.tools.sid.SidReport"/>
+                <attribute name="Implementation-Title" value="SID"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/AppConsole.class"/>
+                <include name="com/java/shared/AppConsole$ConsoleOutputStream.class"/>
+                <include name="com/java/launcher/LauncherGate.class"/>
+                <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/ToolDialogHelper.class"/>
+                <include name="com/java/tools/sid/**/*.class"/>
             </fileset>
         </jar>
 

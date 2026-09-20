@@ -62,14 +62,15 @@ public class BotToolLauncher {
     private static final String ARP_JAR_NAME = "ARP.jar";
     private static final String PTP_JAR_NAME = "PTP.jar";
     private static final String MPLS_LSP_JAR_NAME = "MPLS_LSP.jar";
-    private static final String SEGMENT_ROUTING_PREFIX_JAR_NAME = "Segment_Routing_Prefix.jar";
+    private static final String SID_JAR_NAME = "SID.jar";
+    private static final String LEGACY_SEGMENT_ROUTING_PREFIX_JAR_NAME = "Segment_Routing_Prefix.jar";
     private static final String ISIS_PEER_JAR_NAME = "ISIS_Peer.jar";
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.1.59: Keep the DTAC progress window open until all retry-queue rounds and final
-    // summary work have completed.
-    private static final String FALLBACK_VERSION = "1.1.59";
+    // Version 1.2.0: Add multi-vendor SID collection, Loopback/SID reports, SID.jar, and TrueLogs
+    // integration for Huawei, ZTE, and Nokia.
+    private static final String FALLBACK_VERSION = "1.2.0";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -198,7 +199,7 @@ public class BotToolLauncher {
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
         mplsLspButton = new LauncherButton("MPLS LSP");
-        segmentRoutingPrefixButton = new LauncherButton("Segment Routing Prefix");
+        segmentRoutingPrefixButton = new LauncherButton("SID");
         isisPeerButton = new LauncherButton("ISIS Peer");
         deletedLogCheckerButton = new LauncherButton("Deleted Log Check");
         connectVpnButton = new LauncherButton("Open Pulse VPN");
@@ -313,8 +314,8 @@ public class BotToolLauncher {
         text.append("7. MPLS LSP").append(lineBreak);
         text.append("   Export Nokia MPLS LSP actual-hop paths from N-MPLS_LSP logs.").append(lineBreak);
         text.append(lineBreak);
-        text.append("8. Segment Routing Prefix").append(lineBreak);
-        text.append("   Export Huawei Segment Routing Prefix forwarding rows from HW-SID logs.").append(lineBreak);
+        text.append("8. SID").append(lineBreak);
+        text.append("   Export Huawei, ZTE and Nokia Loopback/SID rows from *-SID logs.").append(lineBreak);
         text.append(lineBreak);
         text.append("9. ISIS Peer").append(lineBreak);
         text.append("   Export Huawei ISIS peer rows and interface costs from HW-ISIS_Peer logs.").append(lineBreak);
@@ -1130,7 +1131,7 @@ public class BotToolLauncher {
 
     private void launchSegmentRoutingPrefixJar() {
         segmentRoutingPrefixButton.setEnabled(false);
-        launchProgram(findSegmentRoutingPrefixJar(), SEGMENT_ROUTING_PREFIX_JAR_NAME, segmentRoutingPrefixButton);
+        launchProgram(findSegmentRoutingPrefixJar(), SID_JAR_NAME, segmentRoutingPrefixButton);
     }
 
     private void launchIsisPeerJar() {
@@ -1641,8 +1642,10 @@ public class BotToolLauncher {
     private static File findSegmentRoutingPrefixJar() {
         File appDir = getAppDirectory();
         File[] candidates = new File[]{
-            new File(appDir, SEGMENT_ROUTING_PREFIX_JAR_NAME),
-            new File(appDir, "dist\\" + SEGMENT_ROUTING_PREFIX_JAR_NAME)
+            new File(appDir, SID_JAR_NAME),
+            new File(appDir, "dist\\" + SID_JAR_NAME),
+            new File(appDir, LEGACY_SEGMENT_ROUTING_PREFIX_JAR_NAME),
+            new File(appDir, "dist\\" + LEGACY_SEGMENT_ROUTING_PREFIX_JAR_NAME)
         };
 
         for (File candidate : candidates) {

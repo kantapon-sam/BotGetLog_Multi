@@ -1,6 +1,6 @@
 {
-  "version": "1.1.59",
-  "url": "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/release-assets/BotGetLog_Multi-dist-1.1.59.zip",
-  "sha256": "6c1041dd9134c5629c0b44ba4d10d376056b7df9fc027dc4ce8184654ec2f048",
-  "notes": "Released 1.1.59: Keep DTAC running until all queued network retries and final summary work are complete."
+  "version": "1.2.0",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.0/BotGetLog_Multi-dist-1.2.0.zip",
+  "sha256": "6674a0d54402d7e6e67dcb8ff3c6e5092059fab1c6bf358ab6849b2d546d2dd8",
+  "notes": "Released 1.2.0: Add multi-vendor SID collection, Loopback/SID reports, SID.jar, and TrueLogs integration for Huawei, ZTE, and Nokia."
 }
