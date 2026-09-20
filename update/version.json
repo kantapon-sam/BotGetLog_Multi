@@ -1,6 +1,6 @@
 {
   "version": "1.2.0",
   "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.0/BotGetLog_Multi-dist-1.2.0.zip",
-  "sha256": "6674a0d54402d7e6e67dcb8ff3c6e5092059fab1c6bf358ab6849b2d546d2dd8",
+  "sha256": "cfdf0bef629db61790e31c9b1b49e7a0a0673fbe900d5d2b73abe9054bb49041",
   "notes": "Released 1.2.0: Add multi-vendor SID collection, Loopback/SID reports, SID.jar, and TrueLogs integration for Huawei, ZTE, and Nokia."
 }

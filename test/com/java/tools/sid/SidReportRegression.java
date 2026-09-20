@@ -24,10 +24,10 @@ public final class SidReportRegression {
                 "A:PN-SSK1332-1_SSKSSK0400M#environment no more\n"
                 + "A:PN-SSK1332-1_SSKSSK0400M#show router interface | match expression \"system|LB\" post-lines 1\n"
                 + "LB11 Up Up Network\n  10.163.1.92/32\nLB15 Up Up Network\n  10.163.11.92/32\n"
-                + "LB19 Up Up Network\n  10.165.1.92/32\nLB20 Up Up Network\n  10.167.92.1/32\n"
+                + "LB19 Up Up Network\n  10.165.1.92/32\nsystem Up Up Network\n  10.167.92.1/32\n"
                 + "A:PN-SSK1332-1_SSKSSK0400M#admin display-config | match node-sid context all\n"
-                + "interface \"LB11\"\n node-sid index 2530\ninterface \"LB15\"\n node-sid index 2530\n"
-                + "interface \"LB19\"\n node-sid index 7230\ninterface \"LB20\"\n node-sid index 4530\n"
+                + "interface \"LB11\"\n ipv4-node-sid index 2530\ninterface \"LB15\"\n ipv4-node-sid index 2530\n"
+                + "interface \"LB19\"\n ipv4-node-sid index 7230\ninterface \"system\"\n ipv4-node-sid index 4530\n"
                 + "A:PN-SSK1332-1_SSKSSK0400M#\n");
         File zte = log(root, "[27028]10.167.130.1_PN-CMI1000-1_CMICMI540ZW_ZTE-SID_2026-09-20.txt",
                 "PN-CMI1000-1_CMICMI540ZW#terminal length 0\n"

@@ -156,7 +156,10 @@ public final class SidReport {
             return numbered.group(1);
         }
         if (Pattern.compile("(?i)(?:^|[\"' \\t])system(?:[\"' \\t:]|$)").matcher(line).find()) {
-            return "99";
+            // Nokia exposes its node loopback as the "system" interface; in the
+            // requested report this is Loopback20. Loopback99 remains reserved
+            // for an explicitly named Loopback99 interface.
+            return "20";
         }
         return "";
     }
