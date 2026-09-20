@@ -38,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -1141,6 +1142,11 @@ public class Telnet_Multi {
         private PrintStream out;
         private String lastPromptToken = "";
         private GatewayEndpoint gatewayEndpoint;
+        private int liveProgressCompleted = -1;
+        private int liveProgressExpected = -1;
+        private String liveProgressCommand = "";
+        private long liveProgressLastActivityAt;
+        private long liveProgressLastWriteAt;
 
         private LoginValidationResult validate(String server, String userServer, String pwServer,
                 String loopback, String userCLLS, String pwCLLS, String cmdSet, String device) {
@@ -1291,6 +1297,7 @@ public class Telnet_Multi {
             if (commands == null || commands.isEmpty()) {
                 return transcript.toString();
             }
+            beginLiveProgress(commands);
             // Some devices expose the operational prompt before their CLI is fully
             // ready.  A short settle prevents the first live-only command (for
             // example "display interface") from returning an empty response.
@@ -1306,6 +1313,7 @@ public class Telnet_Multi {
                                 nokiaDetailMatcher.group(1).toLowerCase(Locale.ROOT))) {
                     continue;
                 }
+                startLiveProgressCommand(safeCommand, false);
                 transcript.append(liveTranscriptCommand(safeCommand)).append('\n');
                 write(safeCommand);
                 // Live probes run in the normal exec view (# or >).  Do not accept
@@ -1317,6 +1325,7 @@ public class Telnet_Multi {
                 if (isTimeoutResponse(response)) {
                     return response;
                 }
+                finishLiveProgressCommand(safeCommand);
                 if (includeActivePortDetails && nokiaDetailMatcher.matches()) {
                     expandedNokiaPorts.add(
                             nokiaDetailMatcher.group(1).toLowerCase(Locale.ROOT));
@@ -1326,6 +1335,7 @@ public class Telnet_Multi {
                     for (String port : extractNokiaActivePorts(response, 64)) {
                         expandedNokiaPorts.add(port.toLowerCase(Locale.ROOT));
                         String detailCommand = "show port " + port;
+                        startLiveProgressCommand(detailCommand, true);
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
                         String detailResponse = readUntilPromptOnlyLarge("#", ">");
@@ -1333,6 +1343,7 @@ public class Telnet_Multi {
                         if (isTimeoutResponse(detailResponse)) {
                             return detailResponse;
                         }
+                        finishLiveProgressCommand(detailCommand);
                         sleepQuietly(50);
                     }
                 }
@@ -1344,6 +1355,7 @@ public class Telnet_Multi {
                             nokiaPortSummaryResponse, response, expandedNokiaPorts, remaining)) {
                         expandedNokiaPorts.add(port.toLowerCase(Locale.ROOT));
                         String detailCommand = "show port " + port;
+                        startLiveProgressCommand(detailCommand, true);
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
                         String detailResponse = readUntilPromptOnlyLarge("#", ">");
@@ -1351,6 +1363,7 @@ public class Telnet_Multi {
                         if (isTimeoutResponse(detailResponse)) {
                             return detailResponse;
                         }
+                        finishLiveProgressCommand(detailCommand);
                         sleepQuietly(50);
                     }
                 }
@@ -1364,6 +1377,7 @@ public class Telnet_Multi {
                     for (String port : extractHuaweiActivePorts(response, 64)) {
                         String detailCommand = "display interface "
                                 + com.java.tools.linkoptical.HuaweiLivePort.commandArgument(port);
+                        startLiveProgressCommand(detailCommand, true);
                         transcript.append(liveTranscriptCommand(detailCommand)).append('\n');
                         write(detailCommand);
                         String detailResponse = readUntilPromptOnlyLarge("#", ">");
@@ -1374,12 +1388,93 @@ public class Telnet_Multi {
                             break;
                         }
                         transcript.append(detailResponse == null ? "" : detailResponse).append('\n');
+                        finishLiveProgressCommand(detailCommand);
                         sleepQuietly(35);
                     }
                 }
                 sleepQuietly(100);
             }
             return transcript.toString();
+        }
+
+        private static boolean isLiveDataCommand(String command) {
+            String value = safeTrim(command).toLowerCase(Locale.ROOT);
+            return value.startsWith("show ") || value.startsWith("display ")
+                    || value.equals("admin display-config") || value.startsWith("admin display-config ");
+        }
+
+        private static int liveProgressProperty(String name, int fallback) {
+            try {
+                return Math.max(0, Integer.parseInt(safeTrim(System.getProperty(name))));
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+
+        private void beginLiveProgress(List<String> commands) {
+            int dataCommands = 0;
+            for (String command : commands) if (isLiveDataCommand(command)) dataCommands++;
+            liveProgressCompleted = liveProgressProperty("true.log.progress.offset", 0);
+            liveProgressExpected = Math.max(liveProgressCompleted + dataCommands,
+                    liveProgressProperty("true.log.progress.total", 0));
+            liveProgressCommand = "";
+            publishLiveProgress("COLLECTING", true);
+        }
+
+        private void startLiveProgressCommand(String command, boolean dynamic) {
+            if (!isLiveDataCommand(command)) return;
+            if (liveProgressCompleted < 0) beginLiveProgress(java.util.Collections.singletonList(command));
+            if (dynamic) liveProgressExpected++;
+            liveProgressCommand = safeTrim(command);
+            publishLiveProgress("COLLECTING", true);
+        }
+
+        private void finishLiveProgressCommand(String command) {
+            if (!isLiveDataCommand(command)) return;
+            liveProgressCompleted++;
+            liveProgressExpected = Math.max(liveProgressExpected, liveProgressCompleted);
+            liveProgressCommand = safeTrim(command);
+            publishLiveProgress("COLLECTING", true);
+        }
+
+        private void recordLiveProgressActivity() {
+            if (safeTrim(System.getProperty("true.log.progress.file")).isEmpty()) return;
+            liveProgressLastActivityAt = System.currentTimeMillis();
+            if (liveProgressLastActivityAt - liveProgressLastWriteAt >= 1000L) {
+                publishLiveProgress("COLLECTING", false);
+            }
+        }
+
+        private void publishLiveProgress(String state, boolean force) {
+            String configured = safeTrim(System.getProperty("true.log.progress.file"));
+            if (configured.isEmpty()) return;
+            long now = System.currentTimeMillis();
+            if (!force && now - liveProgressLastWriteAt < 1000L) return;
+            try {
+                Path file = new File(configured).toPath().toAbsolutePath().normalize();
+                Path parent = file.getParent();
+                if (parent == null || !Files.isDirectory(parent)) return;
+                Properties progress = new Properties();
+                progress.setProperty("state", safeTrim(state));
+                progress.setProperty("phase", safeTrim(System.getProperty("true.log.progress.phase")));
+                progress.setProperty("completed", String.valueOf(Math.max(0, liveProgressCompleted)));
+                progress.setProperty("total", String.valueOf(Math.max(0, liveProgressExpected)));
+                progress.setProperty("currentCommand", safeTrim(liveProgressCommand));
+                progress.setProperty("updatedAt", String.valueOf(now));
+                progress.setProperty("lastActivityAt", String.valueOf(liveProgressLastActivityAt));
+                Path temporary = parent.resolve(file.getFileName().toString() + ".tmp");
+                try (OutputStream output = Files.newOutputStream(temporary)) {
+                    progress.store(output, "TRUE live collection progress");
+                }
+                try {
+                    Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                    Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+                }
+                liveProgressLastWriteAt = now;
+            } catch (Exception ignored) {
+                // Progress reporting must never interrupt collection.
+            }
         }
 
         private String liveTranscriptCommand(String command) {
@@ -1746,7 +1841,7 @@ public class Telnet_Multi {
         }
 
         private String readUntilPromptOnlyLarge(String... patterns) {
-            return readUntilInternal(patterns, false, 2_000_000);
+            return readUntilInternal(patterns, false, 2_000_000, lastPromptToken);
         }
 
         private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt) {
@@ -1754,6 +1849,11 @@ public class Telnet_Multi {
         }
 
         private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt, int maxBufferChars) {
+            return readUntilInternal(patterns, stopOnAuthPrompt, maxBufferChars, "");
+        }
+
+        private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt, int maxBufferChars,
+                String establishedPrompt) {
             try {
                 StringBuilder sb = new StringBuilder(4096);
                 StringBuilder lowerTail = new StringBuilder(256);
@@ -1776,6 +1876,7 @@ public class Telnet_Multi {
                     if (c == -1) {
                         break;
                     }
+                    recordLiveProgressActivity();
                     char ch = (char) c;
                     sb.append(ch);
                     appendLowerTail(lowerTail, ch, READ_MATCH_WINDOW_CHARS);
@@ -1783,7 +1884,10 @@ public class Telnet_Multi {
 
                     if (shouldInspectReadBuffer(ch, sb.length())) {
                         String promptToken = extractPromptToken(lowerTail);
-                        if (matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)) {
+                        boolean promptMatched = hasUsableEstablishedPrompt(establishedPrompt)
+                                ? matchesEstablishedPrompt(promptToken, establishedPrompt)
+                                : matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns);
+                        if (promptMatched) {
                             String data = sb.toString();
                             lastPromptToken = extractPromptToken(data);
                             return data;
@@ -1809,6 +1913,23 @@ public class Telnet_Multi {
                 return "[TIMEOUT-READ]";
             }
             return "";
+        }
+
+        private static boolean hasUsableEstablishedPrompt(String prompt) {
+            return normalizeEstablishedPrompt(prompt).matches(".*[a-z0-9].*");
+        }
+
+        private static boolean matchesEstablishedPrompt(String candidate, String expected) {
+            String normalizedCandidate = normalizeEstablishedPrompt(candidate);
+            String normalizedExpected = normalizeEstablishedPrompt(expected);
+            return !normalizedCandidate.isEmpty() && normalizedCandidate.equals(normalizedExpected);
+        }
+
+        private static String normalizeEstablishedPrompt(String prompt) {
+            String value = cleanPromptToken(prompt).toLowerCase(Locale.ROOT);
+            while (value.startsWith("*")) value = value.substring(1);
+            if (value.matches("^[ab]:.+[>#]$")) value = value.substring(2);
+            return value;
         }
 
         private String readPreLoginBanner(int totalTimeoutMs) {

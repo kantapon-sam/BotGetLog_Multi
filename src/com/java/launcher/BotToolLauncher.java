@@ -68,9 +68,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.0: Add multi-vendor SID collection, Loopback/SID reports, SID.jar, and TrueLogs
-    // integration for Huawei, ZTE, and Nokia.
-    private static final String FALLBACK_VERSION = "1.2.0";
+    // Version 1.2.1: Match command completion to the authenticated device hostname so Nokia
+    // description text ending in # cannot truncate True Logs output; preserve Nokia A/B prompt
+    // contexts and live progress.
+    private static final String FALLBACK_VERSION = "1.2.1";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
