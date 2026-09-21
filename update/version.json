@@ -1,6 +1,6 @@
 {
-  "version": "1.2.1",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.1/BotGetLog_Multi-dist-1.2.1.zip",
-  "sha256": "2f00cd6157d85111ad9b0eb771d8748c77ffec23b0e934e2649dd23ea9ecd46c",
-  "notes": "Released 1.2.1: Match command completion to the authenticated device hostname so Nokia description text ending in # cannot truncate True Logs output; preserve Nokia A/B prompt contexts and live progress."
+  "version": "1.2.2",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.2/BotGetLog_Multi-dist-1.2.2.zip",
+  "sha256": "9f1000b7ccd2338ef9f0c34d995bf6ac5b88a3d4835f59dbade8884be2a7441f",
+  "notes": "Released 1.2.2: Fix Nokia decimal wavelength, flagged RX thresholds and one/multiple optical lanes; prevent stale per-port optical values."
 }

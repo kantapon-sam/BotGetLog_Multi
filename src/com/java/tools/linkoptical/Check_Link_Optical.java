@@ -1180,25 +1180,20 @@ Pattern pHasNeighbor = Pattern.compile(
 
             List<Map<String, String>> opticalRecords = new ArrayList<>();
 
+            NokiaOpticalMetrics optics = new NokiaOpticalMetrics();
             boolean inShowPort = false;
             String portName = "";
             String description = "";
             String operSpeed = "";
             String adminState = "";
             String operState = "";
-            String opticWavelength = "";
             String opticalCompliance = "";
             String linkLength = "";
-            String opticRxPower = "";
-            String opticTxPower = "";
             String serialNo = "";
             String partNo = "";
             String modelNo = "";
-            String rxLowWarn = "";
             String fcsErrors = "";
 
-            List<Float> txVals = new ArrayList<>();
-            List<Float> rxVals = new ArrayList<>();
             for (int i = 0; i < lines.size(); i++) {
                 String l = lines.get(i).trim();
 
@@ -1212,12 +1207,12 @@ Pattern pHasNeighbor = Pattern.compile(
                         rec.put("AdminState", adminState);
                         rec.put("OperState", operState);
                         rec.put("Speed", operSpeed);
-                        rec.put("Wavelength", opticWavelength);
+                        rec.put("Wavelength", optics.wavelength());
                         rec.put("OpticalCompliance", opticalCompliance);
                         rec.put("Length", linkLength);
-                        rec.put("RxPower", opticRxPower);
-                        rec.put("RxLowWarm", rxLowWarn);
-                        rec.put("TxPower", opticTxPower);
+                        rec.put("RxPower", optics.rx());
+                        rec.put("RxLowWarm", optics.lowWarn());
+                        rec.put("TxPower", optics.tx());
                         rec.put("SerialNo", serialNo);
                         rec.put("PartNo", partNo);
                         rec.put("ModelNo", modelNo);
@@ -1228,9 +1223,9 @@ Pattern pHasNeighbor = Pattern.compile(
                     }
 
                     inShowPort = false;
-                    portName = description = operSpeed = adminState = operState = opticWavelength
-                            = opticalCompliance = linkLength = opticRxPower = opticTxPower
-                            = serialNo = partNo = modelNo = "";
+                    portName = description = operSpeed = adminState = operState
+                            = opticalCompliance = linkLength = serialNo = partNo = modelNo = "";
+                    optics = new NokiaOpticalMetrics();
                 }
 
                 if (!inShowPort && l.startsWith("Description")) {
@@ -1274,6 +1269,7 @@ Pattern pHasNeighbor = Pattern.compile(
                     continue;
                 }
 
+                optics.accept(l);
                 if (l.startsWith("Interface")) {
                     Matcher m = Pattern.compile("Interface\\s*:\\s*([^\\s]+)").matcher(l);
                     if (m.find()) {
@@ -1294,11 +1290,6 @@ Pattern pHasNeighbor = Pattern.compile(
                     if (oper.find()) {
                         operState = oper.group(1).trim();
                     }
-                } else if (l.startsWith("TX Laser Wavelength")) {
-                    Matcher m = Pattern.compile("TX Laser Wavelength\\s*:\\s*([0-9]+\\s*nm)", Pattern.CASE_INSENSITIVE).matcher(l);
-                    if (m.find()) {
-                        opticWavelength = m.group(1).trim();
-                    }
                 } else if (l.startsWith("Optical Compliance")) {
                     opticalCompliance = l.split(":", 2)[1].trim();
                 } else if (l.startsWith("Link Length support")) {
@@ -1308,62 +1299,6 @@ Pattern pHasNeighbor = Pattern.compile(
                         linkLength = m.group(1).replaceAll("\\s+", "");
                     } else {
                         linkLength = "";
-                    }
-                } else if (l.startsWith("Rx Optical Power")) {
-                    Matcher m = Pattern.compile(
-                            "(?i)Rx Optical Power.*?\\)\\s*([-0-9\\.]+)\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)"
-                    ).matcher(l);
-
-                    if (m.find()) {
-                        opticRxPower = m.group(1).trim();
-                        rxLowWarn = m.group(4).trim();
-                    }
-                } else if (l.startsWith("Tx Output Power")) {
-                    Matcher m = Pattern.compile("(?i)Tx Output Power.*?\\)\\s*([-0-9\\.]+)").matcher(l);
-                    if (m.find()) {
-                        opticTxPower = m.group(1).trim();
-                    }
-                } else if (l.toLowerCase().startsWith("lane rx optical")) {
-
-                    Matcher m = Pattern.compile(
-                            "(?i)Lane Rx Optical Pwr.*?([-0-9\\.]+)\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)"
-                    ).matcher(l);
-                    if (m.find()) {
-                        rxLowWarn = m.group(3).trim();
-                    }
-
-                } else if (l.matches("^\\s*\\d+\\s+[+\\-0-9\\.]+\\s+[+\\-0-9\\.]+\\s+[+\\-0-9\\.]+\\s+[+\\-0-9\\.]+\\s*$")) {
-
-                    Matcher lane = Pattern.compile(
-                            "^\\s*(\\d+)\\s+[+\\-0-9\\.]+\\s+[+\\-0-9\\.]+\\s+([-0-9\\.]+)\\s+([-0-9\\.]+)"
-                    ).matcher(l);
-
-                    if (lane.find()) {
-                        try {
-                            float tx = Float.parseFloat(lane.group(2));
-                            float rx = Float.parseFloat(lane.group(3));
-                            txVals.add(tx);
-                            rxVals.add(rx);
-
-                            if (txVals.size() == 4 && rxVals.size() == 4) {
-                                float sumTx = 0, sumRx = 0;
-                                for (int iVal = 0; iVal < 4; iVal++) {
-                                    sumTx += txVals.get(iVal);
-                                    sumRx += rxVals.get(iVal);
-                                }
-                                float avgTx = sumTx / 4;
-                                float avgRx = sumRx / 4;
-
-                                opticTxPower = String.format("%.2f", avgTx);
-                                opticRxPower = String.format("%.2f", avgRx);
-
-                                txVals.clear();
-                                rxVals.clear();
-                            }
-
-                        } catch (Exception e) {
-                            System.err.println("Parse error line: " + l);
-                        }
                     }
                 } else if (l.startsWith("Serial Number")) {
                     serialNo = l.split(":", 2)[1].trim();
@@ -1389,12 +1324,12 @@ Pattern pHasNeighbor = Pattern.compile(
                 rec.put("AdminState", adminState);
                 rec.put("OperState", operState);
                 rec.put("Speed", operSpeed);
-                rec.put("Wavelength", opticWavelength);
+                rec.put("Wavelength", optics.wavelength());
                 rec.put("OpticalCompliance", opticalCompliance);
                 rec.put("Length", linkLength);
-                rec.put("RxPower", opticRxPower);
-                rec.put("RxLowWarm", rxLowWarn);
-                rec.put("TxPower", opticTxPower);
+                rec.put("RxPower", optics.rx());
+                rec.put("RxLowWarm", optics.lowWarn());
+                rec.put("TxPower", optics.tx());
                 rec.put("SerialNo", serialNo);
                 rec.put("PartNo", partNo);
                 rec.put("ModelNo", modelNo);

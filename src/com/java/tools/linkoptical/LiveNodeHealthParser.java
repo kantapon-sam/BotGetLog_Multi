@@ -337,35 +337,18 @@ public final class LiveNodeHealthParser {
                 state = normalizePortStatus(stateMatcher.group(1));
             }
             String speed = nokiaConfiguredSpeed(block);
-            String wavelength = "";
-            Matcher wavelengthMatcher = Pattern.compile(
-                    "(?im)^\\s*TX Laser Wavelength\\s*:\\s*([0-9.]+)\\s*nm").matcher(block);
-            if (wavelengthMatcher.find()) {
-                wavelength = wavelengthMatcher.group(1) + "nm";
-            }
+            NokiaOpticalMetrics optics = new NokiaOpticalMetrics();
+            for (String opticalLine : block.split("\\r?\\n")) optics.accept(opticalLine);
+            String wavelength = optics.wavelength().replace(" ", "");
             String distance = "";
             Matcher distanceMatcher = Pattern.compile(
                     "(?im)^\\s*Link Length support\\s*:.*?([0-9.]+)\\s*(km|m)\\b").matcher(block);
             if (distanceMatcher.find()) {
                 distance = distanceMatcher.group(1) + distanceMatcher.group(2).toLowerCase(Locale.ROOT);
             }
-            Double tx = null;
-            Matcher txMatcher = Pattern.compile(
-                    "(?im)^\\s*Tx Output Power.*?\\)\\s*([-+0-9.]+)").matcher(block);
-            if (txMatcher.find()) {
-                tx = number(txMatcher.group(1));
-            }
-            Double rx = null;
-            String warning = "";
-            Matcher rxMatcher = Pattern.compile(
-                    "(?im)^\\s*Rx Optical Power.*?\\)\\s*([-+0-9.]+)[!*]?\\s+"
-                    + "([-+0-9.]+)[!*]?\\s+([-+0-9.]+)[!*]?\\s+"
-                    + "([-+0-9.]+)[!*]?\\s+([-+0-9.]+)[!*]?")
-                    .matcher(block);
-            if (rxMatcher.find()) {
-                rx = number(rxMatcher.group(1));
-                warning = "[" + rxMatcher.group(4) + "<>" + rxMatcher.group(3) + "]";
-            }
+            Double tx = number(optics.tx());
+            Double rx = number(optics.rx());
+            String warning = optics.warningRange();
             Long fcsErrors = null;
             Matcher fcsMatcher = Pattern.compile(
                     "(?im)^\\s*FCS Errors\\s*:\\s*(\\d+)\\b").matcher(block);
