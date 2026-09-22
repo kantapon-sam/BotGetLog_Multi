@@ -68,8 +68,8 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.2: Fix Nokia decimal wavelength, flagged RX thresholds and one/multiple optical
-    // lanes; prevent stale per-port optical values.
+    // Version 1.2.3: Add Juniper MX2020 CPU and memory, port status, CRC and optical monitoring;
+    // include eight nodes and Junos prompt handling.
     private static final String FALLBACK_VERSION = "1.2.3";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";

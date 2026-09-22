@@ -1,6 +1,6 @@
 {
-  "version": "1.2.2",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.2/BotGetLog_Multi-dist-1.2.2.zip",
-  "sha256": "9f1000b7ccd2338ef9f0c34d995bf6ac5b88a3d4835f59dbade8884be2a7441f",
-  "notes": "Released 1.2.2: Fix Nokia decimal wavelength, flagged RX thresholds and one/multiple optical lanes; prevent stale per-port optical values."
+  "version": "1.2.3",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.3/BotGetLog_Multi-dist-1.2.3.zip",
+  "sha256": "79c71d1e492b8d964357d77d7f52b32ffaf26ef74deebccc7e64fd07c0662014",
+  "notes": "Released 1.2.3: Add Juniper MX2020 CPU and memory, port status, CRC and optical monitoring; include eight nodes and Junos prompt handling."
 }
