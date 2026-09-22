@@ -5911,6 +5911,9 @@ public class Telnet_Multi {
     }
 
     private static boolean isValidLogHead(File logFile, String device, String cmdSet) {
+        if (JuniperLogValidation.isJuniper(cmdSet)) {
+            return JuniperLogValidation.hasValidHead(logFile, device);
+        }
         String head = readLogHead(logFile, 20);
         if (head.isEmpty()) {
             return false;

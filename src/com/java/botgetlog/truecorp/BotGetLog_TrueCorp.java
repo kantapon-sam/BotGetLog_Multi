@@ -3186,8 +3186,12 @@ public class BotGetLog_TrueCorp {
             return false;
         }
 
+        boolean lastCommandComplete = JuniperLogValidation.isJuniper(safeCmdSet)
+                && JuniperLogValidation.isClosingCommand(safeLastCommand)
+                ? JuniperLogValidation.hasCompletedClose(logFile, extractDeviceFromLogName(logFile.getName()), safeLastCommand)
+                : containsPromptPlusLastCommand(logFile, safeLastCommand);
         boolean commandBoundariesComplete = containsPromptPlusFirstCommand(logFile, safeFirstCommand)
-                && containsPromptPlusLastCommand(logFile, safeLastCommand);
+                && lastCommandComplete;
         if (!commandBoundariesComplete) {
             return false;
         }
@@ -3487,6 +3491,9 @@ public class BotGetLog_TrueCorp {
     }
 
     private static boolean isValidLogHead(File logFile, String device, String cmdSet) {
+        if (JuniperLogValidation.isJuniper(cmdSet)) {
+            return JuniperLogValidation.hasValidHead(logFile, device);
+        }
         String head = readLogHead(logFile, 20);
         if (head.isEmpty()) {
             return false;

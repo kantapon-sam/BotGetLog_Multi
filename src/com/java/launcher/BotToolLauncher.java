@@ -68,9 +68,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.5: Add Juniper quit command and match command-cell colors; retain CN type and
-    // 100G live speed fixes.
-    private static final String FALLBACK_VERSION = "1.2.5";
+    // Version 1.2.6: Fix repeated Juniper CN collection after successful completion. Recognize
+    // Junos role markers, normalized hostnames, and joined quit/connection-close output while
+    // rejecting incomplete or mismatched logs.
+    private static final String FALLBACK_VERSION = "1.2.6";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

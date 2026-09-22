@@ -1,6 +1,6 @@
 {
-  "version": "1.2.5",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.5/BotGetLog_Multi-dist-1.2.5.zip",
-  "sha256": "1ea666f9d3fdb20a2de43e34721210ce7cad0d5cee2857edfc8c608a2fa4ab6a",
-  "notes": "Released 1.2.5: Add Juniper quit command and match command-cell colors; retain CN type and 100G live speed fixes."
+  "version": "1.2.6",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.6/BotGetLog_Multi-dist-1.2.6.zip",
+  "sha256": "867e34d693fed5f759cda6203c35c1dd4a2228ee04b13d4ce39afec13d983207",
+  "notes": "Released 1.2.6: Fix repeated Juniper CN collection after successful completion. Recognize Junos role markers, normalized hostnames, and joined quit/connection-close output while rejecting incomplete or mismatched logs."
 }
