@@ -70,7 +70,7 @@ public class BotToolLauncher {
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
     // Version 1.2.2: Fix Nokia decimal wavelength, flagged RX thresholds and one/multiple optical
     // lanes; prevent stale per-port optical values.
-    private static final String FALLBACK_VERSION = "1.2.2";
+    private static final String FALLBACK_VERSION = "1.2.3";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

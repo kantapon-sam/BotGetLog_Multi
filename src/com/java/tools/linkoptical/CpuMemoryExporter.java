@@ -125,6 +125,52 @@ public final class CpuMemoryExporter {
         } else if (containsIgnoreCase(content, "display cpu-usage")) {
             row.siteCode = firstGroup(HUAWEI_PROMPT, content);
             parseHuawei(content, row);
+        } else if (containsIgnoreCase(content, "show chassis routing-engine")) {
+            parseJuniper(content, row);
+        }
+    }
+
+    private static void parseJuniper(String content, CpuMemoryRow row) {
+        String section = content;
+        int command = content.toLowerCase(Locale.ROOT).indexOf("show chassis routing-engine");
+        if (command >= 0) section = content.substring(command);
+        Matcher slot = Pattern.compile("(?mi)^\\s*Slot\\s+\\d+:\\s*$").matcher(section);
+        String first = "";
+        String master = "";
+        int start = -1;
+        while (slot.find()) {
+            if (start >= 0) {
+                String candidate = section.substring(start, slot.start());
+                if (first.isEmpty()) first = candidate;
+                if (candidate.matches("(?s).*?Current state\\s+Master.*")) master = candidate;
+            }
+            start = slot.end();
+        }
+        if (start >= 0) {
+            String candidate = section.substring(start);
+            if (first.isEmpty()) first = candidate;
+            if (candidate.matches("(?s).*?Current state\\s+Master.*")) master = candidate;
+        }
+        if (!master.isEmpty()) section = master;
+        else if (!first.isEmpty()) section = first;
+        int nextCommand = section.indexOf("show interfaces ");
+        if (nextCommand >= 0) section = section.substring(0, nextCommand);
+        row.memoryUsedPct = matchNumber(section,
+                "(?mi)^\\s*Memory utilization\\s+([\\d.]+)\\s+percent", 1);
+        row.memoryTotalMb = matchNumber(section,
+                "(?mi)^\\s*DRAM\\s+[\\d,]+\\s+MB\\s+\\(([\\d,]+)\\s+MB installed\\)", 1);
+        if (row.memoryTotalMb == null) row.memoryTotalMb = matchNumber(section,
+                "(?mi)^\\s*DRAM\\s+([\\d,]+)\\s+MB", 1);
+        String cpuSection = section;
+        int cpu = section.indexOf("CPU utilization:");
+        if (cpu >= 0) cpuSection = section.substring(cpu);
+        row.cpuIdlePct = matchNumber(cpuSection,
+                "(?mi)^\\s*Idle\\s+([\\d.]+)\\s+percent", 1);
+        if (row.cpuIdlePct != null) row.cpuCurrentPct = 100.0d - row.cpuIdlePct;
+        if (row.memoryTotalMb != null && row.memoryUsedPct != null) {
+            row.memoryUsedMb = row.memoryTotalMb * row.memoryUsedPct / 100.0d;
+            row.memoryFreeMb = row.memoryTotalMb - row.memoryUsedMb;
+            row.memoryFreePct = 100.0d - row.memoryUsedPct;
         }
     }
 

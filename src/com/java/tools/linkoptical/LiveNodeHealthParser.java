@@ -22,6 +22,9 @@ public final class LiveNodeHealthParser {
         if (vendorCmdSet.isEmpty() || transcript == null || transcript.trim().isEmpty()) {
             return Collections.emptyList();
         }
+        if (vendorCmdSet.startsWith("J-")) {
+            return JuniperLivePortParser.parse(transcript);
+        }
         String syntheticPath = "[0]" + safe(ip) + "_" + safe(node) + "_"
                 + vendorCmdSet + "_LIVE.txt";
         try {
@@ -628,6 +631,9 @@ public final class LiveNodeHealthParser {
         }
         if (value.startsWith("H")) {
             return "HW-LLDP-Link_OPTIC";
+        }
+        if (value.startsWith("J")) {
+            return "J-LLDP-Link_OPTIC";
         }
         return "";
     }

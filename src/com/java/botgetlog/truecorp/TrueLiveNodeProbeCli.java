@@ -57,7 +57,7 @@ public final class TrueLiveNodeProbeCli {
             List<String> commands = commandsFor(cmdSet, metrics, node, nodeType, selectedPorts);
             if (commands.isEmpty()) {
                 printResult(errorJson(node, ip, cmdSet, "UNSUPPORTED_VENDOR",
-                        "Live monitoring supports Nokia, ZTE and Huawei command sets.", elapsed(startedAt)));
+                        "Live monitoring supports Nokia, ZTE, Huawei and Juniper command sets.", elapsed(startedAt)));
                 return 4;
             }
 
@@ -219,6 +219,23 @@ public final class TrueLiveNodeProbeCli {
                     detailCount++;
                 }
             }
+        }
+        else if (value.startsWith("J")) {
+            commands.put("set cli screen-length 0", Boolean.TRUE);
+            if (includesCpu(mode)) commands.put("show chassis routing-engine", Boolean.TRUE);
+            if (includesPorts(mode)) {
+                commands.put("show interfaces terse", Boolean.TRUE);
+                commands.put("show interfaces descriptions", Boolean.TRUE);
+            }
+            // A full MX2020 extensive dump can take minutes and exceed the live
+            // transcript buffer. Keep the scheduled cmdSet complete, but read
+            // only the physical-interface fields needed by the live table.
+            if (includesPortStatus(mode)) commands.put(
+                    "show interfaces extensive | match \"Physical interface|CRC/Align errors|Speed:|Description:\"", Boolean.TRUE);
+            if (includesOptical(mode)) commands.put(
+                    "show interfaces diagnostics optics * | match \"Physical interface|Laser (output|receiver) power +:|Laser rx power .*warning threshold\"",
+                    Boolean.TRUE);
+            if ("all".equals(mode)) commands.put("show lldp neighbors detail", Boolean.TRUE);
         }
         return new ArrayList<>(commands.keySet());
     }

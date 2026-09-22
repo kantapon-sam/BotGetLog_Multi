@@ -1887,6 +1887,15 @@ public class Telnet_Multi {
                         boolean promptMatched = hasUsableEstablishedPrompt(establishedPrompt)
                                 ? matchesEstablishedPrompt(promptToken, establishedPrompt)
                                 : matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns);
+                        // Junos redraws its prompt while echoing a command. A
+                        // carriage-return redraw is not the final CLI prompt;
+                        // the completed response ends with a prompt on a new
+                        // line. Without this check live probes advance before
+                        // optics or extensive output has even started.
+                        if (promptMatched && establishedPrompt.indexOf('@') >= 0) {
+                            int start = lowerTail.lastIndexOf(promptToken);
+                            promptMatched = start > 0 && lowerTail.charAt(start - 1) == '\n';
+                        }
                         if (promptMatched) {
                             String data = sb.toString();
                             lastPromptToken = extractPromptToken(data);
@@ -3395,6 +3404,12 @@ public class Telnet_Multi {
             if (matcher.find()) {
                 return matcher.group(1);
             }
+        } else if ("J".equals(vendor)) {
+            Matcher matcher = Pattern.compile(
+                    "(?i)((?:[A-Za-z0-9_.-]+@)+[A-Za-z0-9_.-]+[>#])").matcher(safeLine);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
         } else if ("ZTE".equals(vendor)) {
             String safeDevice = device == null ? "" : device.trim();
             Matcher matcher = Pattern.compile("([^\\s<>:#][^\\s#]*#)").matcher(safeLine);
@@ -3421,7 +3436,8 @@ public class Telnet_Multi {
         }
 
         String safeVendor = safeTrim(vendor).toUpperCase(Locale.ROOT);
-        if (!"HW".equals(safeVendor) && !"N".equals(safeVendor) && !"ZTE".equals(safeVendor)) {
+        if (!"HW".equals(safeVendor) && !"N".equals(safeVendor)
+                && !"J".equals(safeVendor) && !"ZTE".equals(safeVendor)) {
             return "";
         }
 
@@ -3481,7 +3497,7 @@ public class Telnet_Multi {
         return sanitizeFileNameComponent(value).replace('_', '-');
     }
 
-    private static String extractNodeNameFromPromptToken(String promptToken) {
+    static String extractNodeNameFromPromptToken(String promptToken) {
         String token = cleanPromptToken(promptToken);
         if (token.isEmpty()) {
             return "";
@@ -3501,6 +3517,13 @@ public class Telnet_Multi {
 
         if (token.matches("^[A-Za-z]:.+")) {
             token = token.substring(token.indexOf(':') + 1).trim();
+        }
+
+        // Junos prompts may include multiple login qualifiers. Keep the RE
+        // suffix because it is part of the reported node name.
+        if (token.indexOf('@') >= 0) {
+            token = token.substring(token.lastIndexOf('@') + 1);
+            return sanitizeFileNameComponent(token);
         }
 
         return sanitizeDeviceNameForFileName(token);
@@ -5621,6 +5644,9 @@ public class Telnet_Multi {
         if (trimmed.matches("^<[A-Za-z0-9_][A-Za-z0-9_.:/()-]*>.*")
                 || trimmed.matches("^\\[[~*]?[A-Za-z0-9_][A-Za-z0-9_.:/()-]*\\].*")) {
             return "HW";
+        }
+        if (trimmed.matches("(?i)^(?:[A-Za-z0-9_.-]+@)+[A-Za-z0-9_.-]+[>#].*")) {
+            return "J";
         }
         if (trimmed.matches("^[A-Za-z0-9_][A-Za-z0-9_.:/-]*(?:\\([A-Za-z0-9_.:/-]+\\))?[#>].*")) {
             return "ZTE";
