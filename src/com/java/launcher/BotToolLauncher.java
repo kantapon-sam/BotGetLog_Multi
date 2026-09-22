@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.4: Fix Juniper live port speed formatting and classify eight MX2020 nodes as CN;
-    // preserve existing workbook data during targeted Auto Update migration.
-    private static final String FALLBACK_VERSION = "1.2.4";
+    // Version 1.2.5: Add Juniper quit command and match command-cell colors; retain CN type and
+    // 100G live speed fixes.
+    private static final String FALLBACK_VERSION = "1.2.5";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

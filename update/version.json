@@ -1,6 +1,6 @@
 {
-  "version": "1.2.4",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.4/BotGetLog_Multi-dist-1.2.4.zip",
-  "sha256": "5af96c7c89215794c3d836d5cbace14e5075ab3c0266ab557a05d5ef2248eb21",
-  "notes": "Released 1.2.4: Fix Juniper live port speed formatting and classify eight MX2020 nodes as CN; preserve existing workbook data during targeted Auto Update migration."
+  "version": "1.2.5",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.5/BotGetLog_Multi-dist-1.2.5.zip",
+  "sha256": "1ea666f9d3fdb20a2de43e34721210ce7cad0d5cee2857edfc8c608a2fa4ab6a",
+  "notes": "Released 1.2.5: Add Juniper quit command and match command-cell colors; retain CN type and 100G live speed fixes."
 }
