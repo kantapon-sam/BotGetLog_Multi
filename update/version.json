@@ -1,6 +1,6 @@
 {
-  "version": "1.2.3",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.3/BotGetLog_Multi-dist-1.2.3.zip",
-  "sha256": "79c71d1e492b8d964357d77d7f52b32ffaf26ef74deebccc7e64fd07c0662014",
-  "notes": "Released 1.2.3: Add Juniper MX2020 CPU and memory, port status, CRC and optical monitoring; include eight nodes and Junos prompt handling."
+  "version": "1.2.4",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.4/BotGetLog_Multi-dist-1.2.4.zip",
+  "sha256": "5af96c7c89215794c3d836d5cbace14e5075ab3c0266ab557a05d5ef2248eb21",
+  "notes": "Released 1.2.4: Fix Juniper live port speed formatting and classify eight MX2020 nodes as CN; preserve existing workbook data during targeted Auto Update migration."
 }

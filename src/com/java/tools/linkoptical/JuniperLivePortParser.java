@@ -55,7 +55,7 @@ final class JuniperLivePortParser {
                 continue;
             }
             Matcher speed = Pattern.compile("\\bSpeed:\\s*([^,]+)", Pattern.CASE_INSENSITIVE).matcher(line);
-            if (speed.find() && current.speed.isEmpty()) current.speed = speed.group(1).trim();
+            if (speed.find() && current.speed.isEmpty()) current.speed = normalizeSpeed(speed.group(1));
             if (current.description.isEmpty()
                     && line.regionMatches(true, 0, "Description:", 0, 12)) {
                 current.description = line.substring(12).trim();
@@ -147,6 +147,13 @@ final class JuniperLivePortParser {
         if (value == null || value.isEmpty()) return null;
         try { return Long.valueOf(value.replace(",", "")); }
         catch (NumberFormatException ignored) { return null; }
+    }
+
+    private static String normalizeSpeed(String value) {
+        String speed = value == null ? "" : value.trim();
+        Matcher rate = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)\\s*([GMK])(?:bps|bit/s)$",
+                Pattern.CASE_INSENSITIVE).matcher(speed);
+        return rate.matches() ? rate.group(1) + rate.group(2).toUpperCase(Locale.ROOT) : speed;
     }
 
     private static final class PortData {

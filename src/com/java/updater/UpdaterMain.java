@@ -41,6 +41,11 @@ public class UpdaterMain {
     private static final String UPDATE_LOG_RELATIVE_DIR = "_output\\System_Log";
     private static final String USER_INPUT_FILE_NAME = "UserInterface_Input.xlsx";
     private static final String CMDSET_SHEET = "cmdSet";
+    private static final Set<String> JUNIPER_CN_NODES = new HashSet<String>(Arrays.asList(
+            "HAMMBKBD1KW|10.185.0.11", "HAMMBKBD15W|10.185.0.12",
+            "HAMMBKBD26W|10.185.0.13", "HAMMBKBD27W|10.185.0.14",
+            "CWTTNTBB2EW|10.185.0.21", "CWTTNTBB24W|10.185.0.22",
+            "PTT021OP05M|10.185.0.31", "PTT021OP06M|10.185.0.32"));
     private static final Set<String> PRESERVED_TOP_LEVEL = new HashSet<String>(
             Arrays.asList("UserInterface_Input.xlsx", "_output"));
     private static final Set<String> APP_MANAGED_TOP_LEVEL = new HashSet<String>(
@@ -250,6 +255,7 @@ public class UpdaterMain {
                     target.setSheetOrder(CMDSET_SHEET, existingIndex);
                 }
                 copySheetContent(sourceSheet, targetSheet);
+                updateJuniperNodeTypes(target, source);
 
                 try (FileOutputStream output = new FileOutputStream(tempWorkbook.toFile())) {
                     target.write(output);
@@ -262,7 +268,7 @@ public class UpdaterMain {
                     ".xlsx", "_before_cmdSet_" + System.currentTimeMillis() + ".xlsx"));
             Files.copy(userWorkbook, backup, StandardCopyOption.REPLACE_EXISTING);
             Files.move(tempWorkbook, userWorkbook, StandardCopyOption.REPLACE_EXISTING);
-            log(targetRoot.toFile(), "Synchronized only cmdSet in UserInterface_Input.xlsx. Backup: "
+            log(targetRoot.toFile(), "Synchronized cmdSet and matching Juniper CN types in UserInterface_Input.xlsx. Backup: "
                     + backup.getFileName());
         } catch (Exception e) {
             log(targetRoot.toFile(), "cmdSet sync failed; original workbook was not replaced: "
@@ -273,6 +279,42 @@ public class UpdaterMain {
             } catch (IOException ignored) {
             }
         }
+    }
+
+    private static int updateJuniperNodeTypes(Workbook target, Workbook source) {
+        Sheet defaults = source.getSheet("deviceList_TRUE");
+        Sheet installed = target.getSheet("deviceList_TRUE");
+        if (defaults == null || installed == null) return 0;
+        Set<String> eligible = new HashSet<String>();
+        for (Row row : defaults) {
+            String identity = cellText(row, 2) + "|" + cellText(row, 3);
+            if (JUNIPER_CN_NODES.contains(identity) && "CN".equalsIgnoreCase(cellText(row, 1))
+                    && "J-LLDP-Link_OPTIC".equalsIgnoreCase(cellText(row, 4))) {
+                eligible.add(identity);
+            }
+        }
+        int changed = 0;
+        for (Row row : installed) {
+            String identity = cellText(row, 2) + "|" + cellText(row, 3);
+            if (eligible.contains(identity) && "MX2020".equalsIgnoreCase(cellText(row, 1))
+                    && "J-LLDP-Link_OPTIC".equalsIgnoreCase(cellText(row, 4))) {
+                Cell previousType = row.getCell(1);
+                CellStyle style = previousType.getCellStyle();
+                // Existing inventories use inlineStr cells. Recreate the cell because
+                // XSSFCell#setCellValue can leave their old inline text intact.
+                row.removeCell(previousType);
+                Cell newType = row.createCell(1, CellType.STRING);
+                newType.setCellStyle(style);
+                newType.setCellValue("CN");
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static String cellText(Row row, int column) {
+        Cell cell = row == null ? null : row.getCell(column);
+        return cell == null ? "" : cell.toString().trim();
     }
 
     private static void copySheetContent(Sheet source, Sheet target) {

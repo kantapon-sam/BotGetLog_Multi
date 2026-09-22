@@ -32,6 +32,7 @@ public final class JuniperLiveNodeRegression {
                 + "et-4/0/0                up    up\n"
                 + "et-4/0/0.0              up    up inet\n"
                 + "xe-4/0/1                up    down\n"
+                + "et-4/0/2                up    down\n"
                 + "user@HAMMBKBD1KW> show interfaces descriptions\n"
                 + "et-4/0/0                up    up   To-Core\n"
                 + "xe-4/0/1                up    down Spare\n"
@@ -42,6 +43,8 @@ public final class JuniperLiveNodeRegression {
                 + "Physical interface: xe-4/0/1, Enabled, Physical link is Down\n"
                 + "  Link-level type: Ethernet, MTU: 9192, Speed: 10Gbps\n"
                 + "  CRC/Align errors: 0\n"
+                + "Physical interface: et-4/0/2, Enabled, Physical link is Down\n"
+                + "  Link-level type: Ethernet, MTU: 9192, Speed: 100Gbps\n"
                 + "user@HAMMBKBD1KW> show interfaces diagnostics optics *\n"
                 + "Physical interface: et-4/0/0\n"
                 + "  Laser output power: 1.000 mW / 0.00 dBm\n"
@@ -60,10 +63,10 @@ public final class JuniperLiveNodeRegression {
                 "master RE memory");
         List<LiveNodeHealthParser.PortSnapshot> ports = LiveNodeHealthParser.parsePorts(
                 "HAMMBKBD1KW", "10.185.0.11", "J-LLDP-Link_OPTIC", transcript);
-        require(ports.size() == 2, "physical ports only: " + ports.size());
+        require(ports.size() == 3, "physical ports only: " + ports.size());
         LiveNodeHealthParser.PortSnapshot first = ports.get(0);
         require("et-4/0/0".equals(first.port) && "UP".equals(first.portStatus)
-                && "To-Core".equals(first.description) && "100Gbps".equals(first.speed)
+                && "To-Core".equals(first.description) && "100G".equals(first.speed)
                 && Long.valueOf(7).equals(first.crcInput)
                 && Long.valueOf(2).equals(first.crcOutput)
                 && Long.valueOf(9).equals(first.crcTotal)
@@ -71,7 +74,10 @@ public final class JuniperLiveNodeRegression {
                 && first.txPowerDbm == 1.0d && "NORMAL".equals(first.opticalStatus),
                 "first port status, CRC and optics");
         require("DOWN".equals(ports.get(1).portStatus)
+                && "10G".equals(ports.get(1).speed)
                 && !ports.get(1).hasOpticalData, "second port isolation");
+        require("DOWN".equals(ports.get(2).portStatus)
+                && "100G".equals(ports.get(2).speed), "down Juniper port speed");
         require("J".equals(Telnet_Multi.detectVendorFromPrompt(
                 "vdes2442@clls@HAMMBKBD02W_re0>", "HW", false)), "Junos prompt detected");
         require("HAMMBKBD02W_re0".equals(Telnet_Multi.extractNodeNameFromPromptToken(
