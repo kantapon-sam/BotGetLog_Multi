@@ -33,13 +33,24 @@ public final class DailyCollectionBudget {
     private final Clock clock;
     private final ReentrantLock mutex;
     private final Map<String, String> prepaid = new HashMap<>();
+    private String onceDay = "";
+    private java.nio.file.attribute.FileTime onceModified;
+    private long onceSize = -1;
+    private Set<String> onceIps = Collections.emptySet();
+    interface CompletionCheck { boolean complete(java.io.File file, String commandSet) throws IOException; }
+    private final CompletionCheck completionCheck;
 
     public DailyCollectionBudget(Path directory, int limit, Clock clock) throws IOException {
+        this(directory, limit, clock, DailyCollectionBudget::validateLog);
+    }
+
+    DailyCollectionBudget(Path directory, int limit, Clock clock, CompletionCheck completionCheck) throws IOException {
         if (limit < 1 || limit > 20 || clock == null) throw new IllegalArgumentException("Invalid daily collection budget");
         Files.createDirectories(directory);
         this.root = directory.toRealPath();
         this.limit = limit;
         this.clock = clock;
+        this.completionCheck = completionCheck;
         this.mutex = MUTEXES.computeIfAbsent(root, key -> new ReentrantLock(true));
         locked(() -> {
             Path config = root.resolve("config.properties");
@@ -98,7 +109,7 @@ public final class DailyCollectionBudget {
         final String ip = ip(rawIp);
         return locked(() -> {
             String day = day();
-            return day.equals(prepaid.get(ip)) || count(day, ip) < limit;
+            return day.equals(prepaid.get(ip)) || (!rxComplete(day, ip) && count(day, ip) < limit);
         });
     }
 
@@ -111,6 +122,10 @@ public final class DailyCollectionBudget {
                 return true;
             }
             int used = count(day, ip);
+            if (rxComplete(day, ip)) {
+                defer(day, ip, "RX_LOG_ALREADY_COMPLETE");
+                return false;
+            }
             if (used >= limit) {
                 defer(day, ip, "DAILY_LIMIT");
                 return false;
@@ -144,7 +159,7 @@ public final class DailyCollectionBudget {
                 if (!selectedIps.contains(pair[0]) || !selectedIps.contains(pair[1])) reason = "PAIR_INCOMPLETE_SELECTION";
                 else if (Files.exists(pairFile(day, key))) reason = "PAIR_ALREADY_TRIED";
                 else for (String member : pair) {
-                    if (!day.equals(prepaid.get(member)) && count(day, member) >= limit) reason = "PAIR_DAILY_LIMIT";
+                    if (!day.equals(prepaid.get(member)) && (rxComplete(day, member) || count(day, member) >= limit)) reason = "PAIR_DAILY_LIMIT";
                 }
                 if (reason != null) {
                     for (String member : pair) { blocked.add(member); defer(day, member, reason); }
@@ -173,6 +188,133 @@ public final class DailyCollectionBudget {
     }
 
     private String day() { return LocalDate.now(clock.withZone(ZONE)).toString(); }
+
+    /** Restrict named Rx targets to one complete log/day across all scheduled reasons.
+     * Additive registration cannot erase another planner's restrictions or reset counters.
+     */
+    public int registerDailyOnce(List<String> rawIps, String expectedDay) throws IOException {
+        final Set<String> additions = new java.util.TreeSet<>();
+        for (String raw : rawIps) if (!raw.trim().isEmpty()) additions.add(ip(raw));
+        return locked(() -> {
+            String today = day();
+            if (!today.equals(expectedDay)) throw new IOException("Rx plan crossed Bangkok midnight; rebuild it");
+            Set<String> all = new java.util.TreeSet<>(readOnce(today));
+            all.addAll(additions);
+            StringBuilder text = new StringBuilder("version=1\nday=").append(today).append('\n');
+            for (String member : all) text.append(member).append("=1\n");
+            write(onceFile(today), text.toString());
+            onceModified = null;
+            return all.size();
+        });
+    }
+
+    private Path onceFile(String day) { return root.resolve(day).resolve("rx-once-per-day.properties"); }
+
+    private Set<String> readOnce(String day) throws IOException {
+        Path path = onceFile(day);
+        if (!Files.exists(path)) return Collections.emptySet();
+        java.nio.file.attribute.FileTime modified = Files.getLastModifiedTime(path);
+        long size = Files.size(path);
+        if (day.equals(onceDay) && modified.equals(onceModified) && size == onceSize) return onceIps;
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        if (lines.size() < 2 || !"version=1".equals(lines.get(0)) || !("day=" + day).equals(lines.get(1))) {
+            throw new IOException("Invalid Rx daily policy; collection deferred");
+        }
+        Set<String> members = new HashSet<>();
+        for (int i = 2; i < lines.size(); i++) {
+            String[] parts = lines.get(i).split("=", -1);
+            if (parts.length != 2 || !"1".equals(parts[1]) || !parts[0].equals(ip(parts[0])) || !members.add(parts[0])) {
+                throw new IOException("Invalid Rx daily policy entry; collection deferred");
+            }
+        }
+        onceDay = day; onceModified = modified; onceSize = size; onceIps = members;
+        return members;
+    }
+
+    private boolean rxComplete(String day, String ip) throws IOException {
+        if (!readOnce(day).contains(ip)) return false;
+        Path marker = root.resolve(day).resolve("rx-completed").resolve(ip + ".properties");
+        if (Files.exists(marker)) {
+            if (!"1".equals(read(marker).get("complete"))) throw new IOException("Invalid Rx completion marker");
+            return true;
+        }
+        if (count(day, ip) == 0) return false;
+        // Reuse the collector's real command/header validator, not file size or [OK] text.
+        // The daily filename plus modification time prevents yesterday's checkpoint log
+        // from satisfying today's refresh. Incomplete/missing logs retain the normal cap.
+        Path logs = Paths.get(setting("true.daily.collection.logDir", "TRUE_DAILY_COLLECTION_LOG_DIR",
+                root.getParent().getParent().resolve("Total_Log").toString()));
+        if (!Files.isDirectory(logs)) return false;
+        long midnight = LocalDate.parse(day).atStartOfDay(ZONE).toInstant().toEpochMilli();
+        String suffix = "-LLDP-Link_OPTIC_" + day + ".txt";
+        final java.util.regex.Pattern identity = java.util.regex.Pattern.compile("\\[\\d+\\]" + java.util.regex.Pattern.quote(ip) + "_.*");
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(logs,
+                path -> identity.matcher(path.getFileName().toString()).matches()
+                        && path.getFileName().toString().endsWith(suffix))) {
+            for (Path file : stream) {
+                String name = file.getFileName().toString();
+                if (!Files.isRegularFile(file)
+                        || Files.getLastModifiedTime(file).toMillis() < midnight) continue;
+                int end = name.length() - ("_" + day + ".txt").length();
+                int start = name.lastIndexOf('_', name.length() - suffix.length() - 1) + 1;
+                String commandSet = name.substring(start, end);
+                if (completionCheck.complete(file.toFile(), commandSet)) {
+                    write(marker, "complete=1\nvalidatedAt=" + clock.millis() + "\n");
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean validateLog(java.io.File file, String commandSet) throws IOException {
+        try {
+            Class<?> collector = Class.forName("com.java.botgetlog.truecorp.BotGetLog_TrueCorp");
+            return Boolean.TRUE.equals(collector.getMethod("isLogCompleteForCmdSet", java.io.File.class, String.class)
+                    .invoke(null, file, commandSet));
+        } catch (ReflectiveOperationException | LinkageError failure) {
+            throw new IOException("Cannot validate Rx log completeness; collection deferred", failure);
+        }
+    }
+
+    // The collector normally fills these command caches before admitting nodes.
+    // Its offline CLI must do the same once, rather than reopen the full inventory
+    // for every log. Reuse its read-only loader and validator from the same JAR.
+    private static void initializeOfflineValidation() throws Exception {
+        Class<?> metadata = Class.forName("com.java.shared.AppMetadata");
+        java.io.File directory = (java.io.File) metadata.getMethod("getAppDirectory").invoke(null);
+        java.io.File input = new java.io.File(directory, "UserInterface_Input.xlsx");
+        if (!input.isFile()) throw new IOException("Missing validator inventory; Rx selection deferred");
+        Class<?> collector = Class.forName("com.java.botgetlog.truecorp.BotGetLog_TrueCorp");
+        Class<?> workbookType = Class.forName("org.apache.poi.ss.usermodel.Workbook");
+        java.lang.reflect.Method open = collector.getDeclaredMethod("openWorkbookReadOnly", java.io.File.class);
+        java.lang.reflect.Method cache = collector.getDeclaredMethod("rebuildExcelCache", workbookType);
+        open.setAccessible(true);
+        cache.setAccessible(true);
+        try (AutoCloseable workbook = (AutoCloseable) open.invoke(null, input)) {
+            cache.invoke(null, workbook);
+        }
+    }
+
+    /** Offline policy registration only: never opens a device session or charges an admission. */
+    public static void main(String[] args) throws Exception {
+        if (args.length != 5 || !("--register-rx-once".equals(args[0]) || "--eligible-rx".equals(args[0]))) {
+            throw new IllegalArgumentException("Usage: --register-rx-once|--eligible-rx BUDGET_DIR LIMIT IP_FILE YYYY-MM-DD");
+        }
+        DailyCollectionBudget budget = new DailyCollectionBudget(Paths.get(args[1]), Integer.parseInt(args[2]), Clock.system(ZONE));
+        if (!budget.day().equals(args[4])) throw new IOException("Rx plan crossed Bangkok midnight; rebuild it");
+        List<String> ips = Files.readAllLines(Paths.get(args[3]), StandardCharsets.UTF_8);
+        if ("--register-rx-once".equals(args[0])) {
+            int count = budget.registerDailyOnce(ips, args[4]);
+            System.out.println("[RX-DAILY] Registered one-complete-log-per-day IPs=" + count + " day=" + args[4]);
+        } else {
+            initializeOfflineValidation();
+            for (String member : ips) if (!member.trim().isEmpty()) {
+                if (!budget.day().equals(args[4])) throw new IOException("Rx queue crossed Bangkok midnight; rebuild it");
+                System.out.println("RX_ELIGIBLE\t" + ip(member) + "\t" + budget.used(member) + "\t" + budget.available(member));
+            }
+        }
+    }
     private Path counter(String day, String ip) { return root.resolve(day).resolve("counts").resolve(ip + ".properties"); }
     private Path pairFile(String day, String key) { return root.resolve(day).resolve("pairs").resolve(key + ".properties"); }
 

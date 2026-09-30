@@ -1,0 +1,15 @@
+BotGetLog_Multi v1.2.7
+
+Link Optical collection now checks command responses and the device prompt before reporting completion. A fully collected log can finish successfully when the final quit/logout closes the stream; the work log records a session-close warning instead of reconnecting and reporting a false failure.
+
+- Require the expected device prompt at the end of each response, including Telnet and SSH. Command echoes, another device's prompt, and descriptions ending in # do not finish a command.
+- Verify the configured command sequence, nonempty show/display responses, and Nokia port-detail commands before accepting the final exit.
+- Mark unverified or incomplete transcripts with BOT-COLLECTION-INCOMPLETE so checkpoint and retry checks cannot accept a file just because it contains quit/logout.
+- Keep timeouts, connection resets, command rejections, and failures during collection on the failure path.
+- Include the previously deployed daily collection budget policy: completed registered Rx nodes are skipped, while incomplete attempts remain eligible within the daily limit.
+
+Validation: 95 completion/exit checks, including seven saved production transcripts and incomplete/wrong-prompt mutations; seven related regression suites; Java 8 verification and True Logs worker compatibility checks. No device session was opened by these offline tests.
+
+This release applies to future collections. It does not rewrite historical FAILED events. The companion Control Console update displays session-close warnings in activity details.
+
+Artifacts: standard distribution ZIP and Windows Portable ZIP with the bundled Java runtime. SHA256SUMS.txt contains their checksums. The BotGetLog_TrueCorp.jar in both packages is the same artifact installed on the server.

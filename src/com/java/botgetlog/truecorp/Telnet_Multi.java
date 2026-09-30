@@ -380,6 +380,9 @@ public class Telnet_Multi {
     StringBuilder LOG = new StringBuilder();
     private boolean vendorMismatch = false;
     private boolean sessionFailureRecorded = false;
+    private String completedExitWarning = "";
+    private boolean unverifiedCollectionResponse = false;
+    private String[] expectedCollectionCommands;
     private boolean retryableNetworkFailureRecorded = false;
 
     public boolean hasSessionFailureRecorded() {
@@ -2657,6 +2660,7 @@ public class Telnet_Multi {
                 }
 
                 //
+                expectedCollectionCommands = Arrays.copyOf(command, r);
                 for (int i = 1; i < r; i++) {
                     if (cmdSet.charAt(0) == 'N' && i > 1) {
                         sleepQuietly(randomDelayMs(
@@ -2667,7 +2671,7 @@ public class Telnet_Multi {
                     System.out.println("[CMD]" + buildConsoleNodePrefix(Num_row, Loopback, Device)
                             + " " + summarizeCommandForConsole(command[i]));
                     //   log 
-                    if (!executeCommandWithReconnect(Loopback, Device, cmdSet, Num_row, command[i])) {
+                    if (!executeCommandWithReconnect(Loopback, Device, cmdSet, Num_row, command[i], i == r - 1)) {
                         return;
                     }
 
@@ -3166,6 +3170,9 @@ public class Telnet_Multi {
             String endTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
             String endLog = String.format("[END] %s (%s, %s) at %s",
                     Loopback, Device, cmdSet, endTime);
+            if (!completedExitWarning.isEmpty()) {
+                endLog += " - Completed; session close warning: " + completedExitWarning;
+            }
             System.out.println(endLog);
             logwork(endLog + "\n");
 
@@ -3824,6 +3831,12 @@ public class Telnet_Multi {
 
     private CommandReadResult readStreamToFileSsh(BufferedOutputStream outFile, List<String> promptCandidates,
             long startTime, long maxWaitMs, long idleTimeoutMs, String consolePrefix) throws IOException {
+        return readStreamToFileSsh(outFile, promptCandidates, startTime, maxWaitMs, idleTimeoutMs, consolePrefix, "", false);
+    }
+
+    private CommandReadResult readStreamToFileSsh(BufferedOutputStream outFile, List<String> promptCandidates,
+            long startTime, long maxWaitMs, long idleTimeoutMs, String consolePrefix,
+            String requiredNode, boolean exitCommand) throws IOException {
         StringBuilder response = new StringBuilder(4096);
         StringBuilder lowerTail = new StringBuilder(256);
         long lastDataAt = startTime;
@@ -3897,9 +3910,7 @@ public class Telnet_Multi {
 
             if (!promptCandidates.isEmpty() && shouldInspectReadBuffer(ch, response.length())) {
                 String promptToken = extractPromptToken(lowerTail);
-                tailAtPrompt = matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
-                        || isInteractivePromptToken(promptToken)
-                        || containsGatewayMenuPrompt(lowerSnapshot);
+                tailAtPrompt = matchesCollectionPrompt(lowerTail, safePatterns, normalizedPatterns, requiredNode, exitCommand);
             }
 
             if (response.length() % 512 == 0) {
@@ -4337,6 +4348,22 @@ public class Telnet_Multi {
         return (lastChar == '>' && isStablePromptTokenForPattern(token, ">"))
                 || (lastChar == '#' && isStablePromptTokenForPattern(token, "#"))
                 || (lastChar == ']' && isStablePromptTokenForPattern(token, "]"));
+    }
+
+    private static boolean matchesCollectionPrompt(StringBuilder tail, String[] patterns,
+            String[] normalizedPatterns, String requiredNode, boolean exitCommand) {
+        String text = stripTerminalControlSequences(tail.toString());
+        String token = extractPromptToken(text);
+        if (requiredNode.isEmpty()) {
+            return matchesAnyPattern(tail, token, patterns, normalizedPatterns)
+                    || isInteractivePromptToken(token) || containsGatewayMenuPrompt(text);
+        }
+        if (exitCommand && containsGatewayMenuPrompt(text)) return true;
+        // A command echo, another device's prompt or a description ending in #
+        // is not evidence that this device has finished its response.
+        return isInteractivePromptToken(token)
+                && sanitizeDeviceNameForFileName(requiredNode).equalsIgnoreCase(
+                        sanitizeDeviceNameForFileName(extractNodeNameFromPromptToken(token)));
     }
 
     public String readUntilAny(String... patterns) {
@@ -6068,11 +6095,19 @@ public class Telnet_Multi {
 //   ( RAM) 
 
     public CommandReadResult readStreamToFile(String Loopback, String Device, String cmdSet, int Num_row, String command) {
+        return readStreamToFile(Loopback, Device, cmdSet, Num_row, command, false);
+    }
+
+    private CommandReadResult readStreamToFile(String Loopback, String Device, String cmdSet,
+            int Num_row, String command, boolean finalCollectionCommand) {
         byte[] buffer = new byte[8192]; // buffer 8KB
         int bytesRead;
         boolean sshGatewayConnection = isSshGatewayConnection();
         String consolePrefix = buildConsoleNodePrefix(Num_row, Loopback, Device);
         CommandReadResult result = CommandReadResult.prompt();
+        String requiredNode = "lldp-link_optic".equals(normalizeCmdSetFamily(cmdSet))
+                ? resolveLogDeviceName(Device) : "";
+        boolean exitCommand = isStandaloneNodeExitCommand(command);
 
         File logFile = prepareFreshLogFile(Loopback, Device, cmdSet, Num_row);
         System.out.println("[LOG]" + consolePrefix + " " + logFile.getName());
@@ -6105,7 +6140,8 @@ public class Telnet_Multi {
             boolean waitForPrompt = !promptCandidates.isEmpty();
 
             if (sshGatewayConnection) {
-                result = readStreamToFileSsh(outFile, promptCandidates, startTime, maxWaitMs, idleTimeoutMs, consolePrefix);
+                result = readStreamToFileSsh(outFile, promptCandidates, startTime, maxWaitMs, idleTimeoutMs,
+                        consolePrefix, requiredNode, exitCommand);
                 if (result.promptDetected) {
                     System.out.println("[PROMPT-OK]" + consolePrefix + " SSH prompt/menu");
                 }
@@ -6140,12 +6176,10 @@ public class Telnet_Multi {
                         char inspectChar = chunk.charAt(chunk.length() - 1);
                         if (waitForPrompt && shouldInspectReadBuffer(inspectChar, response.length())) {
                             String promptToken = extractPromptToken(lowerTail);
-                            if (matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
-                                    || isInteractivePromptToken(promptToken)
-                                    || containsGatewayMenuPrompt(lowerSnapshot)) {
+                            if (matchesCollectionPrompt(lowerTail, safePatterns, normalizedPatterns, requiredNode, exitCommand)) {
                                 outFile.flush();
                                 if (waitForStablePromptAndDrain(outFile, buffer, lowerTail, response,
-                                        safePatterns, normalizedPatterns, promptSettleMs)) {
+                                        safePatterns, normalizedPatterns, promptSettleMs, requiredNode, exitCommand)) {
                                     System.out.println("[PROMPT-OK]" + consolePrefix + " "
                                             + summarizePromptForConsole(promptToken, response.toString(), Device, cmdSet));
                                     waitForPrompt = false;
@@ -6189,12 +6223,35 @@ public class Telnet_Multi {
         updateRuntimeDeviceNameFromLogFile(logFile, Device, cmdSet);
         logFile = renameLogToRuntimeDeviceNameIfNeeded(logFile, Loopback, Device, cmdSet, Num_row);
         normalizeSshCommandTranscript(logFile, command);
+        if (finalCollectionCommand && exitCommand && !requiredNode.isEmpty()
+                && (unverifiedCollectionResponse
+                    || !hasCompleteCollectionTranscript(logFile, cmdSet, expectedCollectionCommands))) {
+            // Persist the evidence so a later checkpoint cannot mistake first+quit
+            // for a complete log and skip the retry.
+            try {
+                Files.write(logFile.toPath(), "\n[BOT-COLLECTION-INCOMPLETE] Command responses were not verified\n".getBytes(StandardCharsets.UTF_8),
+                        java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                System.out.println("[WARN] Cannot mark incomplete collection: " + e.getMessage());
+            }
+            return CommandReadResult.ioError("incomplete command responses before exit");
+        }
         if (result.remoteClosed && isExpectedStandaloneExitCompletion(logFile, command, result.detail)) {
             System.out.println("[EXIT-OK]" + consolePrefix + " "
                     + summarizeCommandForConsole(command) + " -> " + result.detail);
             return CommandReadResult.prompt();
         }
+        // Check a verified final exit before remote-close recovery opens another session.
+        if ((result.ioError || result.remoteClosed) && !sessionFailureRecorded && !failedAfterPassword
+                && !unverifiedCollectionResponse
+                && isCompleteLogAfterExitClose(logFile, cmdSet, command, finalCollectionCommand,
+                        result.detail, expectedCollectionCommands)) {
+            completedExitWarning = summarizeCommandForConsole(command) + " -> " + result.detail
+                    + " (log verified complete)";
+            return CommandReadResult.prompt();
+        }
         if (result.remoteClosed) {
+            if (!requiredNode.isEmpty() && !exitCommand) unverifiedCollectionResponse = true;
             boolean recovered = recoverRemoteClosedSession(Loopback, Device, cmdSet, Num_row, command, result.detail);
             return recovered
                     ? CommandReadResult.remoteClosedRecovered(result.detail)
@@ -6209,7 +6266,7 @@ public class Telnet_Multi {
             StringBuilder response,
             String[] safePatterns,
             String[] normalizedPatterns,
-            long promptSettleMs) throws IOException {
+            long promptSettleMs, String requiredNode, boolean exitCommand) throws IOException {
         long stableStart = System.currentTimeMillis();
         long settleMs = Math.max(100L, promptSettleMs);
 
@@ -6246,9 +6303,7 @@ public class Telnet_Multi {
 
         String promptToken = extractPromptToken(lowerTail);
         String lowerSnapshot = lowerTail == null ? "" : lowerTail.toString();
-        return matchesAnyPattern(lowerTail, promptToken, safePatterns, normalizedPatterns)
-                || isInteractivePromptToken(promptToken)
-                || containsGatewayMenuPrompt(lowerSnapshot);
+        return matchesCollectionPrompt(lowerTail, safePatterns, normalizedPatterns, requiredNode, exitCommand);
     }
 
     static List<String> buildNokiaVprnArpCommands(String fullLog) {
@@ -6282,7 +6337,12 @@ public class Telnet_Multi {
     }
 
     private boolean executeCommandWithReconnect(String Loopback, String Device, String cmdSet, int Num_row, String command) {
-        CommandReadResult result = readStreamToFile(Loopback, Device, cmdSet, Num_row, command);
+        return executeCommandWithReconnect(Loopback, Device, cmdSet, Num_row, command, false);
+    }
+
+    private boolean executeCommandWithReconnect(String Loopback, String Device, String cmdSet,
+            int Num_row, String command, boolean finalCollectionCommand) {
+        CommandReadResult result = readStreamToFile(Loopback, Device, cmdSet, Num_row, command, finalCollectionCommand);
         if (result == null) {
             return true;
         }
@@ -6308,12 +6368,90 @@ public class Telnet_Multi {
             String message = "[FAIL-STREAM]" + consolePrefix + " " + commandSummary + " -> " + detail;
             System.out.println(message);
             logwork(message + "\n");
-            recordSessionFailureOnce(Num_row, Loopback, Device, cmdSet, "_[Connection failed - stream error]");
+            recordSessionFailureOnce(Num_row, Loopback, Device, cmdSet,
+                    "incomplete command responses before exit".equals(result.detail)
+                            ? "_[Connection failed - incomplete command responses]"
+                            : "_[Connection failed - stream error]");
         }
 
         failedAfterPassword = true;
         disconnect();
         return false;
+    }
+
+    static boolean isCompleteLogAfterExitClose(File logFile, String cmdSet, String command,
+            boolean finalCollectionCommand, String detail) {
+        return isCompleteLogAfterExitClose(logFile, cmdSet, command, finalCollectionCommand, detail, null);
+    }
+
+    private static boolean isCompleteLogAfterExitClose(File logFile, String cmdSet, String command,
+            boolean finalCollectionCommand, String detail, String[] expectedCommands) {
+        if (!finalCollectionCommand || !isStandaloneNodeExitCommand(command)
+                || !"lldp-link_optic".equals(normalizeCmdSetFamily(cmdSet))) {
+            return false;
+        }
+        // Accept only explicit EOF or the logout echo misread as a remote close.
+        // Timeouts, resets and arbitrary IO errors remain failures.
+        if (!"stream ended before prompt".equals(detail)
+                && !"SSH stream ended before prompt".equals(detail)
+                && !("logout".equals(detail) && "logout".equalsIgnoreCase(safeTrim(command)))) {
+            return false;
+        }
+        return BotGetLog_TrueCorp.isLogCompleteForCmdSet(logFile, cmdSet)
+                && hasCompleteCollectionTranscript(logFile, cmdSet, expectedCommands);
+    }
+
+    static boolean hasCompleteCollectionTranscript(File logFile, String cmdSet) {
+        return hasCompleteCollectionTranscript(logFile, cmdSet, null);
+    }
+
+    private static boolean hasCompleteCollectionTranscript(File logFile, String cmdSet, String[] expectedCommands) {
+        String[] configured = expectedCommands == null ? new String[1024] : expectedCommands;
+        int count = expectedCommands == null ? BotGetLog_TrueCorp.copyCachedCommands(cmdSet, configured) : configured.length;
+        if (count < 3 || (expectedCommands == null && count >= configured.length) || logFile == null) return false;
+        Matcher name = DAILY_LOG_FILE_PATTERN.matcher(logFile.getName());
+        if (!name.matches()) return false;
+        String device = name.group(3);
+        List<String> commands = new ArrayList<>();
+        List<StringBuilder> outputs = new ArrayList<>();
+        Pattern boundary = Pattern.compile("^\\s*(<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>)\\s*(.*?)\\s*$");
+        try (BufferedReader reader = Files.newBufferedReader(logFile.toPath(), StandardCharsets.UTF_8)) {
+            String raw;
+            while ((raw = reader.readLine()) != null) {
+                String line = stripTerminalControlSequences(raw).trim();
+                Matcher match = boundary.matcher(line);
+                if (match.matches()) {
+                    if (!sanitizeDeviceNameForFileName(device).equalsIgnoreCase(
+                            sanitizeDeviceNameForFileName(extractNodeNameFromPromptToken(match.group(1))))) return false;
+                    String command = match.group(2).trim().toLowerCase(Locale.ROOT);
+                    if (!command.isEmpty()) {
+                        commands.add(command);
+                        outputs.add(new StringBuilder());
+                    }
+                } else if (!outputs.isEmpty()) {
+                    outputs.get(outputs.size() - 1).append(line).append('\n');
+                }
+            }
+        } catch (IOException e) { return false; }
+        int next = 1;
+        for (int i = 0; i < commands.size(); i++) {
+            String command = commands.get(i);
+            if (next < count && command.equals(safeTrim(configured[next]).toLowerCase(Locale.ROOT))) next++;
+            if ((command.startsWith("display ") || command.startsWith("show "))
+                    && outputs.get(i).toString().trim().isEmpty()) return false;
+        }
+        if (next != count) return false;
+        // Nokia adds two detail commands for every port discovered by show port.
+        if ("N".equals(extractVendorPrefix(cmdSet))) {
+            int ports = commands.indexOf("show port");
+            if (ports < 0) return false;
+            Matcher port = Pattern.compile("(?m)^\\s*(\\d+/\\d+/(?:[a-zA-Z]\\d+|\\d+)(?:/\\d+)?)\\b").matcher(outputs.get(ports));
+            while (port.find()) {
+                String prefix = "show port " + port.group(1).toLowerCase(Locale.ROOT);
+                if (!commands.contains(prefix) || !commands.contains(prefix + " ethernet lldp remote-info")) return false;
+            }
+        }
+        return true;
     }
 
     private boolean executeNokiaMplsLspPathDetailCommands(String Loopback, String Device, String cmdSet, int Num_row) {

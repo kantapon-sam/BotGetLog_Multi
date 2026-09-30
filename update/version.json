@@ -1,6 +1,6 @@
 {
-  "version": "1.2.6",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.6/BotGetLog_Multi-dist-1.2.6.zip",
-  "sha256": "867e34d693fed5f759cda6203c35c1dd4a2228ee04b13d4ce39afec13d983207",
-  "notes": "Released 1.2.6: Fix repeated Juniper CN collection after successful completion. Recognize Junos role markers, normalized hostnames, and joined quit/connection-close output while rejecting incomplete or mismatched logs."
+  "version": "1.2.7",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.7/BotGetLog_Multi-dist-1.2.7.zip",
+  "sha256": "4d1e616f9b6277e507ed37813bdfd9ddd81d926ebb7a37a16a4aab950a6badcb",
+  "notes": "Released 1.2.7: Verify Link Optical command responses and exact device prompts before completion. Preserve complete logs when final quit/logout closes the stream, keep incomplete responses eligible for retry, and retain the daily collection budget policy."
 }

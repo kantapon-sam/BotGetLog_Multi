@@ -3171,6 +3171,11 @@ public class BotGetLog_TrueCorp {
         if (Telnet_Multi.hasWrongVendorSignal(logFile)) {
             return false;
         }
+        try {
+            if (readUtf8Tail(logFile, 4096).contains("[BOT-COLLECTION-INCOMPLETE]")) return false;
+        } catch (IOException e) {
+            return false;
+        }
 
         String safeCmdSet = cmdSet == null || cmdSet.trim().isEmpty()
                 ? extractCmdSetFromLogName(logFile.getName())
