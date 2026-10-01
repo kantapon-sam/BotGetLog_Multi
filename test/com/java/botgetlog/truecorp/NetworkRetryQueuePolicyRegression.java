@@ -13,6 +13,8 @@ public final class NetworkRetryQueuePolicyRegression {
                 "[Connection failed - remote closed]"));
         assertTrue(Telnet_Multi.isRetryableNetworkFailureReason(
                 "[No login prompt - connection timed out]"));
+        assertTrue(Telnet_Multi.isRetryableNetworkFailureReason(
+                "[Log validation failed - incomplete command responses]"));
         assertFalse(Telnet_Multi.isRetryableNetworkFailureReason(
                 "[Auth failed - username or password rejected]"));
         assertFalse(Telnet_Multi.isRetryableNetworkFailureReason(

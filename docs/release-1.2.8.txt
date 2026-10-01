@@ -1,0 +1,14 @@
+BotGetLog_Multi v1.2.8
+
+Nokia and Huawei Link Optical logs could be marked incomplete after every command had finished when an interface or LLDP description contained #. For example, L2LINK#1 or Description:ME60E#3 was misread as another device's prompt. The transcript validator now recognizes the prompt format for the selected vendor, preserving those descriptions as response data.
+
+- Keep exact device-name checks, configured command ordering, nonempty show/display responses and Nokia per-port LLDP/optical checks.
+- Keep genuine timeouts, missing commands, truncated output and wrong-device prompts on the failure path.
+- Report genuine incomplete transcripts as "Log validation failed - incomplete command responses" while retaining their retry eligibility and the existing daily collection limit.
+- Make the final-exit regression independent of the calendar date.
+
+Validation: the new regression reproduces the defect with the previous production JAR and passes 39 checks after the fix, including 11 private production fixtures and missing-command mutations. The existing 95 completion/exit checks and seven related regression suites pass on Java 8, along with True Logs worker compatibility. Production fixtures and credentials are not included in the release.
+
+Live acceptance on 2026-10-01: one affected Nokia router, one affected Huawei router and the previously timing-out Nokia CPE all completed their configured commands and passed both log-completeness and transcript validation. Captures were kept separate from scheduled history and did not reset the daily retry counters. Passing the CPE on this attempt does not establish that an intermittent gateway or network fault has been resolved.
+
+This update applies to future collections. Historical FAILED events and incomplete markers are not rewritten automatically. Standard and Windows Portable packages contain the same BotGetLog_TrueCorp.jar as the server release; SHA256SUMS.txt lists their checksums.

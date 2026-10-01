@@ -9,6 +9,7 @@ import sun.misc.Unsafe;
 
 /** Offline replay: a final quit EOF must not lose a completed collection. */
 public final class CompletedExitEofRegression {
+    private static final String DAY = java.time.LocalDate.now().toString();
     private static final String DEVICE = "AN-ICONS-2_BKK18004S01";
     private static final String IP = "10.85.159.134";
     private static final String CMDSET = "HW-LLDP-Link_OPTIC";
@@ -29,7 +30,7 @@ public final class CompletedExitEofRegression {
             cache("CMDSET_LAST_COMMAND_CACHE", "quit");
             commandCache(CMDSET, "screen-length 0 temporary", "display cpu-usage", "display memory-usage",
                     "display lldp neighbor", "display version", "display interface", "quit");
-            File log = dir.resolve("[24058]" + IP + "_AN-ICONS-2-BKK18004S01_" + CMDSET + "_2026-09-30.txt").toFile();
+            File log = dir.resolve("[24058]" + IP + "_AN-ICONS-2-BKK18004S01_" + CMDSET + "_" + DAY + ".txt").toFile();
             write(log, HEAD + CLOSE);
             equal(true, accepts(log, "quit", true, "stream ended before prompt"));
             equal(true, accepts(log, "quit", true, "SSH stream ended before prompt"));
@@ -78,7 +79,7 @@ public final class CompletedExitEofRegression {
             cache("CMDSET_FIRST_COMMAND_CACHE", "N-LLDP-Link_OPTIC", "environment no more");
             cache("CMDSET_LAST_COMMAND_CACHE", "N-LLDP-Link_OPTIC", "logout");
             commandCache("N-LLDP-Link_OPTIC", "environment no more", "show port", "logout");
-            File nokiaLog = dir.resolve("[24058]" + IP + "_CPE-MHR7168_N-LLDP-Link_OPTIC_2026-09-30.txt").toFile();
+            File nokiaLog = dir.resolve("[24058]" + IP + "_CPE-MHR7168_N-LLDP-Link_OPTIC_" + DAY + ".txt").toFile();
             replay(dir, nokiaLog, "A:CPE-MHR7168#environment no more\nA:CPE-MHR7168#show port\nPorts\n1/1/26 Up\n"
                     + "A:CPE-MHR7168#show port 1/1/26 ethernet lldp remote-info\nNo neighbors\nA:CPE-MHR7168#show port 1/1/26\nPort data\n",
                     "A:CPE-MHR7168#logout\n", true, true, "N-LLDP-Link_OPTIC", "CPE-MHR7168", "logout");
@@ -160,7 +161,7 @@ public final class CompletedExitEofRegression {
         field(paths, "LogWork", dir.toString());
         field(collector, "FileInput", paths);
         field(collector, "formattedDateTimeLOG", "fixture");
-        field(collector, "formattedDateTime", "2026-09-30");
+        field(collector, "formattedDateTime", DAY);
         field(collector, "preparedLogSessionKey", log.getAbsolutePath());
         field(collector, "completedExitWarning", "");
         field(collector, "runtimeDeviceName", "");

@@ -4901,6 +4901,7 @@ public class Telnet_Multi {
             return false;
         }
         return lower.contains("connection failed")
+                || lower.contains("incomplete command responses")
                 || lower.contains("connection timed out")
                 || lower.contains("no login prompt")
                 || lower.contains("no response after password")
@@ -6370,7 +6371,7 @@ public class Telnet_Multi {
             logwork(message + "\n");
             recordSessionFailureOnce(Num_row, Loopback, Device, cmdSet,
                     "incomplete command responses before exit".equals(result.detail)
-                            ? "_[Connection failed - incomplete command responses]"
+                            ? "_[Log validation failed - incomplete command responses]"
                             : "_[Connection failed - stream error]");
         }
 
@@ -6414,7 +6415,15 @@ public class Telnet_Multi {
         String device = name.group(3);
         List<String> commands = new ArrayList<>();
         List<StringBuilder> outputs = new ArrayList<>();
-        Pattern boundary = Pattern.compile("^\\s*(<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>)\\s*(.*?)\\s*$");
+        // A description such as L2LINK#1 or Description:ME60E#3 is output,
+        // not a command boundary. Match only the selected vendor's prompt
+        // shape; still reject a genuine prompt naming a different device.
+        String vendor = extractVendorPrefix(cmdSet);
+        String promptPattern = "N".equals(vendor) ? "\\*?[AB]:[^\\s<>#]+#"
+                : "HW".equals(vendor) ? "<[^<>\\s]+>"
+                : "<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>";
+        Pattern boundary = Pattern.compile("^\\s*(" + promptPattern + ")\\s*(.*?)\\s*$",
+                Pattern.CASE_INSENSITIVE);
         try (BufferedReader reader = Files.newBufferedReader(logFile.toPath(), StandardCharsets.UTF_8)) {
             String raw;
             while ((raw = reader.readLine()) != null) {

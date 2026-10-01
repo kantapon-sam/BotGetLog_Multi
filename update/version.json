@@ -1,6 +1,6 @@
 {
-  "version": "1.2.7",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.7/BotGetLog_Multi-dist-1.2.7.zip",
-  "sha256": "4d1e616f9b6277e507ed37813bdfd9ddd81d926ebb7a37a16a4aab950a6badcb",
-  "notes": "Released 1.2.7: Verify Link Optical command responses and exact device prompts before completion. Preserve complete logs when final quit/logout closes the stream, keep incomplete responses eligible for retry, and retain the daily collection budget policy."
+  "version": "1.2.8",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.8/BotGetLog_Multi-dist-1.2.8.zip",
+  "sha256": "45b9097f702b2abd772d99b0f5aea9b9ca465fb439ed6c598d5db4012fd48bbd",
+  "notes": "Released 1.2.8: Fix false incomplete Nokia and Huawei logs caused by descriptions containing #. Preserve device identity, command completeness and retry checks; report genuine incomplete responses as log validation failures."
 }
