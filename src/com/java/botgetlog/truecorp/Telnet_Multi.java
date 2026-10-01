@@ -18,10 +18,12 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.CodingErrorAction;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -6424,7 +6426,13 @@ public class Telnet_Multi {
                 : "<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>";
         Pattern boundary = Pattern.compile("^\\s*(" + promptPattern + ")\\s*(.*?)\\s*$",
                 Pattern.CASE_INSENSITIVE);
-        try (BufferedReader reader = Files.newBufferedReader(logFile.toPath(), StandardCharsets.UTF_8)) {
+        // Device descriptions may contain truncated or legacy-encoded characters.
+        // Replace undecodable bytes only while reading; retain the original log
+        // and still require the exact device, command order and command output.
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(logFile.toPath()), StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPLACE)
+                        .onUnmappableCharacter(CodingErrorAction.REPLACE)))) {
             String raw;
             while ((raw = reader.readLine()) != null) {
                 String line = stripTerminalControlSequences(raw).trim();
