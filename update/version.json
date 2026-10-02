@@ -1,6 +1,6 @@
 {
-  "version": "1.2.9",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.9/BotGetLog_Multi-dist-1.2.9.zip",
-  "sha256": "c5ec07ce74198a8ff56b4adf2dddcd6b3577ddc3a8e4b742d2a3cfca6b163d48",
-  "notes": "Released 1.2.9: Fix false incomplete device logs caused by malformed UTF-8 in descriptions. Preserve raw log bytes and exact device identity, command order, nonempty response and retry validation."
+  "version": "1.2.10",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.10/BotGetLog_Multi-dist-1.2.10.zip",
+  "sha256": "5e6d56e351f9d413c7f2920af2c4615a5bbe6eaf31004923c5f3b050cb1e55ea",
+  "notes": "Released 1.2.10: Prevent overlapping same-node collections from mixing or archiving active logs. Isolate incomplete retry transcripts and identify each activity attempt. Existing login and connection failures still require recovery."
 }

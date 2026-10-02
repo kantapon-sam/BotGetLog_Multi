@@ -383,6 +383,7 @@ public class Telnet_Multi {
     private boolean vendorMismatch = false;
     private boolean sessionFailureRecorded = false;
     private String completedExitWarning = "";
+    private final String collectionAttemptId = java.util.UUID.randomUUID().toString();
     private boolean unverifiedCollectionResponse = false;
     private String[] expectedCollectionCommands;
     private boolean retryableNetworkFailureRecorded = false;
@@ -2309,6 +2310,7 @@ public class Telnet_Multi {
 
     public Telnet_Multi(String server, String User_server, String PW_server, String Loopback, String User_CLLS, String PW_CLLS, String cmdSet, String Device, int Num_row, String User_L2, String PW_L2) {
         final String configuredCmdSet = cmdSet;
+        NodeCollectionLease nodeLease = null;
         //   background monitor  ()
         startWrongVendorMonitor(new PathFile());
         startCommandCompletionMonitor(new PathFile());
@@ -2325,6 +2327,9 @@ public class Telnet_Multi {
         this.retryableNetworkFailureRecorded = false;
         try {
             //  - Telnet  Semaphore
+
+            nodeLease = NodeCollectionLease.acquire(new File(FileInput.getLog()).toPath(),
+                    Loopback, BotGetLog_TrueCorp::isShutdownRequested);
 
             //  START log  - Node
             String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
@@ -3225,8 +3230,9 @@ public class Telnet_Multi {
             Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed - " + ex.getClass().getSimpleName() + "]");
 
         } finally {
+            disconnect();
             clearActiveLogSession();
-
+            if (nodeLease != null) nodeLease.close();
         }
 
     }
@@ -4965,7 +4971,16 @@ public class Telnet_Multi {
         }));
     }
 
+    static String withAttemptId(String event, String attemptId) {
+        if (event == null || !(event.startsWith("[START] ") || event.startsWith("[END] ")
+                || event.startsWith("[FAIL] ") || event.startsWith("[TIMEOUT] ")
+                || event.startsWith("[SKIP] Completed equivalent log"))) return event;
+        String suffix = event.endsWith("\n") ? "\n" : "";
+        return event.trim() + " [ATTEMPT=" + attemptId + "]" + suffix;
+    }
+
     public synchronized void logwork(String logWork) {
+        logWork = withAttemptId(logWork, collectionAttemptId);
         synchronized (LOG_LOCK) {
             try {
                 String logPath = FileInput.getLogWork() + "\\" + formattedDateTimeLOG + ".txt";
@@ -6047,6 +6062,16 @@ public class Telnet_Multi {
 
         //  
         if (!sessionKey.equals(preparedLogSessionKey)) {
+            boolean owned;
+            try { owned = NodeCollectionLease.ownedByCurrentThread(logDir.toPath(), Loopback); }
+            catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            if (owned && logFile.exists() && !isCompleteExistingLog(logFile)) {
+                // A previous failed attempt can be only seconds old. Once we
+                // own the IP, archive it before writing this new transcript.
+                if (!moveLogToArchiveIfInactive(logFile, "previous incomplete attempt")) {
+                    throw new IllegalStateException("Cannot isolate previous incomplete transcript");
+                }
+            }
             if (logFile.exists() && !isValidLogHead(logFile, resolveLogDeviceName(Device), cmdSet)) {
                 System.out.println("[PRE-HEAD-INVALID] Invalid log head, delete before new session: " + logFile.getName());
                 deleteLogIfSafe(logFile, "invalid-head before new session");
@@ -6770,6 +6795,31 @@ public class Telnet_Multi {
     }
 
     public static boolean moveLogToArchiveIfSafe(File file, String reason) {
+        return archiveWithNodeOwnership(file, reason, true);
+    }
+
+    public static boolean moveLogToArchiveIfInactive(File file, String reason) {
+        return archiveWithNodeOwnership(file, reason, false);
+    }
+
+    private static boolean archiveWithNodeOwnership(File file, String reason, boolean protectRecent) {
+        if (file == null || !file.exists()) return false;
+        Matcher name = DAILY_LOG_FILE_PATTERN.matcher(file.getName());
+        if (!name.matches()) return false;
+        try (NodeCollectionLease lease = NodeCollectionLease.tryAcquire(file.getParentFile().toPath(), name.group(2))) {
+            if (lease == null) {
+                System.out.println("[DELETE-SKIP] Node collection owns log: " + file.getName());
+                return false;
+            }
+            return protectRecent ? moveOwnedLogToArchiveIfSafe(file, reason)
+                    : moveOwnedLogToArchiveIfInactive(file, reason);
+        } catch (IOException failure) {
+            System.out.println("[DELETE-SKIP] Cannot claim node log: " + failure.getMessage());
+            return false;
+        }
+    }
+
+    private static boolean moveOwnedLogToArchiveIfSafe(File file, String reason) {
         if (file == null || !file.exists()) {
             return false;
         }
@@ -6784,7 +6834,7 @@ public class Telnet_Multi {
         return moveLogToArchive(file, reason);
     }
 
-    public static boolean moveLogToArchiveIfInactive(File file, String reason) {
+    private static boolean moveOwnedLogToArchiveIfInactive(File file, String reason) {
         if (file == null || !file.exists()) {
             return false;
         }

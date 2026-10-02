@@ -2223,11 +2223,21 @@ public class BotGetLog_TrueCorp {
                                     SharedConnectionBudget.Lease sharedLease = null;
                                     Telnet_Multi currentConnection = null;
                                     boolean countProgress = false;
+                                    NodeCollectionLease nodeLease = null;
                                     try {
                                         if (isShutdownRequested()) {
                                             realOut.printf("[STOP] Skip Row %d %s [%s] because shutdown was requested%n",
                                                     fRowNum, fDev, fCmd);
                                             BotGetLog_TrueCorp.recordStoppedTask();
+                                            return;
+                                        }
+
+                                        // Own the IP before capacity, log cleanup or daily admission.
+                                        nodeLease = NodeCollectionLease.acquire(new File(fFile.getLog()).toPath(),
+                                                fLoop, BotGetLog_TrueCorp::isShutdownRequested);
+                                        countProgress = true;
+                                        if (findLatestCompletedLog(fFile, fRowNum, fLoop, fDev, fCmd, fLastCommand) != null) {
+                                            BotGetLog_TrueCorp.successCount.incrementAndGet();
                                             return;
                                         }
 
@@ -2361,6 +2371,7 @@ public class BotGetLog_TrueCorp {
                                             Telnet_Multi.TELNET_LIMIT.release();
                                         }
 
+                                        if (nodeLease != null) nodeLease.close();
                                         ACTIVE_TASKS.decrementAndGet();
                                         if (countProgress) {
                                             synchronized (progress) {
@@ -3662,6 +3673,20 @@ public class BotGetLog_TrueCorp {
 
     private static NetworkRetryResult runNetworkRetryAttempt(NetworkRetryTask retryTask,
             GatewayPool gatewayPool, int round) {
+        try (NodeCollectionLease lease = NodeCollectionLease.acquire(
+                new File(retryTask.fileInput.getLog()).toPath(), retryTask.task.loopback,
+                BotGetLog_TrueCorp::isShutdownRequested)) {
+            return runOwnedNetworkRetryAttempt(retryTask, gatewayPool, round);
+        } catch (InterruptedException cancelled) {
+            Thread.currentThread().interrupt();
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "interrupted while waiting for node");
+        } catch (Exception failure) {
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED, failure.getMessage());
+        }
+    }
+
+    private static NetworkRetryResult runOwnedNetworkRetryAttempt(NetworkRetryTask retryTask,
+            GatewayPool gatewayPool, int round) {
         NodeCommandTask task = retryTask.task;
         if (isShutdownRequested()) {
             return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "shutdown requested");
@@ -3674,10 +3699,6 @@ public class BotGetLog_TrueCorp {
             return new NetworkRetryResult(retryTask, NetworkRetryStatus.SUCCESS,
                     "completed log already exists: " + completedBeforeRun.getName());
         }
-
-        archiveIncompleteMatchingLogs(retryTask.fileInput, task.rowNum, task.loopback,
-                task.device, task.cmdSet, retryTask.firstCommand, retryTask.lastCommand,
-                "network retry queue round " + round);
 
         boolean telnetPermitAcquired = false;
         GatewayLease gatewayLease = null;
@@ -3692,6 +3713,10 @@ public class BotGetLog_TrueCorp {
             if (isShutdownRequested()) {
                 return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "shutdown requested");
             }
+            archiveIncompleteMatchingLogs(retryTask.fileInput, task.rowNum, task.loopback,
+                    task.device, task.cmdSet, retryTask.firstCommand, retryTask.lastCommand,
+                    "network retry queue round " + round);
+
             if (!DailyCollectionBudget.startCollection(task.loopback,
                     "NETWORK_RETRY_R" + round)) {
                 return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED,
@@ -4235,6 +4260,7 @@ public class BotGetLog_TrueCorp {
                 GatewayLease gatewayLease = null;
                 SharedConnectionBudget.Lease sharedLease = null;
                 Telnet_Multi currentConnection = null;
+                NodeCollectionLease nodeLease = null;
                 try {
                     if (isShutdownRequested()) {
                         System.out.printf("[RE-RUN]  Skip Row %d | %s | %s because shutdown is in progress%n",
@@ -4242,6 +4268,8 @@ public class BotGetLog_TrueCorp {
                         return;
                     }
 
+                    nodeLease = NodeCollectionLease.acquire(new File(fileInput.getLog()).toPath(),
+                            finalIp, BotGetLog_TrueCorp::isShutdownRequested);
                     File latestCompletedLog = findLatestCompletedLog(fileInput, rowNum, finalIp, finalDevName, finalCmd, finalLastCommand);
                     if (latestCompletedLog != null) {
                         rerunOncePerRunKeys.remove(rerunKey);
@@ -4293,6 +4321,7 @@ public class BotGetLog_TrueCorp {
                     if (telnetPermitAcquired) {
                         Telnet_Multi.TELNET_LIMIT.release();
                     }
+                    if (nodeLease != null) nodeLease.close();
                     finishRerunTask();
                 }
             };
