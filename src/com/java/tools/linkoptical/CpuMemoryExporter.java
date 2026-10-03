@@ -131,6 +131,9 @@ public final class CpuMemoryExporter {
     }
 
     private static void parseJuniper(String content, CpuMemoryRow row) {
+        String hostname = firstGroup(Pattern.compile(
+                "(?m)^(?:[^\\s@>#]+@)*([A-Za-z0-9_.:-]+)>\\s*show chassis routing-engine\\s*$"), content);
+        if (!hostname.isEmpty()) row.siteCode = hostname;
         String section = content;
         int command = content.toLowerCase(Locale.ROOT).indexOf("show chassis routing-engine");
         if (command >= 0) section = content.substring(command);

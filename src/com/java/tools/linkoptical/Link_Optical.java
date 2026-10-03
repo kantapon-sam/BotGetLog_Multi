@@ -288,6 +288,7 @@ public class Link_Optical {
 
             FileWriter fwAll = new FileWriter(fullFile, false);
             fwAll.write(header);
+            java.util.Set<String> juniperNames = new java.util.HashSet<String>();
 
             for (File lldpFile : lldpFiles) {
                 if (TotalFile > 1) {
@@ -302,6 +303,9 @@ public class Link_Optical {
                     for (String legacyRow : chunk.split("\\r?\\n")) {
                         if (legacyRow.trim().isEmpty()) continue;
                         String[] values = splitCsvLineSimple(legacyRow);
+                        if (pathOutput.contains("_J-LLDP-Link_OPTIC_") && values.length > 0) {
+                            juniperNames.add(normalizeJuniperIdentity(values[0]));
+                        }
                         fwAll.write(aggregation.append(legacyRow, values.length > 2 ? values[2] : "") + "\n");
                     }
                 }
@@ -348,9 +352,13 @@ public class Link_Optical {
                 }
 
                 String neigh = cols[5];
+                boolean juniperNeighbor = !neigh.trim().isEmpty()
+                        && (cols[2].matches("(?i)(?:ge|xe|et)-\\d+/\\d+/\\d+(?::\\d+)?")
+                            || juniperNames.contains(normalizeJuniperIdentity(neigh)));
 
-                if (matchFile2ByNeighborSysName(neigh)) {
+                if (juniperNeighbor || matchFile2ByNeighborSysName(neigh)) {
                     String neighborDes = extractNeighborDesFromNeighborSysName(neigh);
+                    if (juniperNeighbor && neighborDes.isEmpty()) neighborDes = neigh.trim();
 
                     if (neighborDes == null || neighborDes.trim().isEmpty()) {
                         continue;
@@ -391,6 +399,7 @@ public class Link_Optical {
             fw3.write(header3);
 
             Map<String, PortSummary> portMap = new LinkedHashMap<String, PortSummary>();
+            java.util.Set<String> countedJuniperPorts = new java.util.HashSet<String>();
 
             String portRow;
             boolean firstLinePort = true;
@@ -416,6 +425,7 @@ public class Link_Optical {
                 String currentState = nz(cols[3]);
                 String description = nz(cols[4]);
                 String maxBW = normalizeBW(iface, cols[7]);
+                boolean juniperPort = iface.matches("(?i)(?:ge|xe|et)-\\d+/\\d+/\\d+(?::\\d+)?");
 
                 if (siteCode.isEmpty() && ipLoopback.isEmpty()) {
                     continue;
@@ -430,6 +440,7 @@ public class Link_Optical {
                 if (ps == null) {
                     ps = new PortSummary();
                     ps.type = detectType(siteCode);
+                    if (juniperPort && ps.type.isEmpty()) ps.type = "CN";
                     ps.siteCode = siteCode;
                     ps.ipLoopback = ipLoopback;
                     portMap.put(key, ps);
@@ -441,7 +452,12 @@ public class Link_Optical {
                 boolean isOLT = d.contains("reser") && d.contains("olt");
                 boolean isReserved = d.contains("reser") && !isRehoming && !isOLT;
                 boolean isUsed;
-                if (isNokiaConnectorPort(iface)) {
+                if (juniperPort) {
+                    // Multiple LLDP neighbors must not multiply physical capacity.
+                    if (!countedJuniperPorts.add(key + "|" + iface)) continue;
+                    isUsed = "up".equalsIgnoreCase(currentState) || !d.isEmpty()
+                            || !nz(cols[5]).isEmpty() || !nz(cols[6]).isEmpty();
+                } else if (isNokiaConnectorPort(iface)) {
                     isUsed = isNokiaConnectorUsed(currentState, description)
                             || isRehoming || isOLT || isReserved;
                 } else {
@@ -612,6 +628,10 @@ public class Link_Optical {
         return s == null ? "" : s.trim();
     }
 
+    private static String normalizeJuniperIdentity(String name) {
+        return nz(name).toLowerCase(java.util.Locale.ROOT).replace('_', '-').replaceFirst("-re[0-9]+$", "");
+    }
+
    private static String detectType(String siteCode) {
     String s = nz(siteCode).toUpperCase();
 
@@ -777,6 +797,14 @@ public class Link_Optical {
         }
 
         String ifx = iface == null ? "" : iface.trim().toLowerCase();
+        if (ifx.matches("ge-\\d+/\\d+/\\d+(?::\\d+)?")) return "1G";
+        if (ifx.matches("xe-\\d+/\\d+/\\d+(?::\\d+)?")) return "10G";
+        if (ifx.matches("et-\\d+/\\d+/\\d+(?::\\d+)?")) {
+            String speed = nz(bw).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+            // et names alone do not distinguish 40G, 100G, or faster hardware.
+            // Only count a confirmed 100G port in the existing 100G column.
+            return speed.matches("100(?:\\.0+)?(?:G|GBPS)") ? "100G" : "";
+        }
         if (ifx.startsWith("gei-")) {
             return "1G";
         }

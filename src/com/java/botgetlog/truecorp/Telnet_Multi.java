@@ -6442,12 +6442,14 @@ public class Telnet_Multi {
         String device = name.group(3);
         List<String> commands = new ArrayList<>();
         List<StringBuilder> outputs = new ArrayList<>();
+        List<Boolean> completedResponses = new ArrayList<>();
         // A description such as L2LINK#1 or Description:ME60E#3 is output,
         // not a command boundary. Match only the selected vendor's prompt
         // shape; still reject a genuine prompt naming a different device.
         String vendor = extractVendorPrefix(cmdSet);
         String promptPattern = "N".equals(vendor) ? "\\*?[AB]:[^\\s<>#]+#"
                 : "HW".equals(vendor) ? "<[^<>\\s]+>"
+                : "J".equals(vendor) ? "(?:[^\\s@>#]+@)*[A-Za-z0-9_.:-]+>"
                 : "<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>";
         Pattern boundary = Pattern.compile("^\\s*(" + promptPattern + ")\\s*(.*?)\\s*$",
                 Pattern.CASE_INSENSITIVE);
@@ -6466,9 +6468,23 @@ public class Telnet_Multi {
                     if (!sanitizeDeviceNameForFileName(device).equalsIgnoreCase(
                             sanitizeDeviceNameForFileName(extractNodeNameFromPromptToken(match.group(1))))) return false;
                     String command = match.group(2).trim().toLowerCase(Locale.ROOT);
+                    // Junos redraws a long echoed command as a shortened suffix.
+                    // Keep the response attached to the full command we recorded.
+                    if ("J".equals(vendor) && command.startsWith("...") && !commands.isEmpty()
+                            && command.length() > 3
+                            && commands.get(commands.size() - 1).endsWith(command.substring(3).trim())) {
+                        continue;
+                    }
+                    if (!completedResponses.isEmpty()) {
+                        completedResponses.set(completedResponses.size() - 1, true);
+                    }
+                    if ("J".equals(vendor) && command.matches("(?:quit|exit|logout)\\s*connection closed by foreign host\\.?")) {
+                        command = command.replaceFirst("\\s*connection closed by foreign host\\.?$", "");
+                    }
                     if (!command.isEmpty()) {
                         commands.add(command);
                         outputs.add(new StringBuilder());
+                        completedResponses.add(false);
                     }
                 } else if (!outputs.isEmpty()) {
                     outputs.get(outputs.size() - 1).append(line).append('\n');
@@ -6480,7 +6496,13 @@ public class Telnet_Multi {
             String command = commands.get(i);
             if (next < count && command.equals(safeTrim(configured[next]).toLowerCase(Locale.ROOT))) next++;
             if ((command.startsWith("display ") || command.startsWith("show "))
-                    && outputs.get(i).toString().trim().isEmpty()) return false;
+                    && outputs.get(i).toString().trim().isEmpty()) {
+                // ZTE legitimately returns no rows when no LACP members or LLDP
+                // neighbors exist. Require the same device's next verified prompt.
+                boolean emptyTable = "ZTE".equals(vendor)
+                        && ("show lacp internal".equals(command) || "show lldp neighbor brief".equals(command));
+                if (!emptyTable || !completedResponses.get(i)) return false;
+            }
         }
         if (next != count) return false;
         // Nokia adds two detail commands for every port discovered by show port.

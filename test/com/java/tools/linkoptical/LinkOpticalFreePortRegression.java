@@ -10,6 +10,12 @@ public final class LinkOpticalFreePortRegression {
         verifyNokiaConnectorBandwidth();
         verifyNokiaConnectorUsage();
         verifyNokiaConnectorIsCountedOnce();
+        assertEquals("1G", Link_Optical.normalizeBW("ge-0/0/0", "100Mbps"));
+        assertEquals("10G", Link_Optical.normalizeBW("xe-0/0/0", "1Gbps"));
+        assertEquals("100G", Link_Optical.normalizeBW("et-0/0/0", "100Gbps"));
+        assertEquals("", Link_Optical.normalizeBW("et-0/0/0", "40Gbps"));
+        assertEquals("", Link_Optical.normalizeBW("et-0/0/0", "400Gbps"));
+        assertEquals("", Link_Optical.normalizeBW("et-0/0/0", ""));
         System.out.println("PASS LinkOpticalFreePortRegression");
     }
 

@@ -46,7 +46,8 @@ final class AggregationMembership {
     AggregationMembership(String filename) {
         vendor = filename.contains("_ZTE-LLDP-Link_OPTIC_") ? "ZTE"
                 : filename.contains("_HW-LLDP-Link_OPTIC_") ? "HW"
-                : filename.contains("_N-LLDP-Link_OPTIC_") ? "N" : "";
+                : filename.contains("_N-LLDP-Link_OPTIC_") ? "N"
+                : filename.contains("_J-LLDP-Link_OPTIC_") ? "J" : "";
     }
 
     /** Observe the same read pass used by the existing physical-port parser. */
@@ -65,6 +66,21 @@ final class AggregationMembership {
         if ("ZTE".equals(vendor)) zte(text);
         else if ("HW".equals(vendor)) huawei(text);
         else if ("N".equals(vendor)) nokia(line);
+        else if ("J".equals(vendor)) juniper(text);
+    }
+
+    private String juniperPort = "";
+    private void juniper(String text) {
+        Matcher physical = Pattern.compile("^Physical interface:\\s*([^,]+),.*$").matcher(text);
+        if (physical.matches()) {
+            String name = physical.group(1).trim();
+            juniperPort = name.matches("(?:ge|xe|et)-\\d+/\\d+/\\d+(?::\\d+)?") ? name : "";
+            descriptionGroup = name.matches("ae\\d+") ? name : "";
+        }
+        if (PROMPT.matcher(text).matches()) { juniperPort = ""; descriptionGroup = ""; }
+        description(text);
+        Matcher bundle = Pattern.compile("\\bAE bundle:\\s*(ae\\d+)(?:\\.\\d+)?(?:,|\\s|$)").matcher(text);
+        if (!juniperPort.isEmpty() && bundle.find()) add(juniperPort, bundle.group(1), "");
     }
 
     private void zte(String text) {

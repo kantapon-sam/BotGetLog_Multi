@@ -1,6 +1,6 @@
 {
-  "version": "1.2.10",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.10/BotGetLog_Multi-dist-1.2.10.zip",
-  "sha256": "5e6d56e351f9d413c7f2920af2c4615a5bbe6eaf31004923c5f3b050cb1e55ea",
-  "notes": "Released 1.2.10: Prevent overlapping same-node collections from mixing or archiving active logs. Isolate incomplete retry transcripts and identify each activity attempt. Existing login and connection failures still require recovery."
+  "version": "1.2.11",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.11/BotGetLog_Multi-dist-1.2.11.zip",
+  "sha256": "9ec7feadff6fee6f2afcb03cb59abdb149f8f6219ca15a4b37741b50f82f7ae3",
+  "notes": "Juniper LLDP, free-port and CPU/Memory exports; correct Junos close/redraw validation and ZTE empty LACP/LLDP results. Existing user logs, inventory and credentials are preserved."
 }

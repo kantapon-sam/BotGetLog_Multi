@@ -23,6 +23,9 @@ public class Check_Link_Optical {
             lines.add(line);
         }
 
+        if (path.contains("_J-LLDP-Link_OPTIC_")) {
+            return JuniperExportParser.parse(lines, path);
+        }
         if (path.contains("_HW-LLDP-Link_OPTIC_")) {
 
             String fileName = new File(path).getName();
