@@ -105,6 +105,14 @@ public final class ReleaseInstallRegression {
             require("SYNTHETIC-CREDENTIAL-SENTINEL".equals(book.getSheet("Credentials").getRow(0).getCell(0).getStringCellValue()), "Credentials lost");
             require("KEEP-CUSTOM-DATA".equals(book.getSheet("CustomData").getRow(0).getCell(0).getStringCellValue()), "Custom sheet lost");
             require(book.getSheet("cmdSet").getLastRowNum() > 0, "Command set not synchronized");
+            org.apache.poi.ss.usermodel.Sheet commands = book.getSheet("cmdSet");
+            int juniper = -1;
+            for (org.apache.poi.ss.usermodel.Cell cell : commands.getRow(0))
+                if ("J-LLDP-Link_OPTIC".equals(cell.toString())) juniper = cell.getColumnIndex();
+            require(juniper >= 0, "Juniper command set missing after update");
+            require("set cli screen-length 0".equals(commands.getRow(1).getCell(juniper).toString()), "Pagination setup must stay first");
+            require("show version".equals(commands.getRow(2).getCell(juniper).toString()), "Existing users did not receive show version");
+            require("quit".equals(commands.getRow(9).getCell(juniper).toString()), "Complete Juniper command sequence lost");
         }
         for (Path p : new Path[]{history, prefs})
             require("KEEP-USER-FILE".equals(new String(Files.readAllBytes(p), StandardCharsets.UTF_8)), "User file changed: " + p);

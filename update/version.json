@@ -1,6 +1,6 @@
 {
-  "version": "1.2.11",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.11/BotGetLog_Multi-dist-1.2.11.zip",
-  "sha256": "9ec7feadff6fee6f2afcb03cb59abdb149f8f6219ca15a4b37741b50f82f7ae3",
-  "notes": "Juniper LLDP, free-port and CPU/Memory exports; correct Junos close/redraw validation and ZTE empty LACP/LLDP results. Existing user logs, inventory and credentials are preserved."
+  "version": "1.2.12",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.12/BotGetLog_Multi-dist-1.2.12.zip",
+  "sha256": "ae74bdfd7776ba968c1b91186f6f7b5f7206e5a8e77d01115532b4dd8900ad2e",
+  "notes": "Collect Juniper Equipment and Junos software using show version before LLDP and port commands. Existing users receive the command update; inventory, credentials and logs are preserved."
 }

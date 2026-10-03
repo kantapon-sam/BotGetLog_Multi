@@ -9,7 +9,9 @@ public final class JuniperExportRegression {
     public static void main(String[] args) throws Exception {
         Path root = Files.createTempDirectory("juniper-export-");
         try {
-            String text = P + "set cli screen-length 0\n" + P + "show lldp neighbors detail\n"
+            String text = P + "set cli screen-length 0\n"
+                    + P + "show version\nHostname: CN_TEST_re0\nModel: mx2020\nJunos: 21.2R3-S3.5\n"
+                    + P + "show lldp neighbors detail\n"
                     + peer("et-0/0/0", "CORE_LONG_HOSTNAME_re0", "et-3/0/0")
                     + peer("et-0/0/0", "SECOND_CORE_NAME", "Ethernet1/1")
                     + P + "show chassis routing-engine\nRouting Engine status:\nSlot 0:\nCurrent state Backup\nDRAM 16315 MB (16384 MB installed)\nMemory utilization 10 percent\nCPU utilization:\nIdle 99 percent\n"
@@ -31,6 +33,8 @@ public final class JuniperExportRegression {
             require(full.size() == 6, "5 physical rows including two LLDP peers: " + full);
             require(full.get(1).contains("CN_TEST_re0,10.0.0.1,et-0/0/0,UP,,CORE_LONG_HOSTNAME_re0,et-3/0/0,100G,"), "neighbor identity");
             require(full.get(1).endsWith(",ae52,To-Core-Bundle"), "AE membership");
+            for (String row : full.subList(1, full.size()))
+                require(row.contains(",21.2R3-S3.5,mx2020,"), "own equipment and software from show version");
             require(full.get(1).contains(",0.00,-3.00,-10.0,9,"), "optics and CRC");
             require(!String.join("\n", full).contains("fxp0"), "exclude management interface");
             require(Files.readAllLines(out.getNeighborFile().toPath()).size() == 3, "retain long core peer names in filtered CSV");
