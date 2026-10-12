@@ -1,6 +1,7 @@
 package com.java.updater;
 
 import com.java.shared.AppMetadata;
+import com.java.shared.DeviceEnableSettings;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -55,6 +56,12 @@ public final class ReleaseInstallRegression {
             Files.createDirectories(p.getParent());
             Files.write(p, "KEEP-USER-FILE".getBytes(StandardCharsets.UTF_8));
         }
+        DeviceEnableSettings enable = new DeviceEnableSettings(prefs.getParent());
+        java.util.Map<String, String> entry = new java.util.HashMap<String, String>();
+        entry.put("id", ""); entry.put("password", "SYNTHETIC-ENABLE-KEEP");
+        enable.save("ZTE", (String) enable.status().get("revision"), java.util.Collections.singletonList(entry), 1, false);
+        byte[] encryptedBefore = Files.readAllBytes(prefs.getParent().resolve("device-enable.enc"));
+        byte[] keyBefore = Files.readAllBytes(prefs.getParent().resolve("device-enable.key"));
         Path probe = target.resolve("ReleaseVersionProbe.jar");
         Manifest manifest = new Manifest();
         Attributes attrs = manifest.getMainAttributes();
@@ -116,6 +123,9 @@ public final class ReleaseInstallRegression {
         }
         for (Path p : new Path[]{history, prefs})
             require("KEEP-USER-FILE".equals(new String(Files.readAllBytes(p), StandardCharsets.UTF_8)), "User file changed: " + p);
+        require(java.util.Arrays.equals(encryptedBefore, Files.readAllBytes(prefs.getParent().resolve("device-enable.enc"))), "Enable settings replaced");
+        require(java.util.Arrays.equals(keyBefore, Files.readAllBytes(prefs.getParent().resolve("device-enable.key"))), "Enable encryption key replaced");
+        require("SYNTHETIC-ENABLE-KEEP".equals(enable.loadZte().candidates().get(0)), "Enable password lost");
         require(!Files.exists(zip), "Updater did not consume package");
         System.out.println("PASS ReleaseInstallRegression: installed and relaunched " + expected
                 + "; inventory, credentials, custom data, history and preferences preserved; evidence=" + sandbox);

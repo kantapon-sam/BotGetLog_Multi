@@ -1,6 +1,6 @@
 {
-  "version": "1.2.12",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.12/BotGetLog_Multi-dist-1.2.12.zip",
-  "sha256": "ae74bdfd7776ba968c1b91186f6f7b5f7206e5a8e77d01115532b4dd8900ad2e",
-  "notes": "Collect Juniper Equipment and Junos software using show version before LLDP and port commands. Existing users receive the command update; inventory, credentials and logs are preserved."
+  "version": "1.2.13",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.13/BotGetLog_Multi-dist-1.2.13.zip",
+  "sha256": "8170d2cdd7b5d103fbef539418f2e4c5533858253b8472d60acf0920a24b245c",
+  "notes": "ZTE Enable fallback passwords and a modern Windows settings window. Store up to five passwords with a default two-attempt limit. Existing inventory, credentials, logs and saved settings are preserved."
 }

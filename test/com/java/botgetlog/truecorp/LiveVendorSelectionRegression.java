@@ -5,6 +5,9 @@ public class LiveVendorSelectionRegression {
   check("A:CPE-NOKIA#","ZTE-ARP","N-ARP");check("<CPE-HW>","N-LLDP-Link_OPTIC","HW-LLDP-Link_OPTIC");
   check("","N-ARP","N-ARP");check("Welcome to gateway","N-ARP","N-ARP");
   privilege("CPE-ZTE>","Password:\nCPE-ZTE#\n",true);privilege("CPE-ZTE>","CPE-ZTE>\n",false);privilege("CPE-ZTE#","",true);
+  privilege("CPE-ZTE>","Password:\nInvalid password\nCPE-ZTE>\nPassword:\nCPE-ZTE#\n",true);
+  privilege("CPE-ZTE>","Password:\nInvalid password\nPassword:\nCPE-ZTE#\n",true);
+  privilege("CPE-ZTE>","Password:\nInvalid password\nPassword:\nInvalid password\nCPE-ZTE>\n",false);
   System.out.println("PASS LiveVendorSelectionRegression: authenticated prompt selects matching command type");
  }
  static void check(String prompt,String original,String expected){String actual=Telnet_Multi.commandSetForPrompt(prompt,original);if(!expected.equals(actual))throw new AssertionError(prompt+": "+actual+" != "+expected);}

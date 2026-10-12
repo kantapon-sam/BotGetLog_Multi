@@ -1,5 +1,7 @@
 package com.java.botgetlog.dtac;
 
+import com.java.shared.DeviceEnableSettings;
+import com.java.shared.ZteEnableFlow;
 import com.jcraft.jsch.*;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
@@ -44,7 +46,6 @@ private static final String CMDSET_SHEET = "cmdSet";
 private static final Object CONSOLE_LOG_LOCK = new Object();
 private static final DateTimeFormatter LOG_DATE_TAG_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 private static final DateTimeFormatter LOG_COLLISION_TAG_FORMATTER = DateTimeFormatter.ofPattern("HHmmssSSS");
-private static final String ZTE_ENABLE_PASSWORD = "zxr10";
 private static final long ZTE_ENABLE_TIMEOUT_MS = 30000L;
 private static final Map<String, List<String>> CMDSET_CACHE = new ConcurrentHashMap<>();
 private static final Object CMDSET_CACHE_LOCK = new Object();
@@ -834,49 +835,40 @@ private void connectSSH(String host, int port, String user, String pass) throws 
         return "TIMEOUT";
     }
 
-    private boolean ensureZtePrivilegedMode(InputStream in,
-                                            OutputStream out,
-                                            StringBuilder window,
-                                            byte[] buf,
-                                            Writer streamLog,
-                                            String promptHint,
-                                            String host,
+    private boolean ensureZtePrivilegedMode(final InputStream in,
+                                            final OutputStream out,
+                                            final StringBuilder window,
+                                            final byte[] buf,
+                                            final Writer streamLog,
+                                            final String promptHint,
+                                            final String host,
                                             String cmdSetUsed) throws IOException {
-        if (!containsSingleSidedGreaterPrompt(window == null ? "" : window.toString(), promptHint)) {
-            return true;
-        }
-
-        String hintForLog = (promptHint == null || promptHint.trim().isEmpty())
-                ? "ZTE"
-                : promptHint.trim();
-        logwork("[ZTE-ENABLE] DTAC " + host + " prompt=" + hintForLog
-                + "> -> enable before " + cmdSetUsed + "\n");
-        writeStreamLog(streamLog, "\n[ZTE-ENABLE] enable\n");
-
-        window.setLength(0);
-        out.write("enable\n".getBytes(StandardCharsets.UTF_8));
-        out.flush();
-
-        String state = waitForZteEnableState(in, window, buf, streamLog, promptHint, true);
-        if ("PASSWORD".equals(state)) {
-            writeStreamLog(streamLog, "\n[ZTE-ENABLE] Password: ********\n");
-            window.setLength(0);
-            out.write((ZTE_ENABLE_PASSWORD + "\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            state = waitForZteEnableState(in, window, buf, streamLog, promptHint, false);
-        }
-
-        if ("PRIVILEGED".equals(state)) {
-            logwork("[ZTE-ENABLE] DTAC " + host + " privileged prompt ready\n");
-            return true;
-        }
-
-        String reason = "USER".equals(state)
-                ? "prompt stayed in user mode after enable"
-                : "enable timed out before privileged prompt";
-        logwork("[ZTE-ENABLE-FAIL] DTAC " + host + " " + reason + "\n");
-        writeStreamLog(streamLog, "\n[ERROR] ZTE enable failed: " + reason + "\n");
-        return false;
+        String override = System.getProperty("botgetlog.enable.settingsDir", "");
+        final DeviceEnableSettings.Snapshot settings = new DeviceEnableSettings(override.isEmpty()
+                ? com.java.shared.AppMetadata.getLauncherDataDirectory().toPath() : java.nio.file.Paths.get(override)).loadZte();
+        boolean accepted = ZteEnableFlow.enter(new ZteEnableFlow.Session() {
+            public ZteEnableFlow.State current() {
+                char terminator = promptTerminatorFromWindow(window.toString(), promptHint);
+                return terminator == '#' ? ZteEnableFlow.State.PRIVILEGED : terminator == '>' ? ZteEnableFlow.State.USER : ZteEnableFlow.State.FAILED;
+            }
+            public void command(String value) throws IOException { send(value); }
+            public void password(String value) throws IOException { send(value); }
+            private void send(String value) throws IOException {
+                window.setLength(0); out.write((value + "\n").getBytes(StandardCharsets.UTF_8)); out.flush();
+            }
+            public ZteEnableFlow.State read() throws IOException {
+                // Collect the complete response before redacting; passwords may span network chunks.
+                String result = waitForZteEnableState(in, window, buf, null, promptHint, true);
+                writeStreamLog(streamLog, settings.redact(window.toString()));
+                return "PASSWORD".equals(result) ? ZteEnableFlow.State.PASSWORD : "PRIVILEGED".equals(result)
+                        ? ZteEnableFlow.State.PRIVILEGED : "USER".equals(result) ? ZteEnableFlow.State.USER : ZteEnableFlow.State.FAILED;
+            }
+            public void attempt(int number, boolean success) {
+                logwork("[ZTE-ENABLE] DTAC " + host + " credential slot " + number + (success ? " accepted\n" : " not accepted\n"));
+            }
+        }, settings.candidates());
+        if (!accepted) writeStreamLog(streamLog, "\n[ERROR] ZTE enable failed after configured attempts.\n");
+        return accepted;
     }
 
     private boolean waitForStablePromptAndDrain(InputStream in,

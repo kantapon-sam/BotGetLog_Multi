@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.12: Collect Juniper equipment and Junos version before LLDP and port data.
+    // Version 1.2.13: Configurable ZTE Enable passwords with bounded fallback.
     // Attempt IDs keep collection activity associated with its originating session.
-    private static final String FALLBACK_VERSION = "1.2.12";
+    private static final String FALLBACK_VERSION = "1.2.13";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -254,6 +254,10 @@ public class BotToolLauncher {
         actionButtonsPanel.add(isisPeerButton);
         actionButtonsPanel.add(deletedLogCheckerButton);
         actionButtonsPanel.add(connectVpnButton);
+        JButton privilegeSettings = new LauncherButton("Bot Settings - ZTE Enable");
+        styleSecondaryButton(privilegeSettings);
+        privilegeSettings.addActionListener(e -> DevicePrivilegeDialog.showDialog(frame));
+        actionButtonsPanel.add(privilegeSettings);
         actionButtonsPanel.add(resetButton);
         actionButtonsPanel.add(exitButton);
 

@@ -91,6 +91,8 @@
             <fileset dir="${build.classes.dir}">
                 <include name="com/java/launcher/**/*.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/DeviceEnableSettings*.class"/>
+                <include name="com/java/shared/ZteEnableFlow*.class"/>
                 <include name="com/java/updater/AutoUpdateManager.class"/>
                 <include name="com/java/updater/UpdateManifest.class"/>
                 <include name="com/java/updater/UpdatePromptDialog.class"/>
@@ -149,6 +151,8 @@
             <fileset dir="${build.classes.dir}">
                 <include name="com/java/botgetlog/dtac/**/*.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/shared/DeviceEnableSettings*.class"/>
+                <include name="com/java/shared/ZteEnableFlow*.class"/>
             </fileset>
         </jar>
 

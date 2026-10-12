@@ -30,5 +30,13 @@ Default input files:
 
 Update behavior:
 - The updater replaces application jars, defaults, lib, updater, and README.TXT.
-- The updater keeps UserInterface_Input.xlsx and _output.
+- The updater keeps UserInterface_Input.xlsx, _output, and launcher-data (including saved ZTE Enable passwords).
 - SID.jar exports Huawei, ZTE, and Nokia loopback/SID rows. Segment_Routing_Prefix.jar remains as a compatibility entry point.
+
+ZTE Enable settings:
+- Open Bot Settings - ZTE Enable in the Windows launcher.
+- Store up to five passwords: one primary and four fallbacks. Passwords are case-sensitive.
+- The default attempt limit is two. The collector stops as soon as privileged mode succeeds.
+- Leave a saved field blank to keep its value; use Show to view it or the arrows to change priority.
+- Changes apply to new node connections. Each Windows installation has its own settings.
+- Server settings are managed separately by an Admin in Control Console > Bot Settings - ZTE Enable.

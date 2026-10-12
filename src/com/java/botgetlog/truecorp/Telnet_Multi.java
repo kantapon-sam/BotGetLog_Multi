@@ -1,5 +1,8 @@
 package com.java.botgetlog.truecorp;
 
+import com.java.shared.DeviceEnableSettings;
+import com.java.shared.ZteEnableFlow;
+import com.java.shared.AppMetadata;
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
@@ -425,7 +428,18 @@ public class Telnet_Multi {
     private static final int PROMPT_STABILIZE_DELAY_MS = 150;
     private static final int POST_LOGIN_FINAL_DELAY_MS = 500;
     private static final String[] PRELOGIN_STOP_TOKENS = new String[]{"username:", "user name:", "login:", "password:", "ogin:"};
-    private static final String ZTE_ENABLE_PASSWORD = "zxr10";
+    private static DeviceEnableSettings enableSettings() {
+        String override = System.getProperty("botgetlog.enable.settingsDir", "");
+        return new DeviceEnableSettings(override.isEmpty() ? AppMetadata.getLauncherDataDirectory().toPath() : java.nio.file.Paths.get(override));
+    }
+    private static ZteEnableFlow.State zteEnableState(String response) {
+        if (response == null || isTimeoutResponse(response) || containsTransportFailureText(response)) return ZteEnableFlow.State.FAILED;
+        String prompt = cleanPromptToken(extractPromptToken(response));
+        if (isInteractivePromptToken(prompt) && prompt.endsWith("#")) return ZteEnableFlow.State.PRIVILEGED;
+        if (isSingleSidedGreaterPromptToken(prompt)) return ZteEnableFlow.State.USER;
+        if (response.trim().toLowerCase(Locale.ROOT).matches("(?s).*(?:password|ssword)\\s*:$")) return ZteEnableFlow.State.PASSWORD;
+        return ZteEnableFlow.State.FAILED;
+    }
     private static final String[] CHECKLOGIN_BANNER_NOISE_TOKENS = new String[]{
         "authorised users only", "prohibited", "monitored", "stelnet",
         "protocol", "escape character", "press any key", "banner", "device is prohibited"
@@ -917,7 +931,7 @@ public class Telnet_Multi {
                 }
             }
             String transcript = probe.executeCommands(commands, includeActivePortDetails);
-            if (commandSets != null && effectiveCmdSet.startsWith("ZTE-")) transcript = transcript.replace(ZTE_ENABLE_PASSWORD, "[REDACTED]");
+            if (probe.enableSnapshot != null) transcript = probe.enableSnapshot.redact(transcript);
             if (isTimeoutResponse(transcript)) {
                 return LiveProbeResult.failure("COMMAND_TIMEOUT",
                         "Timed out while reading live commands on " + describeValidationTarget(loopback, device, cmdSet) + ".",
@@ -1147,6 +1161,7 @@ public class Telnet_Multi {
         private InputStream in;
         private PrintStream out;
         private String lastPromptToken = "";
+        private DeviceEnableSettings.Snapshot enableSnapshot;
         private GatewayEndpoint gatewayEndpoint;
         private int liveProgressCompleted = -1;
         private int liveProgressExpected = -1;
@@ -1275,16 +1290,21 @@ public class Telnet_Multi {
         }
 
         private boolean ensureZtePrivilegedMode() {
-            if (!isSingleSidedGreaterPromptToken(lastPromptToken)) return true;
-            write("enable");
-            String response = readUntilAny("ssword:", "#", ">");
-            if (isTimeoutResponse(response) || containsLoginFailureText(response)) return false;
-            if (containsAuthPromptText(response)) {
-                writeNoShow(ZTE_ENABLE_PASSWORD);
-                response = readUntilAny("#", ">");
-                if (isTimeoutResponse(response) || containsLoginFailureText(response) || containsAuthPromptText(response)) return false;
+            try {
+                enableSnapshot = enableSettings().loadZte();
+                return ZteEnableFlow.enter(new ZteEnableFlow.Session() {
+                    public ZteEnableFlow.State current() { return zteEnableState(lastPromptToken); }
+                    public void command(String value) { write(value); }
+                    public void password(String value) { writeNoShow(value); }
+                    public ZteEnableFlow.State read() { return zteEnableState(readUntilAny("ssword:", "#", ">")); }
+                    public void attempt(int number, boolean success) {
+                        System.out.println("[ZTE-ENABLE] Live credential slot " + number + (success ? " accepted" : " not accepted"));
+                    }
+                }, enableSnapshot.candidates());
+            } catch (IOException ex) {
+                System.out.println("[ZTE-ENABLE-FAIL] Enable settings unavailable.");
+                return false;
             }
-            return lastPromptToken.endsWith("#");
         }
 
         private String executeCommands(List<String> commands) throws IOException {
@@ -5140,57 +5160,28 @@ public class Telnet_Multi {
     }
 
     private boolean ensureZtePrivilegedMode(String cmdSet, String Loopback, String Device, int Num_row) {
-        String promptToken = currentPromptTokenFromState();
-        if (!isSingleSidedGreaterPromptToken(promptToken)) {
-            return true;
+        try {
+            final DeviceEnableSettings.Snapshot settings = enableSettings().loadZte();
+            boolean success = ZteEnableFlow.enter(new ZteEnableFlow.Session() {
+                public ZteEnableFlow.State current() { return zteEnableState(currentPromptTokenFromState()); }
+                public void command(String value) { write(value); }
+                public void password(String value) { write_NoShow(value); }
+                public ZteEnableFlow.State read() {
+                    String response = readUntilAny("ssword:", "#", ">");
+                    LOG.append(settings.redact(response));
+                    rememberPromptTokenFromResponse(response);
+                    return zteEnableState(response);
+                }
+                public void attempt(int number, boolean accepted) {
+                    String line = "[ZTE-ENABLE]" + buildConsoleNodePrefix(Num_row, Loopback, Device)
+                            + " credential slot " + number + (accepted ? " accepted" : " not accepted");
+                    System.out.println(line); logwork(line + "\n");
+                }
+            }, settings.candidates());
+            return success || failZteEnable(Loopback, Device, cmdSet, Num_row, "Configured attempts did not reach privileged mode");
+        } catch (IOException ex) {
+            return failZteEnable(Loopback, Device, cmdSet, Num_row, "Enable settings unavailable");
         }
-
-        String consolePrefix = buildConsoleNodePrefix(Num_row, Loopback, Device);
-        System.out.println("[ZTE-ENABLE]" + consolePrefix + " " + promptToken + " -> enable");
-        logwork("[ZTE-ENABLE] Detected ZTE user prompt " + promptToken
-                + "; sending enable before command set " + cmdSet + "\n");
-
-        write("enable");
-        String enableResp = readUntilAny("ssword:", "#");
-        if (enableResp != null) {
-            LOG.append(enableResp);
-        }
-        rememberPromptTokenFromResponse(enableResp);
-        logwork("[ZTE-ENABLE] enable response: "
-                + summarizeResponseForLog(enableResp, ZTE_ENABLE_PASSWORD) + "\n");
-
-        if (isTimeoutResponse(enableResp) || containsLoginFailureText(enableResp)) {
-            return failZteEnable(Loopback, Device, cmdSet, Num_row,
-                    "enable did not reach Password/# prompt");
-        }
-
-        if (containsAuthPromptText(enableResp)) {
-            write_NoShow(ZTE_ENABLE_PASSWORD);
-            String passwordResp = readUntilAny("#", ">");
-            if (passwordResp != null) {
-                LOG.append(passwordResp);
-            }
-            rememberPromptTokenFromResponse(passwordResp);
-            logwork("[ZTE-ENABLE] password response: "
-                    + summarizeResponseForLog(passwordResp, ZTE_ENABLE_PASSWORD) + "\n");
-
-            if (isTimeoutResponse(passwordResp)
-                    || containsLoginFailureText(passwordResp)
-                    || (containsAuthPromptText(passwordResp) && !hasInteractivePromptToken(passwordResp))) {
-                return failZteEnable(Loopback, Device, cmdSet, Num_row,
-                        "enable password was not accepted");
-            }
-        }
-
-        String finalPrompt = currentPromptTokenFromState();
-        if (finalPrompt.endsWith("#")) {
-            return true;
-        }
-        if (isSingleSidedGreaterPromptToken(finalPrompt)) {
-            return failZteEnable(Loopback, Device, cmdSet, Num_row,
-                    "prompt stayed in user mode after enable");
-        }
-        return true;
     }
 
     private boolean checkEnvCommand(String cmdSet, String Loopback, String Device, int Num_row) {

@@ -1,0 +1,18 @@
+BotGetLog_Multi v1.2.13
+
+ZTE Enable now supports an ordered primary password and up to four fallback passwords.
+The default profile tries two passwords and stops immediately when privileged mode succeeds.
+Password attempts are sent only in response to the device password prompt.
+
+Windows: open Bot Settings - ZTE Enable for the new dark settings window. Add, remove,
+reorder, reveal, or replace saved passwords and select an attempt limit from one to five.
+Settings are encrypted on disk and apply to new connections in that installation.
+
+Server: Admins can manage the server collector settings in Control Console.
+Server and Windows installations keep separate settings. Huawei and Nokia are unchanged.
+
+Auto Update preserves inventory, credentials, output logs, preferences, and saved Enable settings.
+Dist requires Java; Portable includes its Java runtime. Existing users can select Check for updates.
+
+Validation: Java 8 settings and protocol regressions, Windows UI rendering, web UI and access-control
+tests, a disposable upgrade and relaunch, and a read-only live ZTE test through fallback authentication.
