@@ -1302,7 +1302,7 @@ public class Telnet_Multi {
                     }
                 }, enableSnapshot.candidates());
             } catch (IOException ex) {
-                System.out.println("[ZTE-ENABLE-FAIL] Enable settings unavailable.");
+                System.out.println("[ZTE-ENABLE-FAIL] Enable settings unavailable or empty. Save ZTE Enable passwords in Bot Settings before collecting logs.");
                 return false;
             }
         }
@@ -5180,7 +5180,7 @@ public class Telnet_Multi {
             }, settings.candidates());
             return success || failZteEnable(Loopback, Device, cmdSet, Num_row, "Configured attempts did not reach privileged mode");
         } catch (IOException ex) {
-            return failZteEnable(Loopback, Device, cmdSet, Num_row, "Enable settings unavailable");
+            return failZteEnable(Loopback, Device, cmdSet, Num_row, "Enable settings unavailable or empty. Save ZTE Enable passwords in Bot Settings before collecting logs.");
         }
     }
 

@@ -17,6 +17,7 @@ public final class ZteEnableFlow {
     public static boolean enter(Session session, List<String> passwords) throws IOException {
         State state = session.current();
         if (state == State.PRIVILEGED) return true;
+        if (passwords.isEmpty()) throw new IOException("No ZTE Enable passwords saved. Save a password in Bot Settings - ZTE Enable before collecting ZTE logs.");
         if (state != State.USER) return false;
         int count = 0;
         for (String password : passwords) {

@@ -1,0 +1,16 @@
+BotGetLog_Multi v1.2.14
+
+ZTE Enable now uses only passwords explicitly saved by the user or server Admin.
+There are no built-in Enable passwords. A new installation starts with an empty
+list. Missing or cleared settings never restore any credentials automatically.
+Without saved passwords, the collector stops before attempting Enable and asks
+the user to configure ZTE Enable settings. Already privileged sessions do not
+need a password.
+
+Windows and web settings replace Restore defaults with Clear saved passwords.
+Server Bot and True Logs share the Admin's saved Enable settings. Windows stores
+its own settings. Personal SAM/CLLS logins are unchanged.
+
+Existing encrypted Enable settings remain compatible and are preserved by Auto
+Update along with inventory, credentials, logs and other launcher settings.
+The release packages contain no saved Enable credentials or encryption keys.

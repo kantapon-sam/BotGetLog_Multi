@@ -35,6 +35,9 @@ Update behavior:
 
 ZTE Enable settings:
 - Open Bot Settings - ZTE Enable in the Windows launcher.
+- No Enable passwords are embedded in the application. Add passwords and Save before first use.
+- Only saved passwords are used. Clear saved passwords or delete device-enable.enc to leave no passwords for new connections.
+- Passwords are stored encrypted in launcher-data/device-enable.enc with device-enable.key; keep both when backing up or moving saved settings.
 - Store up to five passwords: one primary and four fallbacks. Passwords are case-sensitive.
 - The default attempt limit is two. The collector stops as soon as privileged mode succeeds.
 - Leave a saved field blank to keep its value; use Show to view it or the arrows to change priority.

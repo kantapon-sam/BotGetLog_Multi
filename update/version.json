@@ -1,6 +1,6 @@
 {
-  "version": "1.2.13",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.13/BotGetLog_Multi-dist-1.2.13.zip",
-  "sha256": "8170d2cdd7b5d103fbef539418f2e4c5533858253b8472d60acf0920a24b245c",
-  "notes": "ZTE Enable fallback passwords and a modern Windows settings window. Store up to five passwords with a default two-attempt limit. Existing inventory, credentials, logs and saved settings are preserved."
+  "version": "1.2.14",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.14/BotGetLog_Multi-dist-1.2.14.zip",
+  "sha256": "55f5e4ee4d803f6f7574976e2ae83cdbaebf85edec6e7f6f2f2e83e0cdb6a03d",
+  "notes": "ZTE Enable uses only user-saved passwords. No embedded passwords; missing or cleared settings stay empty. Existing saved settings, personal credentials, inventory and logs are preserved."
 }

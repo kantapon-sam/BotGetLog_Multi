@@ -47,25 +47,24 @@ public final class DeviceEnableSettings {
         if (!Collections.singletonList("ZTE").contains(value)) throw new IllegalArgumentException("Unknown vendor.");
         return value;
     }
-    private static Properties defaults() {
+    private static Properties emptySettings() {
         Properties p = new Properties();
         for (String v : Collections.singletonList("ZTE")) { p.setProperty(v + ".count", "0"); p.setProperty(v + ".attempts", "2"); }
-        p.setProperty("ZTE.count", "2"); p.setProperty("ZTE.0", "zxr10"); p.setProperty("ZTE.1", "Zxr10_IPTN");
         return p;
     }
     private static Snapshot profile(Properties values, String v) throws IOException {
         try {
             int count = Integer.parseInt(values.getProperty(v + ".count"));
             int attempts = Integer.parseInt(values.getProperty(v + ".attempts"));
-            if (count < 0 || count > MAX_PASSWORDS || attempts < 1 || attempts > MAX_PASSWORDS || ("ZTE".equals(v) && count == 0)) throw new IllegalArgumentException();
+            if (count < 0 || count > MAX_PASSWORDS || attempts < 1 || attempts > MAX_PASSWORDS) throw new IllegalArgumentException();
             List<String> passwords = new ArrayList<String>();
             for (int i = 0; i < count; i++) { String value = values.getProperty(v + "." + i); validatePassword(value); passwords.add(value); }
             return new Snapshot(passwords, attempts);
-        } catch (RuntimeException ex) { throw new IOException("Invalid Enable settings. Restore or correct the saved settings."); }
+        } catch (RuntimeException ex) { throw new IOException("Invalid Enable settings. Correct the saved settings."); }
     }
     public Snapshot loadZte() throws IOException { return profile(read().values, "ZTE"); }
     private Data read() throws IOException {
-        if (!Files.exists(file)) return new Data(defaults(), "default");
+        if (Files.notExists(file)) return new Data(emptySettings(), "missing");
         byte[] stored = Files.readAllBytes(file);
         try {
             if (stored.length < 29 || !Files.isRegularFile(key)) throw new GeneralSecurityException();
@@ -80,13 +79,15 @@ public final class DeviceEnableSettings {
     public Map<String, Object> status() throws IOException { return status(read()); }
     private Map<String, Object> status(Data data) throws IOException {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
-        result.put("revision", data.revision); result.put("usingDefaults", "default".equals(data.revision));
+        result.put("revision", data.revision); result.put("usingDefaults", false);
+        result.put("settingsSaved", !"missing".equals(data.revision));
         result.put("path", file.toString()); result.put("maxPasswords", MAX_PASSWORDS);
         List<Map<String, Object>> profiles = new ArrayList<Map<String, Object>>();
         for (String v : Collections.singletonList("ZTE")) {
             Snapshot snapshot = profile(data.values, v);
             Map<String, Object> item = new LinkedHashMap<String, Object>();
             item.put("vendor", v); item.put("supported", "ZTE".equals(v)); item.put("maxAttempts", snapshot.maxAttempts);
+            item.put("configured", !snapshot.passwords.isEmpty());
             List<Map<String, String>> entries = new ArrayList<Map<String, String>>();
             for (int i = 0; i < snapshot.passwords.size(); i++) { Map<String, String> row = new LinkedHashMap<String, String>(); row.put("id", String.valueOf(i)); entries.add(row); }
             item.put("entries", entries); profiles.add(item);
@@ -108,7 +109,8 @@ public final class DeviceEnableSettings {
                 if (lock == null) throw new IllegalArgumentException("Enable settings are being saved. Refresh and retry.");
                 Data data = read(); checkRevision(revision, data.revision);
                 List<String> current = profile(data.values, v).passwords, next = new ArrayList<String>();
-                if (reset) { Snapshot initial = profile(defaults(), v); next.addAll(initial.passwords); maxAttempts = initial.maxAttempts; }
+                // Reset clears saved passwords. No credentials are supplied by the application.
+                if (reset) { maxAttempts = 2; }
                 else {
                     if (entries == null || entries.size() > MAX_PASSWORDS) throw new IllegalArgumentException("Store up to five passwords per vendor.");
                     Set<String> usedIds = new HashSet<String>();
@@ -125,7 +127,6 @@ public final class DeviceEnableSettings {
                         next.add(value);
                     }
                 }
-                if ("ZTE".equals(v) && next.isEmpty()) throw new IllegalArgumentException("ZTE requires a primary password.");
                 if (maxAttempts < 1 || maxAttempts > MAX_PASSWORDS) throw new IllegalArgumentException("Choose between one and five attempts.");
                 for (int i = 0; i < MAX_PASSWORDS; i++) data.values.remove(v + "." + i);
                 data.values.setProperty(v + ".count", String.valueOf(next.size()));

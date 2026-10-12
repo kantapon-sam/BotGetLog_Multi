@@ -147,7 +147,7 @@ public final class DevicePrivilegeDialog {
             });
             options.add(attempts, BorderLayout.EAST); bottom.add(options, BorderLayout.NORTH);
             JPanel footer = transparent(new BorderLayout(0, 14)); footer.add(message, BorderLayout.NORTH);
-            JPanel buttons = transparent(new BorderLayout()); JButton reset = button("Restore defaults", false); buttons.add(reset, BorderLayout.WEST);
+            JPanel buttons = transparent(new BorderLayout()); JButton reset = button("Clear saved passwords", false); buttons.add(reset, BorderLayout.WEST);
             JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 8, 0)); JButton cancel = button("Cancel", false), save = button("Save changes", true); actions.add(cancel); actions.add(save); buttons.add(actions, BorderLayout.EAST);
             footer.add(buttons, BorderLayout.CENTER); footer.add(label("LOCAL SETTINGS   Changes apply to new connections. Active connections continue unchanged.", 11, MUTED), BorderLayout.SOUTH);
             bottom.add(footer, BorderLayout.CENTER); add(bottom, BorderLayout.SOUTH);
@@ -158,7 +158,7 @@ public final class DevicePrivilegeDialog {
         @SuppressWarnings("unchecked")
         void populate(Map<String, Object> profile) {
             rows.clear(); for (Map<String, String> entry : (List<Map<String, String>>) profile.get("entries")) rows.add(new PasswordRow(entry.get("id")));
-            attempts.setSelectedItem(profile.get("maxAttempts")); dirty = false; message.setText("Saved passwords are hidden. Maximum 5 slots."); render();
+            attempts.setSelectedItem(profile.get("maxAttempts")); dirty = false; message.setText(rows.isEmpty() ? "No passwords saved. Add a password and save before using ZTE Enable." : "Saved passwords are hidden. Maximum 5 slots."); render();
         }
         void render() {
             list.removeAll(); count.setText(rows.size() + " of 5 slots");
@@ -195,13 +195,13 @@ public final class DevicePrivilegeDialog {
         }
         @SuppressWarnings("unchecked")
         void save(boolean reset) {
-            if (JOptionPane.showConfirmDialog(dialog, reset ? "Restore " + vendor + " defaults and save?" : "Save " + vendor + " privilege passwords for this installation?", "Save settings", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+            if (JOptionPane.showConfirmDialog(dialog, reset || rows.isEmpty() ? "Clear all saved " + vendor + " Enable passwords? New connections will have no Enable passwords to try." : "Save " + vendor + " privilege passwords for this installation?", "Save settings", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
             List<Map<String, String>> entries = new ArrayList<Map<String, String>>();
             for (PasswordRow row : rows) { Map<String, String> entry = new HashMap<String, String>(); entry.put("id", row.id); char[] chars = row.password.getPassword(); entry.put("password", new String(chars)); Arrays.fill(chars, '\0'); entries.add(entry); }
             try {
                 Map<String, Object> status = store.save(vendor, revision, entries, (Integer) attempts.getSelectedItem(), reset); revision = (String) status.get("revision");
                 for (Map<String, Object> profile : (List<Map<String, Object>>) status.get("profiles")) if (vendor.equals(profile.get("vendor"))) populate(profile);
-                message.setText("Saved. New node connections use these settings.");
+                message.setText(rows.isEmpty() ? "No passwords saved. Add a password and save before using ZTE Enable." : "Saved. New node connections use these settings.");
             } catch (IllegalArgumentException ex) { message.setText(ex.getMessage()); }
             catch (Exception ex) { message.setText("Unable to save. Check local file access; your edits are retained."); }
         }

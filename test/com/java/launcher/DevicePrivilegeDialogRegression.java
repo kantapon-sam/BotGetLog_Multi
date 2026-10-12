@@ -19,7 +19,8 @@ public class DevicePrivilegeDialogRegression {
                 Method content = DevicePrivilegeDialog.class.getDeclaredMethod("content", Map.class); content.setAccessible(true);
                 JPanel panel = (JPanel) content.invoke(controller, status);
                 JButton add = find(panel, "Add password");
-                for (int i = 0; i < 3; i++) add.doClick();
+                if (countPasswords(panel) != 0 || find(panel, "Clear saved passwords") == null) throw new AssertionError("New installation must show empty settings and clear action");
+                for (int i = 0; i < 5; i++) add.doClick();
                 if (add.isEnabled() || countPasswords(panel) != 5) throw new AssertionError("Five-slot limit");
                 find(panel, "Remove").doClick();
                 if (!add.isEnabled() || countPasswords(panel) != 4) throw new AssertionError("Remove slot");
