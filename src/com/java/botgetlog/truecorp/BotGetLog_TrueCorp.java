@@ -3423,6 +3423,8 @@ public class BotGetLog_TrueCorp {
             return false;
         }
 
+        line = Telnet_Multi.stripHuaweiHrpPrefix(line);
+
         String cmd = command.trim();
         if (cmd.isEmpty()) {
             return false;
@@ -3542,7 +3544,7 @@ public class BotGetLog_TrueCorp {
         }
         if (safeCmdSet.startsWith("hw-")) {
             String promptDevice = extractAnglePromptDevice(head);
-            return safeHead.startsWith("<")
+            return Telnet_Multi.stripHuaweiHrpPrefix(safeHead).startsWith("<")
                     && safeHead.contains(">")
                     && safeHead.contains("screen-length 0")
                     && matchesDeviceForLogComparison(device, promptDevice);
@@ -3563,7 +3565,7 @@ public class BotGetLog_TrueCorp {
         if (line == null) {
             return "";
         }
-        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(line.trim());
+        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(Telnet_Multi.stripHuaweiHrpPrefix(line.trim()));
         return matcher.find() ? matcher.group(1).trim() : "";
     }
 

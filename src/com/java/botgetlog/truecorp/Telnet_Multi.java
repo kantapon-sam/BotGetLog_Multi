@@ -1961,7 +1961,7 @@ public class Telnet_Multi {
         }
 
         private static String normalizeEstablishedPrompt(String prompt) {
-            String value = cleanPromptToken(prompt).toLowerCase(Locale.ROOT);
+            String value = stripHuaweiHrpPrefix(cleanPromptToken(prompt)).toLowerCase(Locale.ROOT);
             while (value.startsWith("*")) value = value.substring(1);
             if (value.matches("^[ab]:.+[>#]$")) value = value.substring(2);
             return value;
@@ -3428,10 +3428,11 @@ public class Telnet_Multi {
         }
 
         if ("HW".equals(vendor)) {
-            if (safeLine.startsWith("<")) {
-                int end = safeLine.indexOf('>');
+            String huaweiLine = stripHuaweiHrpPrefix(safeLine);
+            if (huaweiLine.startsWith("<")) {
+                int end = huaweiLine.indexOf('>');
                 if (end > 0) {
-                    return safeLine.substring(0, end + 1);
+                    return safeLine.substring(0, safeLine.length() - huaweiLine.length() + end + 1);
                 }
             }
         } else if ("N".equals(vendor)) {
@@ -3487,7 +3488,7 @@ public class Telnet_Multi {
     }
 
     private static boolean isIgnoredPromptCandidate(String candidate, String vendor) {
-        String value = cleanPromptToken(candidate);
+        String value = stripHuaweiHrpPrefix(cleanPromptToken(candidate));
         if (value.isEmpty()) {
             return true;
         }
@@ -3532,8 +3533,19 @@ public class Telnet_Multi {
         return sanitizeFileNameComponent(value).replace('_', '-');
     }
 
+    // HRP is a Huawei HA role decoration, not part of the device identity.
+    // Strip only known roles directly before a complete Huawei prompt shape;
+    // ordinary hostnames and arbitrary prefixes must retain their old meaning.
+    private static final Pattern HUAWEI_HRP_PREFIX = Pattern.compile(
+            "^HRP_[MS](?=(?:<[A-Za-z0-9_][A-Za-z0-9_.:/()-]*>"
+            + "|\\[[~*]?[A-Za-z0-9_][A-Za-z0-9_.:/()-]*\\]))", Pattern.CASE_INSENSITIVE);
+
+    static String stripHuaweiHrpPrefix(String text) {
+        return text == null ? "" : HUAWEI_HRP_PREFIX.matcher(text).replaceFirst("");
+    }
+
     static String extractNodeNameFromPromptToken(String promptToken) {
-        String token = cleanPromptToken(promptToken);
+        String token = stripHuaweiHrpPrefix(cleanPromptToken(promptToken));
         if (token.isEmpty()) {
             return "";
         }
@@ -5592,7 +5604,7 @@ public class Telnet_Multi {
     }
 
     private static boolean isHuaweiAnglePromptToken(String promptToken) {
-        String token = cleanPromptToken(promptToken);
+        String token = stripHuaweiHrpPrefix(cleanPromptToken(promptToken));
         return token.length() > 2 && token.startsWith("<") && token.endsWith(">");
     }
 
@@ -5670,7 +5682,7 @@ public class Telnet_Multi {
             return "";
         }
 
-        String trimmed = line.trim();
+        String trimmed = stripHuaweiHrpPrefix(line.trim());
         if (trimmed.isEmpty()) {
             return "";
         }
@@ -5981,7 +5993,7 @@ public class Telnet_Multi {
         }
         if (safeCmdSet.startsWith("hw-")) {
             String promptDevice = extractAnglePromptDevice(head);
-            return safeHead.startsWith("<")
+            return stripHuaweiHrpPrefix(safeHead).startsWith("<")
                     && safeHead.contains(">")
                     && safeHead.contains("screen-length 0")
                     && matchesDeviceForLogComparison(device, promptDevice);
@@ -6013,7 +6025,7 @@ public class Telnet_Multi {
         if (line == null) {
             return "";
         }
-        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(line.trim());
+        Matcher matcher = Pattern.compile("^<([^>\\r\\n]+)>").matcher(stripHuaweiHrpPrefix(line.trim()));
         return matcher.find() ? matcher.group(1).trim() : "";
     }
 
@@ -6439,7 +6451,7 @@ public class Telnet_Multi {
         // shape; still reject a genuine prompt naming a different device.
         String vendor = extractVendorPrefix(cmdSet);
         String promptPattern = "N".equals(vendor) ? "\\*?[AB]:[^\\s<>#]+#"
-                : "HW".equals(vendor) ? "<[^<>\\s]+>"
+                : "HW".equals(vendor) ? "(?:HRP_[MS])?<[^<>\\s]+>"
                 : "J".equals(vendor) ? "(?:[^\\s@>#]+@)*[A-Za-z0-9_.:-]+>"
                 : "<[^<>\\s]+>|\\*?(?:[AB]:)?[^\\s<>#]+#|(?:[^\\s@]+@)+[^\\s>]+>";
         Pattern boundary = Pattern.compile("^\\s*(" + promptPattern + ")\\s*(.*?)\\s*$",

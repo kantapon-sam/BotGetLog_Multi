@@ -1,6 +1,6 @@
 {
-  "version": "1.2.14",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.14/BotGetLog_Multi-dist-1.2.14.zip",
-  "sha256": "55f5e4ee4d803f6f7574976e2ae83cdbaebf85edec6e7f6f2f2e83e0cdb6a03d",
-  "notes": "ZTE Enable uses only user-saved passwords. No embedded passwords; missing or cleared settings stay empty. Existing saved settings, personal credentials, inventory and logs are preserved."
+  "version": "1.2.15",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.15/BotGetLog_Multi-dist-1.2.15.zip",
+  "sha256": "5a1ddb33c248f535c1134ec4955764d993b90a4adbb1c2a03b47abef65556e10",
+  "notes": "Recognize Huawei HRP_M/HRP_S prompts without changing node identity. Prevent false command timeouts and incomplete logs. Existing vendor checks, command sets, credentials, settings and logs are preserved."
 }

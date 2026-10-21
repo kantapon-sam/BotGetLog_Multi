@@ -1,0 +1,22 @@
+BotGetLog_Multi v1.2.15
+
+Huawei firewalls with HRP_M or HRP_S before their CLI prompt can finish a
+command while the collector continues waiting for an unprefixed hostname.
+The collector now recognizes these role prefixes in command responses,
+vendor detection, log filenames and transcript completeness checks.
+The raw prompt remains in the saved transcript. Role changes retain the
+same device identity; another device's prompt still fails validation.
+
+Existing Huawei, Nokia, ZTE, Juniper and DTAC behavior remains covered by
+regression tests. Command sets, dependencies, timeouts, retry policies and
+credential handling are unchanged. Auto Update preserves inventory, saved
+credentials, Enable settings, logs and user preferences.
+
+Validation: 37 regression suites passed against the packaged collector on
+server Java 8, including 118 HRP checks and captured-response replays. The
+normal collector completed a bounded read-only collection through both
+configured gateways. Windows settings rendering and the 1.2.14-to-1.2.15
+updater/relaunch preservation test passed. The server lacks working AWT
+font configuration, so the Windows-only rendering check ran on Windows.
+Historical tests that require separate old workbook/log fixtures were not
+included in the 37-suite count.

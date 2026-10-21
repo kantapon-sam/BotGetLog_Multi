@@ -69,6 +69,11 @@ public final class CompletedExitEofRegression {
             equal(false, BotGetLog_TrueCorp.isLogCompleteForCmdSet(log, CMDSET));
             equal(true, new String(Files.readAllBytes(log.toPath()), StandardCharsets.UTF_8).contains("[BOT-COLLECTION-INCOMPLETE]"));
             promptReplay(dir, log, PROMPT + "display interface\nInterface data\n" + PROMPT, true);
+            for (String role : new String[]{"HRP_M", "HRP_S"}) {
+                promptReplay(dir, log, role + PROMPT + "display interface\nInterface data\n" + role + PROMPT, true);
+                promptReplay(dir, log, role + PROMPT + "display interface\nInterface data\n" + role + "<OTHER-NODE>", false);
+                sshPromptReplay(dir, log, role + PROMPT + "display interface\nInterface data\n" + role + PROMPT, true);
+            }
             promptReplay(dir, log, PROMPT + "display interface\npartial output\n", false);
             promptReplay(dir, log, PROMPT + "display interface\npartial output\n#", false);
             promptReplay(dir, log, PROMPT + "display interface\npartial output\n<OTHER-NODE>", false);
