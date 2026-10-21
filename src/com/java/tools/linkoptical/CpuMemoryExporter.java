@@ -32,7 +32,7 @@ public final class CpuMemoryExporter {
     private static final Pattern ZTE_PROMPT = Pattern.compile(
             "(?mi)^([^#\\r\\n]+)#show\\s+processor\\s*$");
     private static final Pattern HUAWEI_PROMPT = Pattern.compile(
-            "(?mi)^<([^>\\r\\n]+)>display\\s+cpu-usage\\s*$");
+            "(?mi)^(?:HRP_[MS])?<([^>\\r\\n]+)>display\\s+(?:cpu-usage|memory(?:-usage)?)\\s*$");
     private static final Pattern NUMBER_TOKEN = Pattern.compile(
             "[-+]?\\d[\\d,]*(?:\\.\\d+)?");
     private static final String[] HEADER = {
@@ -122,7 +122,8 @@ public final class CpuMemoryExporter {
         } else if (containsIgnoreCase(content, "show processor")) {
             row.siteCode = firstGroup(ZTE_PROMPT, content);
             parseZte(content, row);
-        } else if (containsIgnoreCase(content, "display cpu-usage")) {
+        } else if (containsIgnoreCase(content, "display cpu-usage")
+                || (content != null && HUAWEI_PROMPT.matcher(content).find())) {
             row.siteCode = firstGroup(HUAWEI_PROMPT, content);
             parseHuawei(content, row);
         } else if (containsIgnoreCase(content, "show chassis routing-engine")) {
@@ -229,17 +230,28 @@ public final class CpuMemoryExporter {
                 ? null : 100.0d - selected.memoryUsedPct;
     }
 
+    /** Require actual, bounded memory measurements before accepting a CLI fallback. */
+    public static boolean hasValidHuaweiMemoryData(String content) {
+        if (content == null) return false;
+        CpuMemoryRow row = new CpuMemoryRow();
+        parseHuawei(content, row);
+        return row.memoryTotalMb != null && row.memoryTotalMb > 0
+                && row.memoryUsedMb != null && row.memoryUsedMb >= 0
+                && row.memoryUsedMb <= row.memoryTotalMb
+                && row.memoryUsedPct != null && row.memoryUsedPct >= 0 && row.memoryUsedPct <= 100;
+    }
+
     private static void parseHuawei(String content, CpuMemoryRow row) {
         row.cpuCurrentPct = matchNumber(content,
                 "(?mi)^\\s*System cpu use rate is\\s*:\\s*([\\d.]+)%\\s*$", 1);
         row.cpuIdlePct = row.cpuCurrentPct == null
                 ? null : 100.0d - row.cpuCurrentPct;
         Double totalKb = matchNumber(content,
-                "(?mi)^\\s*System Total Memory Is\\s*:\\s*([\\d,]+)\\s+Kbytes\\s*$", 1);
+                "(?mi)^\\s*(?:System Total Memory(?: Is)?|Total Physical Available Memory)\\s*:\\s*([\\d,]+)\\s+Kbytes\\s*$", 1);
         Double usedKb = matchNumber(content,
-                "(?mi)^\\s*Total Memory Used Is\\s*:\\s*([\\d,]+)\\s+Kbytes\\s*$", 1);
+                "(?mi)^\\s*(?:Total Memory Used(?: Is)?|Total Physical Memory Used)\\s*:\\s*([\\d,]+)\\s+Kbytes\\s*$", 1);
         row.memoryUsedPct = matchNumber(content,
-                "(?mi)^\\s*Memory Using Percentage Is\\s*:\\s*([\\d.]+)%\\s*$", 1);
+                "(?mi)^\\s*(?:Physical )?Memory Using Percentage(?: Is)?\\s*:\\s*([\\d.]+)%\\s*$", 1);
         row.memoryTotalMb = kbToMb(totalKb);
         row.memoryUsedMb = kbToMb(usedKb);
         if (totalKb != null && usedKb != null) {

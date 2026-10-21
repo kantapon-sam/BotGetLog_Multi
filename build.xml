@@ -150,6 +150,7 @@
             </manifest>
             <fileset dir="${build.classes.dir}">
                 <include name="com/java/botgetlog/dtac/**/*.class"/>
+                <include name="com/java/shared/DeviceCommandFallback*.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/shared/DeviceEnableSettings*.class"/>
                 <include name="com/java/shared/ZteEnableFlow*.class"/>

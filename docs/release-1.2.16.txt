@@ -1,0 +1,29 @@
+BotGetLog_Multi v1.2.16
+
+TRUE and DTAC now collect Huawei memory in the same session when the device
+explicitly rejects display memory-usage: they immediately send display memory
+and then continue the existing command sequence. A fallback must return valid
+total, used and percentage measurements; empty or failed responses remain
+incomplete. TRUE retains the original error in the raw log while recognizing
+only a verified, immediate fallback on the same node as successful.
+
+The Huawei memory parser also recognizes physical-memory fields and HRP role
+prefixes. ZTE continues to use show opt brief. The command workbook, LLDP
+topology and optical parser, credentials, retry policy and schedules are unchanged.
+
+Validation:
+- 39 Java 8 regression suites passed on the server, including 68 TRUE and
+  33 DTAC memory checks; the packaged standalone DTAC jar passed separately.
+- Full production Huawei collection succeeded through both configured gateway
+  paths. The memory fallback ran before the next LLDP command in each session.
+- Five exported CSV files from 11 existing logs across four vendors were
+  byte-for-byte identical to v1.2.15.
+- The v1.2.15 updater installed and relaunched v1.2.16 while preserving inventory,
+  credentials, custom sheets, settings, encryption keys and existing logs.
+- Windows settings UI validation passed. Four historical fixture-specific
+  suites were not run; real-log export parity supplies the scoped regression check.
+
+Existing limitation: the CPU/Memory CSV requires a complete CPU-and-memory row.
+For the tested YunShan node, memory is captured and parsed successfully, but its
+separate CPU format is still unsupported, so that CSV omits the partial row.
+CPU parsing and the CSV completeness policy are unchanged in this memory fix.

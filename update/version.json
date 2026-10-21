@@ -1,6 +1,6 @@
 {
-  "version": "1.2.15",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.15/BotGetLog_Multi-dist-1.2.15.zip",
-  "sha256": "5a1ddb33c248f535c1134ec4955764d993b90a4adbb1c2a03b47abef65556e10",
-  "notes": "Recognize Huawei HRP_M/HRP_S prompts without changing node identity. Prevent false command timeouts and incomplete logs. Existing vendor checks, command sets, credentials, settings and logs are preserved."
+  "version": "1.2.16",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.16/BotGetLog_Multi-dist-1.2.16.zip",
+  "sha256": "feff5b05670aa4e39e3835c3f1eb315f133262da032e1ff115225527622a4ddc",
+  "notes": "TRUE and DTAC collect Huawei memory in the same session using display memory only when display memory-usage is explicitly unsupported. Validate returned measurements and export physical memory fields. Existing ZTE show opt brief, command workbook, LLDP behavior, credentials and schedules are unchanged."
 }

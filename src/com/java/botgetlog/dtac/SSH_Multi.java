@@ -1,6 +1,7 @@
 package com.java.botgetlog.dtac;
 
 import com.java.shared.DeviceEnableSettings;
+import com.java.shared.DeviceCommandFallback;
 import com.java.shared.ZteEnableFlow;
 import com.jcraft.jsch.*;
 import org.apache.poi.ss.usermodel.*;
@@ -629,9 +630,29 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 return new RunResult(vendor, cmdSetUsed, "", logFile);
             }
 
+            final ChannelShell activeChannel = channel;
+            collectCommands(in, out, () -> activeChannel.isClosed(), streamLog, window, buf,
+                    commands, vendor, cmdSetUsed, promptMatchHint, host,
+                    commandMaxWaitMs, commandIdleTimeoutMs, commandPromptSettleMs);
+
+                return new RunResult(vendor, cmdSetUsed, "", logFile);
+            }
+
+        } finally {
+            try { if (channel != null) channel.disconnect(); } catch (Exception ignore) { }
+        }
+    }
+    // Shared by the production SSH path and command-driven transport regression tests.
+    void collectCommands(InputStream in, OutputStream out, java.util.function.BooleanSupplier channelClosed,
+            Writer streamLog, StringBuilder window, byte[] buf, List<String> commands, String vendor,
+            String cmdSetUsed, String promptMatchHint, String host, long commandMaxWaitMs,
+            long commandIdleTimeoutMs, long commandPromptSettleMs) throws IOException {
             boolean stopCommandLoop = false;
-            for (String cmd : commands) {
-                if (cmd == null || cmd.trim().isEmpty()) continue;
+            for (String configuredCommand : commands) {
+                if (configuredCommand == null || configuredCommand.trim().isEmpty()) continue;
+                String cmd = configuredCommand;
+                boolean fallbackAttempt = false;
+                while (true) {
                 logwork("[SEND CMD] " + host + " (" + cmdSetUsed + ") -> " + cmd + "\n");
 
                 String send = cmd + "\n";
@@ -639,12 +660,13 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                 out.flush();
 
                 window.setLength(0);
+                StringBuilder response = new StringBuilder();
                 long commandStart = System.currentTimeMillis();
                 long last = commandStart;
                 long lastNotice = commandStart;
 
                 while (true) {
-                    boolean got = readAvailable(in, null, window, buf, streamLog);
+                    boolean got = readAvailable(in, response, window, buf, streamLog);
                     if (got) {
                         last = System.currentTimeMillis();
                         String echoPromptHint = extractPromptHintBeforeCommand(window.toString(), cmd);
@@ -657,7 +679,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                     }
 
                     if (isPrompt(window.toString(), promptMatchHint)) {
-                        if (waitForStablePromptAndDrain(in, null, window, buf, streamLog,
+                        if (waitForStablePromptAndDrain(in, response, window, buf, streamLog,
                                 promptMatchHint, commandPromptSettleMs)) {
                             break;
                         }
@@ -689,7 +711,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                         stopCommandLoop = true;
                         break;
                     }
-                    if (channel.isClosed()) {
+                    if (channelClosed.getAsBoolean()) {
                         writeStreamLog(streamLog, "\n[INFO] Channel closed while waiting for CMD: " + cmd + "\n");
                         stopCommandLoop = !isSessionClosingCommand(cmd);
                         break;
@@ -698,19 +720,24 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                     try { Thread.sleep(100); } catch (InterruptedException ignored) { }
                 }
 
-                if (stopCommandLoop) {
+                if (stopCommandLoop) return;
+                if (fallbackAttempt) {
+                    if (!DeviceCommandFallback.hasValidFallbackResponse(vendor, response.toString())) {
+                        writeStreamLog(streamLog, "\n[ERROR] Command fallback returned no valid data: " + cmd + "\n");
+                        return; // No closing command: completion validation must reject this log.
+                    }
                     break;
                 }
-
+                String fallback = DeviceCommandFallback.commandFallback(vendor, cmd, response.toString());
+                if (fallback.isEmpty()) break;
+                logwork("[COMMAND-FALLBACK] DTAC " + host + " " + cmd + " -> " + fallback + "\n");
+                cmd = fallback;
+                fallbackAttempt = true;
+                }
             }
 
-                return new RunResult(vendor, cmdSetUsed, "", logFile);
-            }
-
-        } finally {
-            try { if (channel != null) channel.disconnect(); } catch (Exception ignore) { }
-        }
     }
+
     private boolean readAvailable(InputStream in,
                                   StringBuilder all,
                                   StringBuilder window,
@@ -731,6 +758,7 @@ private void connectSSH(String host, int port, String user, String pass) throws 
             String s = new String(buf, 0, len, StandardCharsets.UTF_8);
             if (all != null) {
                 all.append(s);
+                if (streamLog != null && all.length() > 16384) all.delete(0, all.length() - 16384);
             }
             if (streamLog != null) {
                 streamLog.write(s);

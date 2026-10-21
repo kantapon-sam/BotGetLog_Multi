@@ -3,6 +3,7 @@ package com.java.botgetlog.truecorp;
 import com.java.shared.DeviceEnableSettings;
 import com.java.shared.ZteEnableFlow;
 import com.java.shared.AppMetadata;
+import com.java.shared.DeviceCommandFallback;
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
@@ -224,19 +225,30 @@ public class Telnet_Multi {
         final boolean timedOut;
         final boolean ioError;
         final String detail;
+        final String responseTail;
 
         private CommandReadResult(boolean promptDetected, boolean remoteClosed, boolean recovered,
                 boolean timedOut, boolean ioError, String detail) {
+            this(promptDetected, remoteClosed, recovered, timedOut, ioError, detail, "");
+        }
+
+        private CommandReadResult(boolean promptDetected, boolean remoteClosed, boolean recovered,
+                boolean timedOut, boolean ioError, String detail, String responseTail) {
             this.promptDetected = promptDetected;
             this.remoteClosed = remoteClosed;
             this.recovered = recovered;
             this.timedOut = timedOut;
             this.ioError = ioError;
             this.detail = safeTrim(detail);
+            this.responseTail = responseTail;
         }
 
         static CommandReadResult prompt() {
             return new CommandReadResult(true, false, false, false, false, "");
+        }
+
+        static CommandReadResult prompt(String response) {
+            return new CommandReadResult(true, false, false, false, false, "", response);
         }
 
         static CommandReadResult remoteClosed(String detail) {
@@ -1352,6 +1364,21 @@ public class Telnet_Multi {
                     return response;
                 }
                 finishLiveProgressCommand(safeCommand);
+                String fallbackVendor = HUAWEI_COMMAND_BOUNDARY.matcher(safeTrim(lastPromptToken)).matches()
+                        ? "HW" : "";
+                String fallback = commandFallback(fallbackVendor, safeCommand, response);
+                if (!fallback.isEmpty()) {
+                    startLiveProgressCommand(fallback, true);
+                    transcript.append(liveTranscriptCommand(fallback)).append('\n');
+                    write(fallback);
+                    String memoryResponse = readUntilPromptOnlyLarge("#", ">");
+                    transcript.append(memoryResponse == null ? "" : memoryResponse).append('\n');
+                    if (isTimeoutResponse(memoryResponse)) return memoryResponse;
+                    if (!hasValidFallbackResponse(fallbackVendor, memoryResponse)) {
+                        throw new IOException("Command fallback returned no valid measurements: " + fallback);
+                    }
+                    finishLiveProgressCommand(fallback);
+                }
                 if (includeActivePortDetails && nokiaDetailMatcher.matches()) {
                     expandedNokiaPorts.add(
                             nokiaDetailMatcher.group(1).toLowerCase(Locale.ROOT));
@@ -3895,7 +3922,7 @@ public class Telnet_Multi {
             if (in.available() <= 0) {
                 long now = System.currentTimeMillis();
                 if (tailAtPrompt && now - lastDataAt >= PROMPT_SETTLE_MS) {
-                    return CommandReadResult.prompt();
+                    return CommandReadResult.prompt(response.toString());
                 }
                 if (now - lastNoticeAt >= COMMAND_WAIT_LOG_INTERVAL_MS) {
                     System.out.println("[WAITING]" + consolePrefix + " prompt elapsed="
@@ -5875,19 +5902,88 @@ public class Telnet_Multi {
         return WRONG_VENDOR_SIGNAL_PATTERN.matcher(text.toLowerCase()).matches();
     }
 
-    static boolean hasWrongVendorSignal(File logFile) {
-        if (logFile == null || !logFile.exists()) {
-            return false;
+    private static final Pattern HUAWEI_COMMAND_BOUNDARY = Pattern.compile(
+            "^\\s*((?:HRP_[MS])?<[A-Za-z0-9_][A-Za-z0-9_.:/()-]*>)\\s*(.*?)\\s*$",
+            Pattern.CASE_INSENSITIVE);
+    static boolean shouldFallbackHuaweiMemory(String command, String response) {
+        return DeviceCommandFallback.shouldFallbackHuaweiMemory(command, response);
+    }
+
+    static String commandFallback(String vendor, String command, String response) {
+        return DeviceCommandFallback.commandFallback(vendor, command, response);
+    }
+
+    private static boolean hasValidFallbackResponse(String vendor, String response) {
+        return DeviceCommandFallback.hasValidFallbackResponse(vendor, response);
+    }
+
+    // Inspect only the immediately following fallback, on the same node. Keep
+    // the original rejection in the raw log; every unrelated error still fails.
+    private static boolean hasSuccessfulCommandFallback(BufferedReader reader, String node,
+            String vendor, String fallback) throws IOException {
+        boolean started = false;
+        StringBuilder output = new StringBuilder();
+        int chars = 0;
+        String raw;
+        Pattern prompt = HUAWEI_COMMAND_BOUNDARY;
+        while ((raw = reader.readLine()) != null && (chars += raw.length() + 1) < 2000000) {
+            String line = stripTerminalControlSequences(raw).trim();
+            Matcher boundary = prompt.matcher(line);
+            if (boundary.matches()) {
+                if (!node.equalsIgnoreCase(extractNodeNameFromPromptToken(boundary.group(1)))) return false;
+                String command = boundary.group(2).trim();
+                if (started) {
+                    // SSH may record both a synthetic header and the echoed header.
+                    if (fallback.equalsIgnoreCase(command) && output.toString().trim().isEmpty()) continue;
+                    return hasValidFallbackResponse(vendor, output.toString());
+                }
+                if (command.isEmpty()) continue;
+                if (!fallback.equalsIgnoreCase(command)) return false;
+                started = true;
+            } else if (started) {
+                // Do not let a later valid row conceal an earlier fallback error.
+                if (containsWrongVendorSignal(line) || line.matches("(?i)^(?:%Error|Error:).*")) return false;
+                if (!fallback.equalsIgnoreCase(line)) output.append(line).append('\n');
+                if (output.length() > 8192) output.delete(0, output.length() - 8192);
+            } else if (!line.isEmpty()) {
+                return false;
+            }
         }
-        try ( BufferedReader br = new BufferedReader(new FileReader(logFile))) {
+        return false;
+    }
+
+    static boolean hasWrongVendorSignal(File logFile) {
+        if (logFile == null || !logFile.exists()) return false;
+        try (BufferedReader br = new BufferedReader(new FileReader(logFile))) {
+            Matcher file = DAILY_LOG_FILE_PATTERN.matcher(logFile.getName());
+            boolean named = file.matches();
+            String vendor = named ? extractVendorPrefix(file.group(4)) : "";
+            String expectedNode = named ? sanitizeDeviceNameForFileName(file.group(3)) : "";
+            Pattern prompt = HUAWEI_COMMAND_BOUNDARY;
+            String node = "", command = "";
             String line;
             while ((line = br.readLine()) != null) {
+                Matcher boundary = prompt.matcher(stripTerminalControlSequences(line).trim());
+                if (boundary.matches()) {
+                    node = extractNodeNameFromPromptToken(boundary.group(1));
+                    command = boundary.group(2).trim();
+                }
                 if (containsWrongVendorSignal(line)) {
+                    String fallback = commandFallback(vendor, command, line);
+                    if (!fallback.isEmpty() && expectedNode.equalsIgnoreCase(node)) {
+                        br.mark(2100000);
+                        boolean recovered;
+                        try {
+                            recovered = hasSuccessfulCommandFallback(br, node, vendor, fallback);
+                            br.reset();
+                        } catch (IOException e) { return true; }
+                        if (recovered) continue;
+                    }
                     return true;
                 }
             }
         } catch (IOException e) {
-            System.out.println("[MONITOR]  Failed to inspect wrong-vendor signal: " + logFile.getName() + " -> " + e.getMessage());
+            System.out.println("[MONITOR] Failed to inspect wrong-vendor signal: " + logFile.getName() + " -> " + e.getMessage());
         }
         return false;
     }
@@ -6131,6 +6227,11 @@ public class Telnet_Multi {
 
     private CommandReadResult readStreamToFile(String Loopback, String Device, String cmdSet,
             int Num_row, String command, boolean finalCollectionCommand) {
+        return readStreamToFile(Loopback, Device, cmdSet, Num_row, command, finalCollectionCommand, true);
+    }
+
+    private CommandReadResult readStreamToFile(String Loopback, String Device, String cmdSet,
+            int Num_row, String command, boolean finalCollectionCommand, boolean allowFallback) {
         byte[] buffer = new byte[8192]; // buffer 8KB
         int bytesRead;
         boolean sshGatewayConnection = isSshGatewayConnection();
@@ -6214,7 +6315,7 @@ public class Telnet_Multi {
                                     System.out.println("[PROMPT-OK]" + consolePrefix + " "
                                             + summarizePromptForConsole(promptToken, response.toString(), Device, cmdSet));
                                     waitForPrompt = false;
-                                    result = CommandReadResult.prompt();
+                                    result = CommandReadResult.prompt(response.toString());
                                     break;
                                 }
                                 lastData = System.currentTimeMillis();
@@ -6254,6 +6355,18 @@ public class Telnet_Multi {
         updateRuntimeDeviceNameFromLogFile(logFile, Device, cmdSet);
         logFile = renameLogToRuntimeDeviceNameIfNeeded(logFile, Loopback, Device, cmdSet, Num_row);
         normalizeSshCommandTranscript(logFile, command);
+        String vendor = extractVendorPrefix(cmdSet);
+        String fallback = allowFallback && result.promptDetected
+                ? commandFallback(vendor, command, result.responseTail) : "";
+        if (!fallback.isEmpty()) {
+            System.out.println("[COMMAND-FALLBACK]" + consolePrefix + " " + command + " -> " + fallback);
+            CommandReadResult recovered = readStreamToFile(Loopback, Device, cmdSet, Num_row,
+                    fallback, finalCollectionCommand, false);
+            if (recovered.promptDetected && !hasValidFallbackResponse(vendor, recovered.responseTail)) {
+                return CommandReadResult.ioError("Command fallback returned no valid measurements: " + fallback);
+            }
+            return recovered;
+        }
         if (finalCollectionCommand && exitCommand && !requiredNode.isEmpty()
                 && (unverifiedCollectionResponse
                     || !hasCompleteCollectionTranscript(logFile, cmdSet, expectedCollectionCommands))) {
