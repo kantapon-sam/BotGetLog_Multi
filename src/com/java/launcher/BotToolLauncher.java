@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.17: Reassemble wrapped ZTE ARP interfaces and resolve logical VRFs.
+    // Version 1.2.18: Keep launched tools running when their console output grows.
     // Attempt IDs keep collection activity associated with its originating session.
-    private static final String FALLBACK_VERSION = "1.2.17";
+    private static final String FALLBACK_VERSION = "1.2.18";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -1220,6 +1220,16 @@ public class BotToolLauncher {
             if (workingDir != null) {
                 processBuilder.directory(workingDir);
             }
+            // The launcher closes after starting a tool, so no parent thread reads
+            // its default output pipes. Redirect both streams to a file to prevent
+            // a full pipe from blocking the tool and its AppConsole updates.
+            File logDir = new File(new File(workingDir, OUTPUT_DIR), "Launcher_Log");
+            if (!logDir.isDirectory() && !logDir.mkdirs() && !logDir.isDirectory()) {
+                throw new IOException("Cannot create tool log directory: " + logDir);
+            }
+            File processLog = File.createTempFile(jarFile.getName() + "-", ".log", logDir);
+            processBuilder.redirectErrorStream(true);
+            processBuilder.redirectOutput(processLog);
             processBuilder.start();
             frame.dispose();
         } catch (IOException ex) {

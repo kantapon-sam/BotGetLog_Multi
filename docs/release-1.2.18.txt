@@ -1,0 +1,20 @@
+BotGetLog_Multi v1.2.18
+
+Fix launcher-started tools freezing when stdout/stderr fill the Windows process pipe. Send both output streams to a unique per-run _output/Launcher_Log/*.log file. Preserve ARP parser and every other runtime class byte-for-byte from version 1.2.17.
+
+Validation:
+- The actual ARP Tool Menu button completed 608 logs and displayed the native
+  success dialog; all 14,968 CSV rows remained byte-identical to version 1.2.17.
+- LauncherProcessRegression reproduced the old pipe blockage and verified both
+  stdout and stderr beyond pipe capacity after frame disposal and parent exit,
+  preserving arguments, working directory and launcher gate.
+- The installed True Logs runtime replayed all 608 logs with every field matching.
+- Only the outer launcher class changed; all ARP and other runtime classes
+  remain byte-identical to version 1.2.17.
+- Java 8 Huawei, Nokia and ZTE ARP regression suites passed against packaged ARP.jar.
+- The previous updater installed and relaunched this release in a disposable
+  installation, preserving inventory, credentials, custom sheets, logs, settings
+  and encryption keys.
+- Every unrelated JAR entry and every unchanged package entry was compared
+  byte-for-byte with the verified previous release, including default workbooks,
+  libraries and the portable Java runtime.

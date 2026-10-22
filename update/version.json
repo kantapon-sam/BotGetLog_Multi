@@ -1,6 +1,6 @@
 {
-  "version": "1.2.17",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.17/BotGetLog_Multi-dist-1.2.17.zip",
-  "sha256": "f20a63f4cabdbed4d2dca96b806993494ff3099b75d93206f114175ddc9c1ec4",
-  "notes": "Correct wrapped ZTE ARP interface names, including independent logical and subinterface continuation columns. Resolve VPN from the logical interface with a displayed-port fallback, preserving blank VPN values when absent. Retain the final ARP row at end of file and isolate command boundaries."
+  "version": "1.2.18",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.18/BotGetLog_Multi-dist-1.2.18.zip",
+  "sha256": "e1541715ed2ab1aaaf273cbc2ca727dd960309ddea67b993bcc881f6d940ca0f",
+  "notes": "Fix launcher-started tools freezing when stdout/stderr fill the Windows process pipe. Send both output streams to a unique per-run _output/Launcher_Log/*.log file. Preserve ARP parser and every other runtime class byte-for-byte from version 1.2.17."
 }
