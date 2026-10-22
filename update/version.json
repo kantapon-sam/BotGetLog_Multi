@@ -1,6 +1,6 @@
 {
-  "version": "1.2.16",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.16/BotGetLog_Multi-dist-1.2.16.zip",
-  "sha256": "feff5b05670aa4e39e3835c3f1eb315f133262da032e1ff115225527622a4ddc",
-  "notes": "TRUE and DTAC collect Huawei memory in the same session using display memory only when display memory-usage is explicitly unsupported. Validate returned measurements and export physical memory fields. Existing ZTE show opt brief, command workbook, LLDP behavior, credentials and schedules are unchanged."
+  "version": "1.2.17",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.17/BotGetLog_Multi-dist-1.2.17.zip",
+  "sha256": "f20a63f4cabdbed4d2dca96b806993494ff3099b75d93206f114175ddc9c1ec4",
+  "notes": "Correct wrapped ZTE ARP interface names, including independent logical and subinterface continuation columns. Resolve VPN from the logical interface with a displayed-port fallback, preserving blank VPN values when absent. Retain the final ARP row at end of file and isolate command boundaries."
 }

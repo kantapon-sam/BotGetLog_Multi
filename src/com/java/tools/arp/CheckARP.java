@@ -141,6 +141,68 @@ private static String buildZtePort(String iface, String subIface, String extVlan
     return i;
 }
 
+    private static final class ZteArpEntry {
+        private final String[] fields;
+
+        ZteArpEntry(String[] fields) {
+            this.fields = fields;
+        }
+
+        void appendContinuation(String row, int[] columns) {
+            // Interface and Sub Interface wrap independently. Preserve their
+            // printed columns, including numeric-only fragments such as "22".
+            if (columns == null || row.length() <= columns[3]
+                    || !row.substring(0, columns[3]).trim().isEmpty()) {
+                return;
+            }
+            String iface = columnText(row, columns[3], columns[4]);
+            String subIface = columnText(row, columns[6], row.length());
+            if (!columnText(row, columns[4], columns[6]).isEmpty()
+                    || !iface.matches("[A-Za-z0-9_./-]*")
+                    || !subIface.matches("[A-Za-z0-9_./-]*")) {
+                return;
+            }
+            appendField(3, iface);
+            appendField(6, subIface);
+        }
+
+        private void appendField(int index, String fragment) {
+            if (index < fields.length && !fields[index].isEmpty()
+                    && !fields[index].equalsIgnoreCase("N/A")) {
+                fields[index] += fragment;
+            }
+        }
+
+        String toArpRow(Map<String, String> portToVpn) {
+            String iface = safe(fields, 3);
+            String port = buildZtePort(iface, safe(fields, 6), safe(fields, 4));
+            // The routed interface owns the VRF. A supervlan's member port
+            // can be displayed in ARP without having its own VRF binding.
+            String vpn = portToVpn.getOrDefault(normalizePort(iface), "");
+            if (vpn.isEmpty()) {
+                vpn = portToVpn.getOrDefault(normalizePort(port), "");
+            }
+            return "\n" + safe(fields, 0) + "," + safe(fields, 2) + ","
+                    + safe(fields, 1) + ",," + port + "," + vpn;
+        }
+    }
+
+    private static String columnText(String row, int start, int end) {
+        return start >= row.length() ? "" : row.substring(start, Math.min(end, row.length())).trim();
+    }
+
+    private static int[] zteArpColumns(String row) {
+        Matcher tokens = Pattern.compile("\\S+").matcher(row);
+        int[] columns = new int[7];
+        for (int i = 0; i < columns.length; i++) {
+            if (!tokens.find()) {
+                return null;
+            }
+            columns[i] = tokens.start();
+        }
+        return columns;
+    }
+
     private static String cleanNokiaValue(String s) {
         if (s == null) {
             return "";
@@ -589,19 +651,19 @@ private static String buildZtePort(String iface, String subIface, String extVlan
             }
 
             boolean inArp = false;
-            String curIp = "";
-            String curAge = "";
-            String curMac = "";
-            String curIface = "";
-            String curExtVlan = "";
-            String curInterVlan = "";
-            String curSubIface = "";
+            ZteArpEntry pendingArp = null;
+            int[] arpColumns = null;
 
             for (String row : rows) {
                 String trimmed = row.trim();
 
-                if (trimmed.contains("#show arp")) {
-                    inArp = true;
+                if (trimmed.matches("^[A-Za-z0-9._\\-/]+#.*$")) {
+                    if (pendingArp != null) {
+                        arp_all += pendingArp.toArpRow(ztePortToVpn);
+                        pendingArp = null;
+                    }
+                    inArp = trimmed.contains("#show arp");
+                    arpColumns = null;
                     continue;
                 }
 
@@ -609,23 +671,8 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                     continue;
                 }
 
-                if (trimmed.contains("#show interface description")
-                        || trimmed.matches("^[A-Za-z0-9._\\-/]+#.*$")
-                        || trimmed.contains("#quit")) {
-                    if (!curIp.isEmpty()) {
-                      String port = buildZtePort(curIface, curSubIface, curExtVlan);
-                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), "");
-                        arp_all += "\n" + curIp + "," + curMac + "," + curAge + ",," + port + "," + vpn;
-                    }
-
-                    inArp = false;
-                    curIp = "";
-                    curAge = "";
-                    curMac = "";
-                    curIface = "";
-                    curExtVlan = "";
-                    curInterVlan = "";
-                    curSubIface = "";
+                if (trimmed.matches("^Address\\s+Age\\s+Address\\s+Interface\\s+VlanID\\s+VlanID\\s+Interface$")) {
+                    arpColumns = zteArpColumns(row);
                     continue;
                 }
 
@@ -640,75 +687,23 @@ private static String buildZtePort(String iface, String subIface, String extVlan
                 }
 
                 if (trimmed.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+\\s+.*")) {
-                    if (!curIp.isEmpty()) {
-                  String port = buildZtePort(curIface, curSubIface, curExtVlan);
-                        String vpn = ztePortToVpn.getOrDefault(normalizePort(port), "");
-                        arp_all += "\n" + curIp + "," + curMac + "," + curAge + ",," + port + "," + vpn;
+                    if (pendingArp != null) {
+                        arp_all += pendingArp.toArpRow(ztePortToVpn);
                     }
-
                     String[] parts = trimmed.split("\\s+");
-                    curIp = safe(parts, 0);
-                    curAge = safe(parts, 1);
-                    curMac = safe(parts, 2);
-                    curIface = safe(parts, 3);
-                    curExtVlan = safe(parts, 4);
-                    curInterVlan = safe(parts, 5);
-
-                    StringBuilder subBuilder = new StringBuilder();
-                    for (int i = 6; i < parts.length; i++) {
-                        if (i > 6) {
-                            subBuilder.append(" ");
-                        }
-                        subBuilder.append(parts[i]);
+                    pendingArp = new ZteArpEntry(parts);
+                    if (arpColumns == null) {
+                        arpColumns = zteArpColumns(row);
                     }
-                    curSubIface = subBuilder.toString().trim();
                     continue;
                 }
 
-if (!curIp.isEmpty()) {
-    String[] parts = trimmed.split("\\s+");
-    if (parts.length >= 1) {
-        String first = safe(parts, 0);
-        String second = safe(parts, 1);
-
-        if (!first.isEmpty() && first.startsWith(".")) {
-            curIface = curIface + first;
-
-            if (!curSubIface.isEmpty() && !curSubIface.equalsIgnoreCase("N/A")) {
-                if (curSubIface.endsWith(".")) {
-                    curSubIface = curSubIface + first.substring(1);
-                } else {
-                    curSubIface = curSubIface + first;
+                if (pendingArp != null) {
+                    pendingArp.appendContinuation(row, arpColumns);
                 }
             }
-
-        } else if (!first.isEmpty() && first.matches("^\\d+\\.\\d+$")) {
-            curIface = curIface + first;
-
-            if (!curSubIface.isEmpty() && !curSubIface.equalsIgnoreCase("N/A")) {
-                int dotPos = first.indexOf(".");
-                if (dotPos >= 0) {
-                    curSubIface = curSubIface + first.substring(dotPos);
-                } else {
-                    curSubIface = curSubIface + first;
-                }
-            }
-
-        } else if (!first.isEmpty() && first.matches("^\\d+$")) {
-            if (!curIface.isEmpty() && curIface.endsWith(".")) {
-                curIface = curIface + first;
-            }
-
-            if (!curSubIface.isEmpty() && !curSubIface.equalsIgnoreCase("N/A")) {
-                if (!second.isEmpty() && second.matches("^\\d+$")) {
-                    curSubIface = curSubIface + second;
-                } else if (curSubIface.endsWith(".")) {
-                    curSubIface = curSubIface + first;
-                }
-            }
-        }
-    }
-}
+            if (pendingArp != null) {
+                arp_all += pendingArp.toArpRow(ztePortToVpn);
             }
 
             boolean inDesc = false;

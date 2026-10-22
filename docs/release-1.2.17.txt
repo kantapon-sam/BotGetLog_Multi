@@ -1,0 +1,17 @@
+BotGetLog_Multi v1.2.17
+
+Correct wrapped ZTE ARP interface names, including independent logical and subinterface continuation columns. Resolve VPN from the logical interface with a displayed-port fallback, preserving blank VPN values when absent. Retain the final ARP row at end of file and isolate command boundaries.
+
+Validation:
+- Standalone ARP and the deployed True Logs report worker processed 608 saved
+  logs and produced identical 14,968-row results across all 11 columns.
+- All previously correct values were preserved. The source-column audit found
+  no remaining ZTE interface, VPN, status or description mismatches.
+- True Logs ARP, PTP, ISIS, SID and LLDP report regression tests passed.
+- Java 8 Huawei, Nokia and ZTE ARP regression suites passed against packaged ARP.jar.
+- The previous updater installed and relaunched this release in a disposable
+  installation, preserving inventory, credentials, custom sheets, logs, settings
+  and encryption keys.
+- Every unrelated JAR entry and every unchanged package entry was compared
+  byte-for-byte with the verified previous release, including default workbooks,
+  libraries and the portable Java runtime.
