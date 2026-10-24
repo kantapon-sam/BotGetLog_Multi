@@ -258,8 +258,11 @@ final class TrueLinkOpticalAutoMode {
         Set<String> seen = new HashSet<>();
         for (Map.Entry<Integer,List<String>> entry : selection.getCmdSetsByRow().entrySet()) {
             String ip = normalizeIp(BotGetLog_TrueCorp.getCell(deviceSheet.getRow(entry.getKey() - 1), 3));
-            if (blocked.contains(ip) || !budget.available(ip)) {
-                System.out.println("[DAILY-BUDGET] DEFER selected Row " + entry.getKey() + " " + ip + "; existing logs retained");
+            DailyCollectionBudget.Availability availability = budget.availability(ip, blocked.contains(ip));
+            if (!availability.available) {
+                System.out.println("[DAILY-BUDGET] DEFER selected Row " + entry.getKey() + " " + ip
+                        + "; reason=" + availability.reason + " used=" + availability.used + "/" + availability.limit
+                        + " day=" + availability.day + "; existing logs retained");
                 continue;
             }
             // Several physical links or duplicate workbook rows for one IP use one collection.

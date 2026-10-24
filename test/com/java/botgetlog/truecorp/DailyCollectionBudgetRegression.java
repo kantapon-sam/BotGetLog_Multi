@@ -22,6 +22,10 @@ public class DailyCollectionBudgetRegression {
         check(first.start(A,"INCOMPLETE_RETRY"),"third admitted");
         check(!budget(root).start(A,"PORT_MISMATCH"),"all reasons share the same cap");
         check(first.used(A)==3,"denials do not increment or reset count");
+        DailyCollectionBudget.Availability exhaustedDecision=first.availability(A);
+        check(!exhaustedDecision.available && "DAILY_LIMIT".equals(exhaustedDecision.reason)
+                && exhaustedDecision.used==3 && exhaustedDecision.limit==3
+                && "2026-09-11".equals(exhaustedDecision.day),"exhausted diagnostic reports the capped Bangkok day");
         Clock next=Clock.fixed(Instant.parse("2026-09-11T17:00:00Z"),ZoneOffset.UTC);
         check(new DailyCollectionBudget(root,3,next).used(A)==0,"quota uses Bangkok midnight");
         check(new DailyCollectionBudget(root,3,next).start(A,"NEW_DAY"),"new day admitted");
@@ -33,8 +37,13 @@ public class DailyCollectionBudgetRegression {
         Set<String> selected=new HashSet<>(Arrays.asList(A,B,C));
         check(pairs.reservePairs(Arrays.asList(new String[]{A,B},new String[]{A,C},new String[]{B,A}),selected).isEmpty(),"shared endpoint reserved once");
         check(pairs.used(A)==3&&pairs.used(B)==1&&pairs.used(C)==1,"one slot per unique IP in pair batch");
+        DailyCollectionBudget.Availability prepaid=pairs.availability(A);
+        check(prepaid.available && "PAIR_RESERVED".equals(prepaid.reason) && prepaid.used==3,
+                "diagnostics must admit a prepaid pair at the cap without charging or consuming its reservation");
         check(pairs.start(A,"PAIR")&&pairs.start(B,"PAIR")&&pairs.start(C,"PAIR"),"both pair reservations consumed");
         check(pairs.used(A)==3&&pairs.used(B)==1,"starting reserved work does not count twice");
+        check(!pairs.availability(A).available && "DAILY_LIMIT".equals(pairs.availability(A).reason),
+                "consumed reservation no longer bypasses the cap");
         Set<String> blocked=budget(pairRoot).reservePairs(Collections.singletonList(new String[]{B,A}),selected);
         check(blocked.equals(new HashSet<>(Arrays.asList(A,B))),"same pair not retried after restart");
         check(pairs.used(B)==1,"repeated pair does not consume peer quota");

@@ -16,6 +16,7 @@ public class RxDailyCollectionBudgetRegression {
         });
     }
     public static void main(String[] args) throws Exception {
+        checkAvailabilityDiagnostics();
         Path temp=Files.createTempDirectory("rx-daily-regression-"), root=temp.resolve("System_Log/budget"), logs=temp.resolve("Total_Log");
         Files.createDirectories(logs);
         DailyCollectionBudget first=budget(root,DAY);
@@ -54,5 +55,34 @@ public class RxDailyCollectionBudgetRegression {
         rejected=false;try{budget(root,DAY).available(A);}catch(java.io.IOException expected){rejected=true;}
         check(rejected,"corrupt policy fails closed");
         System.out.println("Rx daily completion policy regressions passed.");
+    }
+
+    private static void checkAvailabilityDiagnostics() throws Exception {
+        Path temp=Files.createTempDirectory("rx-diagnostic-regression-");
+        Path root=temp.resolve("System_Log/budget"), logs=temp.resolve("Total_Log");
+        Files.createDirectories(logs);
+        java.util.concurrent.atomic.AtomicInteger validations=new java.util.concurrent.atomic.AtomicInteger();
+        DailyCollectionBudget budget=new DailyCollectionBudget(root,3,DAY,(file,cmd)-> {
+            validations.incrementAndGet();
+            return new String(Files.readAllBytes(file.toPath()),StandardCharsets.UTF_8).equals("COMPLETE");
+        });
+        budget.registerDailyOnce(Collections.singletonList(A),"2026-09-29");
+        check(budget.start(A,"PRIMARY"),"diagnostic first attempt");
+        Path log=logs.resolve("[2]"+A+"_CPE-ABC1234_HW-LLDP-Link_OPTIC_2026-09-29.txt");
+        Files.write(log,"INCOMPLETE".getBytes(StandardCharsets.UTF_8));
+        DailyCollectionBudget.Availability incomplete=budget.availability(A);
+        check(incomplete.available && "AVAILABLE".equals(incomplete.reason)
+                && incomplete.used==1 && incomplete.limit==3,"incomplete attempt stays eligible at 1/3");
+        check(validations.get()==1,"availability decision validates the log only once");
+        DailyCollectionBudget.Availability blockedPair=budget.availability(A,true);
+        check(!blockedPair.available && "PAIR_RESERVATION_BLOCKED".equals(blockedPair.reason)
+                && blockedPair.used==1 && validations.get()==1,"rejected pair diagnostic does not scan its logs");
+        Files.write(log,"COMPLETE".getBytes(StandardCharsets.UTF_8));
+        DailyCollectionBudget.Availability complete=budget.availability(A);
+        check(!complete.available && "RX_LOG_ALREADY_COMPLETE".equals(complete.reason)
+                && complete.used==1 && complete.limit==3 && "2026-09-29".equals(complete.day),
+                "complete at 1/3 must be distinguished from exhausted allowance");
+        check(validations.get()==2 && budget.used(A)==1,"diagnostics neither validate twice nor charge another attempt");
+        check(!budget.availability(A).available && validations.get()==2,"validated completion marker avoids another log scan");
     }
 }

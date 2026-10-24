@@ -290,6 +290,7 @@ public class BotGetLog_TrueCorp {
     private static final java.util.Map<String, BufferedWriter> BOT_LOG_WRITERS = new java.util.HashMap<>();
     private static final ConcurrentMap<String, Long> BOT_LOG_LAST_FLUSH_MS = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, List<String>> CMDSET_COMMAND_CACHE = new ConcurrentHashMap<>();
+    private static volatile boolean commandCacheInitialized;
     private static final ConcurrentMap<String, String> CMDSET_FIRST_COMMAND_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, String> CMDSET_LAST_COMMAND_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, Integer> CMDSET_COMMAND_COUNT_CACHE = new ConcurrentHashMap<>();
@@ -707,6 +708,7 @@ public class BotGetLog_TrueCorp {
     }
 
     private static void rebuildExcelCacheForSelection(Workbook workbook, String... deviceSheetNames) {
+        commandCacheInitialized = false;
         CMDSET_COMMAND_CACHE.clear();
         CMDSET_FIRST_COMMAND_CACHE.clear();
         CMDSET_LAST_COMMAND_CACHE.clear();
@@ -749,6 +751,7 @@ public class BotGetLog_TrueCorp {
                     CMDSET_LAST_COMMAND_CACHE.put(key, commands.size() > 1 ? commands.get(commands.size() - 1) : "");
                 }
             }
+            commandCacheInitialized = true;
         } catch (Exception e) {
             System.out.println("[WARN] Failed to build cmdSet cache: " + e.getMessage());
         }
@@ -772,6 +775,17 @@ public class BotGetLog_TrueCorp {
 
         System.out.printf("[INFO] Excel cache ready. cmdSets=%d, deviceRows=%d%n",
                 CMDSET_COMMAND_CACHE.size(), DEVICE_ROW_CACHE.size());
+    }
+
+    static TrueLinkOpticalAutoMode.Selection applyDailyBudgetWithWorkbookCache(
+            TrueLinkOpticalAutoMode.Selection selection, Sheet deviceSheet) throws IOException {
+        if (deviceSheet == null) {
+            throw new IOException("Missing device sheet for daily collection selection");
+        }
+        // Rx completion checks run during selection, before credentials and workers.
+        // Use the already-open inventory snapshot instead of reopening it per IP.
+        rebuildExcelCacheForSelection(deviceSheet.getWorkbook(), deviceSheet.getSheetName());
+        return TrueLinkOpticalAutoMode.applyDailyBudget(selection, deviceSheet);
     }
 
     private static void updateCachedSettings(String server, String userServer, String pwServer,
@@ -1701,7 +1715,7 @@ public class BotGetLog_TrueCorp {
                             linkOpticalSelection.getCommandCount());
                     realOut.printf("[AUTO-LINK] Export mode for this collection pass: %s%n",
                             linkOpticalExportMode);
-                    linkOpticalSelection = TrueLinkOpticalAutoMode.applyDailyBudget(linkOpticalSelection, trueDeviceSheet);
+                    linkOpticalSelection = applyDailyBudgetWithWorkbookCache(linkOpticalSelection, trueDeviceSheet);
                     if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
                         int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
                                 new File(FileInput.getLog()), linkOpticalSelection, trueDeviceSheet);
@@ -1778,7 +1792,9 @@ public class BotGetLog_TrueCorp {
                             return;
                         }
                         trueDeviceSheetName = trueDeviceSheet.getSheetName();
-                        rebuildExcelCacheForSelection(workbook, trueDeviceSheetName);
+                        if (!linkOpticalSelection.isEnabled()) {
+                            rebuildExcelCacheForSelection(workbook, trueDeviceSheetName);
+                        }
 
                         if (!headlessAutoRun) {
                             try {
@@ -3146,7 +3162,10 @@ public class BotGetLog_TrueCorp {
                 : cmdSet.trim();
         String firstCommand = getCachedFirstCommand(safeCmdSet);
         String lastCommand = getCachedLastCommand(safeCmdSet);
-        if (firstCommand.isEmpty() || lastCommand.isEmpty()) {
+        // A loaded snapshot is authoritative even for absent/empty command sets.
+        // Reopening the disk workbook here could both repeat expensive parsing and
+        // validate against a different snapshot than the current selection.
+        if ((firstCommand.isEmpty() || lastCommand.isEmpty()) && !commandCacheInitialized) {
             try {
                 PathFile fileInput = new PathFile();
                 File excelFile = new File(fileInput.getUserInterface_Input());

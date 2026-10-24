@@ -8,6 +8,8 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 public final class DailyCollectionSelectionRegression {
+    private static String selectionOutput;
+
     public static void main(String[] args) throws Exception {
         Path root = Files.createTempDirectory("daily-selection-");
         System.setProperty("true.daily.collection.dir", root.resolve("budget").toString());
@@ -27,6 +29,9 @@ public final class DailyCollectionSelectionRegression {
             System.setProperty("true.daily.collection.pairsFile", pairs.toString());
             TrueLinkOpticalAutoMode.Selection blocked = select(sheet, "#2,#3");
             check(blocked.getSiteCount()==0, "both exhausted-pair endpoints must be excluded");
+            check(selectionOutput.contains("DEFER selected Row 2 10.0.0.1; reason=PAIR_RESERVATION_BLOCKED used=3/3")
+                    && selectionOutput.contains("DEFER selected Row 3 10.0.0.2; reason=PAIR_RESERVATION_BLOCKED used=0/3"),
+                    "pair diagnostics explain both endpoints without implying both reached the cap");
             Path logs=Files.createDirectory(root.resolve("logs"));
             Path old=logs.resolve("[2]10.0.0.1_CPE-A_N-LLDP-Link_OPTIC_2026-09-10.txt");
             Files.write(old, "retain me".getBytes(StandardCharsets.UTF_8));
@@ -42,16 +47,40 @@ public final class DailyCollectionSelectionRegression {
             check(budget.used("10.0.0.3")==1, "must not double-charge collection");
             check(select(sheet, "#4,#5").getSiteCount()==0, "pair must not be selected twice in one day");
             System.clearProperty("true.daily.collection.pairsFile");
-            TrueLinkOpticalAutoMode.Selection all=TrueLinkOpticalAutoMode.applyDailyBudget(
-                    TrueLinkOpticalAutoMode.resolveSelection(new String[]{"--auto-link-optical", "--link-optical-all"},sheet),sheet);
+            TrueLinkOpticalAutoMode.Selection all=applyAndCapture(sheet,
+                    new String[]{"--auto-link-optical", "--link-optical-all"});
             check(!TrueLinkOpticalAutoMode.shouldRunRow(all,sheet.getRow(1)), "all-sites must honor exhausted quota");
             check(TrueLinkOpticalAutoMode.shouldRunRow(all,sheet.getRow(2)), "unexhausted peer is allowed in next primary");
+            check(selectionOutput.contains("DEFER selected Row 2 10.0.0.1; reason=DAILY_LIMIT used=3/3"),
+                    "standalone exhausted selection reports daily limit");
+            String today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Bangkok")).toString();
+            budget.registerDailyOnce(java.util.Collections.singletonList("10.0.0.2"),today);
+            check(budget.start("10.0.0.2","PRIMARY"),"completion diagnostic first attempt");
+            Path marker=root.resolve("budget").resolve(today).resolve("rx-completed/10.0.0.2.properties");
+            Files.createDirectories(marker.getParent());
+            Files.write(marker,"complete=1\n".getBytes(StandardCharsets.UTF_8));
+            check(select(sheet,"#3").getSiteCount()==0,"completed Rx node remains excluded");
+            check(selectionOutput.contains("DEFER selected Row 3 10.0.0.2; reason=RX_LOG_ALREADY_COMPLETE used=1/3")
+                    && selectionOutput.contains("day="+today+"; existing logs retained"),
+                    "selection distinguishes retained completed log at 1/3 from exhausted allowance");
+            check(budget.used("10.0.0.2")==1,"selection diagnostics do not charge completed node");
         }
         System.out.println("PASS DailyCollectionSelectionRegression");
     }
     private static TrueLinkOpticalAutoMode.Selection select(Sheet sheet, String rows) throws Exception {
-        return TrueLinkOpticalAutoMode.applyDailyBudget(TrueLinkOpticalAutoMode.resolveSelection(
-                new String[]{"--auto-link-optical", "--link-optical-sites="+rows}, sheet),sheet);
+        return applyAndCapture(sheet,new String[]{"--auto-link-optical", "--link-optical-sites="+rows});
+    }
+    private static TrueLinkOpticalAutoMode.Selection applyAndCapture(Sheet sheet,String[] args) throws Exception {
+        java.io.PrintStream previous=System.out;
+        java.io.ByteArrayOutputStream captured=new java.io.ByteArrayOutputStream();
+        try (java.io.PrintStream output=new java.io.PrintStream(captured,true,"UTF-8")) {
+            System.setOut(output);
+            return TrueLinkOpticalAutoMode.applyDailyBudget(TrueLinkOpticalAutoMode.resolveSelection(args,sheet),sheet);
+        } finally {
+            System.setOut(previous);
+            selectionOutput=captured.toString("UTF-8");
+            previous.print(selectionOutput);
+        }
     }
     private static void row(Sheet sheet,int index,String name,String ip) {
         Row row=sheet.createRow(index);

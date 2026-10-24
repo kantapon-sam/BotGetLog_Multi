@@ -106,11 +106,40 @@ public final class DailyCollectionBudget {
     }
 
     public boolean available(String rawIp) throws IOException {
+        return availability(rawIp).available;
+    }
+
+    /** One locked snapshot for admission and its diagnostic; does not charge an attempt. */
+    public Availability availability(String rawIp) throws IOException {
+        return availability(rawIp, false);
+    }
+
+    Availability availability(String rawIp, boolean pairBlocked) throws IOException {
         final String ip = ip(rawIp);
         return locked(() -> {
             String day = day();
-            return day.equals(prepaid.get(ip)) || (!rxComplete(day, ip) && count(day, ip) < limit);
+            int used = count(day, ip);
+            if (pairBlocked) return new Availability(false, "PAIR_RESERVATION_BLOCKED", used, limit, day);
+            if (day.equals(prepaid.get(ip))) return new Availability(true, "PAIR_RESERVED", used, limit, day);
+            if (rxComplete(day, ip)) return new Availability(false, "RX_LOG_ALREADY_COMPLETE", used, limit, day);
+            return new Availability(used < limit, used < limit ? "AVAILABLE" : "DAILY_LIMIT", used, limit, day);
         });
+    }
+
+    public static final class Availability {
+        public final boolean available;
+        public final String reason;
+        public final int used;
+        public final int limit;
+        public final String day;
+
+        private Availability(boolean available, String reason, int used, int limit, String day) {
+            this.available = available;
+            this.reason = reason;
+            this.used = used;
+            this.limit = limit;
+            this.day = day;
+        }
     }
 
     public boolean start(String rawIp, String reason) throws IOException {
