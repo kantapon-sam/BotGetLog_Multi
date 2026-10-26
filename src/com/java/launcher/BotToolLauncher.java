@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.18: Keep launched tools running when their console output grows.
-    // Attempt IDs keep collection activity associated with its originating session.
-    private static final String FALLBACK_VERSION = "1.2.18";
+    // Version 1.2.19: Validate Juniper RE identity and restart interrupted collections safely.
+    // Preserve daily-budget command caching and bounded retries.
+    private static final String FALLBACK_VERSION = "1.2.19";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

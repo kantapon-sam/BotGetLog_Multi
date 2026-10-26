@@ -1,0 +1,39 @@
+BotGetLog_Multi v1.2.19
+
+Juniper collection now learns the authenticated routing-engine hostname before
+creating its log. An inventory name ending in re0 can connect to re1 on the same
+chassis; unrelated hostnames remain rejected, and the captured identity stays
+fixed throughout the attempt. Saved transcripts still require matching names
+and complete command responses.
+
+Recognize Junos ---(more)--- and percentage paging prompts. If a non-exit Link
+Optical command loses its connection, stop that attempt and use the existing
+bounded retry queue. The retry starts a fresh transcript from the paging setup
+command and still obeys the daily collection budget.
+
+This release also includes the previously deployed daily-budget command-cache
+fix: validate retained logs against the already-open workbook snapshot and
+report deferral reasons with usage and the Bangkok collection day.
+
+The distribution preserves the existing default workbooks, libraries, portable
+Java runtime, parser classes, and other unrelated resources. Release packages
+exclude live credentials, operational workbooks, collection logs, and settings.
+
+Validation:
+- The prior v1.2.18 updater installed and relaunched v1.2.19 in a disposable
+  installation while retaining inventory, credentials, custom sheets, logs,
+  preferences, and encrypted enable settings.
+- Both ZIP archives passed integrity checks. Every unrelated JAR entry and
+  package entry was compared byte-for-byte with the verified v1.2.18 release.
+- The included daily-budget classes match the deployed fix and the current
+  source. The launcher executable changes only its fallback version literal.
+- Twenty Java 8 regression suites passed, covering prompt identity, paging,
+  transcript validation, retry policy, daily budgets, command caching, shared
+  connection limits, node ownership, and ARP parsers. Final artifact checks
+  included 96 Juniper assertions and loaded classes from the release JAR.
+- The installed release artifact passed version, Juniper, cache, and retry
+  smoke checks on Linux. An isolated live Juniper collection completed all nine
+  commands in about 36 seconds and passed complete-log validation.
+- All four companion web services remained healthy with unchanged processes.
+  Scheduler configuration, daily budgets, inventory, published inputs, and
+  existing collected logs were unchanged after installation and live testing.
