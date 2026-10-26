@@ -1,6 +1,6 @@
 {
-  "version": "1.2.18",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.18/BotGetLog_Multi-dist-1.2.18.zip",
-  "sha256": "e1541715ed2ab1aaaf273cbc2ca727dd960309ddea67b993bcc881f6d940ca0f",
-  "notes": "Fix launcher-started tools freezing when stdout/stderr fill the Windows process pipe. Send both output streams to a unique per-run _output/Launcher_Log/*.log file. Preserve ARP parser and every other runtime class byte-for-byte from version 1.2.17."
+  "version": "1.2.19",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.19/BotGetLog_Multi-dist-1.2.19.zip",
+  "sha256": "dce03431af3a4819a38de4e2ae990dd5db16a559849c4fabbd92da4ff3486a43",
+  "notes": "Fix Juniper re0/re1 login identity and Junos paging detection. Restart interrupted Link Optical collections through the bounded retry queue. Include the daily-budget workbook command-cache fix while preserving unrelated tools and user data."
 }
