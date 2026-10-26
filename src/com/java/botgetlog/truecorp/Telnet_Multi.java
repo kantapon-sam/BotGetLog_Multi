@@ -472,7 +472,8 @@ public class Telnet_Multi {
             = Pattern.compile(".*(%error\\s*[0-9:]*|invalid input detected|bad command|unrecognized command|unknown command|syntax error|command not found|invalid command).*");
     private static final Pattern ANSI_CURSOR_LEFT_PATTERN = Pattern.compile("([0-9]+)?D");
     private static final Pattern READ_PAGINATION_PATTERN
-            = Pattern.compile("-+\\s*more(?:\\s*\\([^\\r\\n]{0,80}\\))?\\s*-+|more\\?");
+            = Pattern.compile("-+\\s*more(?:\\s*\\([^\\r\\n]{0,80}\\))?\\s*-+|more\\?"
+                    + "|-+\\s*\\(more(?:\\s+\\d{1,3}%)?\\)\\s*-+");
     private static final String[] REMOTE_SESSION_CLOSE_MARKERS = new String[]{
         "script done",
         "enter ip address [press q",
@@ -2626,6 +2627,14 @@ public class Telnet_Multi {
                             return;
                         }
 
+                        if ("lldp-link_optic".equals(normalizeCmdSetFamily(cmdSet))
+                                && !acceptJuniperLoginPrompt(resp, Device)) {
+                            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                    "_[Connection failed - unexpected Juniper node prompt]");
+                            failedAfterPassword = true;
+                            disconnect();
+                            return;
+                        }
                         write("");
                     } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
                         String resp = waitForPostPasswordPrompt(Loopback, User_CLLS, PW_CLLS);
@@ -3619,7 +3628,35 @@ public class Telnet_Multi {
         updateRuntimeDeviceNameFromPromptToken(promptToken, configuredDevice);
     }
 
+    /** Capture the authenticated Junos RE before opening a collection log.
+     * Only the same chassis may switch between re0/re1 at login; subsequent
+     * prompts must keep the captured identity, including after reconnect.
+     */
+    private boolean acceptJuniperLoginPrompt(String response, String configuredDevice) {
+        if (response == null || isTimeoutResponse(response) || containsTransportFailureText(response)
+                || containsLoginFailureText(response)) return false;
+        String token = extractPromptToken(stripTerminalControlSequences(response));
+        if (!isInteractivePromptToken(token) || !token.endsWith(">")
+                || !token.matches("(?:[A-Za-z0-9_.-]+@)*[A-Za-z0-9_][A-Za-z0-9_.-]*>")) return false;
+        String actual = sanitizeDeviceNameForFileName(extractNodeNameFromPromptToken(token));
+        String captured = sanitizeDeviceNameForFileName(runtimeDeviceName);
+        String expected = captured.isEmpty() ? sanitizeDeviceNameForFileName(configuredDevice) : captured;
+        if (expected.isEmpty() || actual.isEmpty()) return false;
+        if (!expected.equalsIgnoreCase(actual)) {
+            if (!captured.isEmpty() || !expected.matches("(?i).+-re[01]")
+                    || !actual.matches("(?i).+-re[01]")
+                    || !expected.substring(0, expected.length() - 4).equalsIgnoreCase(
+                            actual.substring(0, actual.length() - 4))) return false;
+        }
+        updateRuntimeDeviceNameFromPromptToken(token, configuredDevice);
+        return true;
+    }
+
     private void updateRuntimeDeviceNameFromLogFile(File logFile, String configuredDevice, String vendorOrCmdSet) {
+        // Junos identity is pinned at authenticated login, never learned again
+        // from an interrupted command or a different RE in a saved transcript.
+        if ("J".equals(extractVendorPrefix(vendorOrCmdSet))
+                && "lldp-link_optic".equals(normalizeCmdSetFamily(vendorOrCmdSet))) return;
         List<String> promptCandidates = readPromptCandidatesFromLog(logFile, configuredDevice, vendorOrCmdSet);
         for (String promptToken : promptCandidates) {
             String actualNodeName = extractNodeNameFromPromptToken(promptToken);
@@ -6396,6 +6433,16 @@ public class Telnet_Multi {
         }
         if (result.remoteClosed) {
             if (!requiredNode.isEmpty() && !exitCommand) unverifiedCollectionResponse = true;
+            if ("J".equals(vendor) && !requiredNode.isEmpty() && !exitCommand) {
+                // Reconnecting is not completion of the interrupted command.
+                // Let the bounded node retry start a fresh transcript from the
+                // paging setup command instead of mixing partial sessions.
+                String message = "[RECOVER-DEFER]" + consolePrefix + " "
+                        + summarizeCommandForConsole(command) + " -> full collection retry required";
+                System.out.println(message);
+                logwork(message + "\n");
+                return result;
+            }
             boolean recovered = recoverRemoteClosedSession(Loopback, Device, cmdSet, Num_row, command, result.detail);
             return recovered
                     ? CommandReadResult.remoteClosedRecovered(result.detail)
@@ -6822,6 +6869,8 @@ public class Telnet_Multi {
                         || resp.contains("[TIMEOUT-READ-LIMIT]")) {
                     return false;
                 }
+                if ("lldp-link_optic".equals(normalizeCmdSetFamily(cmdSet))
+                        && !acceptJuniperLoginPrompt(resp, Device)) return false;
                 write("");
             } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
                 String resp = waitForPostPasswordPrompt(Loopback, nodeUsername, nodePassword);

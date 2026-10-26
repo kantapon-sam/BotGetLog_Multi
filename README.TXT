@@ -43,3 +43,12 @@ ZTE Enable settings:
 - Leave a saved field blank to keep its value; use Show to view it or the arrows to change priority.
 - Changes apply to new node connections. Each Windows installation has its own settings.
 - Server settings are managed separately by an Admin in Control Console > Bot Settings - ZTE Enable.
+
+Juniper Link Optical collection:
+- At login, the collector accepts the configured hostname or its re0/re1 peer
+  on the same chassis, then pins the actual RE name for prompts and the log file.
+  Different chassis names and RE changes during collection remain failures.
+- Junos ---(more)--- and percentage paging prompts are continued automatically.
+- An interrupted command fails the current attempt. The existing bounded node
+  retry starts again at paging setup and preserves the incomplete log as evidence;
+  reconnecting alone never counts as a completed command. Daily limits still apply.
