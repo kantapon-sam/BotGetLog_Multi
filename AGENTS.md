@@ -18,6 +18,11 @@ Retain running jobs on their pinned runtimes; do not restart TrueLogs merely to
 update its Bot. Routine publication within this version-update scope does not
 need another confirmation. Report any failed stage explicitly.
 
+Keep the public GitHub Release body below 500 characters, linking to detailed
+notes under docs/. Clients before v1.2.21 parse it with a recursive Java 8 regex
+and can crash before showing the update prompt when the body is long. Validate
+release-note enrichment as well as manifest download when testing startup.
+
 ## Linux scheduler source
 
 The companion `LLDP_MapViewer` repository's `scripts/` is the maintained source for the deployed Linux checkpoint scheduler, cron installer and daily-policy helpers. See its `docs/OPERATIONS.md`. The older scheduler copies in this repository are not a deployment baseline; do not overwrite deployed scheduler scripts from them. A task changing both scheduler behavior and collector Java must publish the changes to both repositories.

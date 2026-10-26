@@ -32,7 +32,9 @@ public final class AutoUpdateManager {
             "https://raw.githubusercontent.com/kantapon-sam/BotGetLog_Multi/master/update/version.json";
     private static final String MANIFEST_URL_PROPERTY = "botgetlog.update.manifestUrl";
     private static final Pattern JSON_TEXT_PATTERN =
-            Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
+            // Possessive repetition keeps Java 8 from recursing for every character
+            // in a long GitHub release body before the launcher window is shown.
+            Pattern.compile("\"%s\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*+)\"");
     private static final Pattern GITHUB_RELEASE_DOWNLOAD_PATTERN =
             Pattern.compile("https?://github\\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/.+");
     private static final int CONNECT_TIMEOUT_MS = 10000;
@@ -230,7 +232,7 @@ public final class AutoUpdateManager {
         }
         Pattern assetPattern = Pattern.compile(
                 "\\\"url\\\"\\s*:\\s*\\\"(https://api\\.github\\.com/repos/[^\\\"]+/releases/assets/\\d+)\\\""
-                + "[\\s\\S]*?\\\"name\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"");
+                + "[\\s\\S]*?\\\"name\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*+)\\\"");
         Matcher assetMatcher = assetPattern.matcher(releaseJson);
         while (assetMatcher.find()) {
             if (fileName.equals(unescapeJson(assetMatcher.group(2)))) {

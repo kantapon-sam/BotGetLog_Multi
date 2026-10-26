@@ -1,0 +1,23 @@
+BotGetLog_Multi v1.2.21
+
+Fix the launcher exiting before any window appears when a GitHub Release has
+long notes. Java 8's recursive regex repetition exhausted the thread stack
+while reading the release body. JSON string matching now uses possessive
+repetition for both manifest/release fields and fallback asset names, without
+changing escaped-string contents or download verification.
+
+Regression validation reproduces StackOverflowError in the prior binary and
+passes with the patched binary using a 256 KB thread stack, a retained GitHub
+release response and over 500 KB of escaped notes. Tests also cover adjacent
+fields, empty/missing/unterminated values and a large preceding asset name.
+
+The v1.2.20 public notes were shortened so older installed clients can reach
+the update prompt again. Keep public release summaries short and link to this
+file until all users have migrated to the fixed parser.
+
+Distribution and portable packages preserve the verified v1.2.20 libraries,
+default workbooks, collector code and portable Java runtime. Update-manager
+classes, launcher version, application manifests and README are updated.
+The updater retains user inventory, credentials, custom workbook sheets, logs,
+preferences and encrypted enable settings. The matching TrueLogs Bot runtime
+is published without restarting the web service or interrupting pinned jobs.

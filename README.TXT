@@ -29,6 +29,8 @@ Default input files:
 - defaults\NEW_Site.csv
 
 Update behavior:
+- Long GitHub release notes are parsed without recursive regex backtracking,
+  preventing a Java 8 StackOverflowError before the launcher window opens.
 - The updater replaces application jars, defaults, lib, updater, and README.TXT.
 - The updater keeps UserInterface_Input.xlsx, _output, and launcher-data (including saved ZTE Enable passwords).
 - SID.jar exports Huawei, ZTE, and Nokia loopback/SID rows. Segment_Routing_Prefix.jar remains as a compatibility entry point.
