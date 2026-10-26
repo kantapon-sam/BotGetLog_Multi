@@ -15,6 +15,9 @@ import java.util.regex.Pattern;
 
 public class Check_Link_Optical {
 
+    private static final Pattern ZTE_INTERFACE_BANDWIDTH = Pattern.compile(
+            "^BW\\s+([0-9]+(?:\\.[0-9]+)?)\\s*([GMK]?)bit/s\\b", Pattern.CASE_INSENSITIVE);
+
     public static String Sub(BufferedReader br, String path) throws IOException {
         String line;
         String Str_LLDP_all = "";
@@ -807,7 +810,7 @@ Pattern pHasNeighbor = Pattern.compile(
 // =====================================================
 // =====================================================
             List<Map<String, String>> intfRecords = new ArrayList<>();
-            String currentPort_if = "", desc_if = "", oper_if = "", crc_if = "";
+            String currentPort_if = "", desc_if = "", oper_if = "", crc_if = "", bandwidth_if = "";
             double inPeakGbps_if = 0, outPeakGbps_if = 0;
             String inTime_if = "", outTime_if = "";
 
@@ -815,7 +818,7 @@ Pattern pHasNeighbor = Pattern.compile(
                 String l = interfaceLines.get(i).trim();
 
                 String nextZteIntf = getZteInterfaceName(l);
-                if (!nextZteIntf.isEmpty() && nextZteIntf.toLowerCase().contains("gei")) {
+                if (!nextZteIntf.isEmpty()) {
                     if (isZtePhysicalOpticalInterface(currentPort_if)) {
                         Map<String, String> rec = new LinkedHashMap<>();
                         rec.put("Port", currentPort_if.trim().toLowerCase().replaceAll("\\s+", ""));
@@ -823,6 +826,7 @@ Pattern pHasNeighbor = Pattern.compile(
                         rec.put("Description", desc_if);
                         rec.put("Oper", oper_if);
                         rec.put("CRC", crc_if);
+                        rec.put("Bandwidth", bandwidth_if);
                         rec.put("InPeak(G)", String.format("%.6f", inPeakGbps_if));
                         rec.put("OutPeak(G)", String.format("%.6f", outPeakGbps_if));
                         rec.put("InTime(TH)", inTime_if);
@@ -833,7 +837,7 @@ Pattern pHasNeighbor = Pattern.compile(
                     currentPort_if = nextZteIntf.toLowerCase().replaceAll("\\s+", "");
 
                     oper_if = l.replaceAll(".*is\\s+([^,]+),.*", "$1").trim();
-                    desc_if = crc_if = "";
+                    desc_if = crc_if = bandwidth_if = "";
                     inPeakGbps_if = outPeakGbps_if = 0;
                     inTime_if = outTime_if = "";
                     continue;
@@ -841,6 +845,12 @@ Pattern pHasNeighbor = Pattern.compile(
 
                 if (currentPort_if.isEmpty() || !currentPort_if.toLowerCase().contains("gei")) {
                     continue;
+                }
+
+                Matcher interfaceBw = ZTE_INTERFACE_BANDWIDTH.matcher(l);
+                if (interfaceBw.find() && Double.parseDouble(interfaceBw.group(1)) > 0.0d) {
+                    String unit = interfaceBw.group(2).toUpperCase(java.util.Locale.ROOT);
+                    bandwidth_if = interfaceBw.group(1) + ("K".equals(unit) ? "Kbps" : unit);
                 }
 
                 if (l.startsWith("Description:")) {
@@ -899,6 +909,7 @@ Pattern pHasNeighbor = Pattern.compile(
                 rec.put("Description", desc_if);
                 rec.put("Oper", oper_if);
                 rec.put("CRC", crc_if);
+                rec.put("Bandwidth", bandwidth_if);
                 rec.put("InPeak(G)", String.format("%.6f", inPeakGbps_if));
                 rec.put("OutPeak(G)", String.format("%.6f", outPeakGbps_if));
                 rec.put("InTime(TH)", inTime_if);
@@ -984,6 +995,11 @@ Pattern pHasNeighbor = Pattern.compile(
                     bwOptic = bwOptic.split("-")[0];
                 }
                 bwOptic = bwOptic.replaceAll("[^0-9G]", "").trim();
+                // The optical type describes the module, not the running port.
+                // A 6G-labelled module can be used on a port reporting BW 10 Gbit/s.
+                // Keep optical fallback only for older logs without interface BW.
+                String interfaceBandwidth = intfRec != null ? intfRec.getOrDefault("Bandwidth", "") : "";
+                if (!interfaceBandwidth.isEmpty()) bwOptic = interfaceBandwidth;
 
                 String wl = opticRec != null ? opticRec.getOrDefault("Wavelength", "") : "";
                 String distanceOpt = opticRec != null ? opticRec.getOrDefault("Distance", "") : "";

@@ -52,3 +52,9 @@ Juniper Link Optical collection:
 - An interrupted command fails the current attempt. The existing bounded node
   retry starts again at paging setup and preserves the incomplete log as evidence;
   reconnecting alone never counts as a completed command. Daily limits still apply.
+
+ZTE Link Optical bandwidth:
+- Max BW uses the physical interface's reported BW from show interface. The
+  transceiver type in show opt brief is only a fallback for logs without BW.
+  This avoids exporting a 6G module label as the capacity of a 10G interface,
+  and retains negotiated 1G/100M rates on faster-capable modules.
