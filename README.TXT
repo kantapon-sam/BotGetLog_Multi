@@ -58,3 +58,20 @@ ZTE Link Optical bandwidth:
   transceiver type in show opt brief is only a fallback for logs without BW.
   This avoids exporting a 6G module label as the capacity of a 10G interface,
   and retains negotiated 1G/100M rates on faster-capable modules.
+
+Maintainer release publication:
+- A public version update includes a GitHub Release with dist and portable ZIPs,
+  checksums, and update/version.json pointing to the verified downloadable dist
+  ZIP. Publish and verify assets before committing the updater manifest.
+- TrueLogs uses a separate immutable Bot runtime. Updating the scheduled Bot
+  alone does not update TrueLogs. Configured builds publish it automatically
+  after the complete dist build; release.ps1 -SkipBuild invokes the same target.
+- In ignored nbproject/private/private.properties, set true.web.publish.script
+  to the companion LLDP_MapViewer/true-log-console/scripts/publish.ps1 and set
+  true.web.publish.config to that publisher's private JSON configuration.
+  Set true.web.publish.powershell to pwsh.exe when using a PowerShell 7 host.
+  Never commit SSH credentials or DPAPI files. Unconfigured developer builds
+  do not publish. A configured publication failure fails the build/release.
+- The runtime installer validates checksums and worker compatibility before
+  switching the pointer. New jobs use the new Bot; running jobs retain their
+  pinned runtime. No TrueLogs restart is needed for a Bot-only update.

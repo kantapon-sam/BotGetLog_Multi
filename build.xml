@@ -303,5 +303,25 @@
               tofile="${dist.dir}/defaults/NEW_Site.csv"
               failonerror="false"
               quiet="true"/>
+        <antcall target="publish-true-web-runtime"/>
+    </target>
+
+    <!-- Configured maintainer builds publish only after every dist artifact exists.
+         Keep SSH/DPAPI settings in ignored nbproject/private/private.properties. -->
+    <target name="publish-true-web-runtime" depends="-init-project" if="true.web.publish.config">
+        <fail unless="true.web.publish.script"
+              message="Set true.web.publish.script to LLDP_MapViewer/true-log-console/scripts/publish.ps1."/>
+        <available file="${true.web.publish.script}" property="true.web.publisher.exists"/>
+        <available file="${true.web.publish.config}" property="true.web.config.exists"/>
+        <fail unless="true.web.publisher.exists" message="TrueLogs publisher script is missing."/>
+        <fail unless="true.web.config.exists" message="TrueLogs publisher configuration is missing."/>
+        <property name="true.web.publish.powershell" value="powershell.exe"/>
+        <exec executable="${true.web.publish.powershell}" failonerror="true">
+            <arg value="-NoProfile"/>
+            <arg value="-ExecutionPolicy"/><arg value="Bypass"/>
+            <arg value="-File"/><arg value="${true.web.publish.script}"/>
+            <arg value="-Dist"/><arg path="${dist.dir}"/>
+            <arg value="-Config"/><arg value="${true.web.publish.config}"/>
+        </exec>
     </target>
 </project>

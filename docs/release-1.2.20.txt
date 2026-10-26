@@ -17,5 +17,18 @@ ZTE bandwidth, Nokia state/neighbor/metrics, free ports and CPU/memory exports.
 The retained CCS8515 log exports xgei-1/1/0/26 to PN-CCS0013-1 port 2/1/12 as
 10G through both parser and complete single-file export paths.
 
-This server patch does not publish new Windows updater packages. The update
-manifest continues to reference the last verified downloadable release.
+Windows distribution and portable packages include the same bandwidth fix.
+The v1.2.19 updater installs and relaunches v1.2.20 while preserving inventory,
+credentials, custom workbook sheets, logs, preferences and encrypted enable
+settings. Package contents retain the verified v1.2.19 libraries and portable
+Java runtime. Every unrelated JAR entry remains byte-for-byte unchanged.
+
+GitHub Release assets and their SHA-256 checksums are verified before the
+Windows Auto Update manifest is advanced. TrueLogs receives its own immutable
+Bot runtime through the validated runtime publisher, without restarting the
+web service or changing the runtime pinned to existing jobs.
+
+Configured Ant builds now invoke publish-true-web-runtime after all dist
+artifacts are ready. release.ps1 -SkipBuild invokes the same publisher for
+prepared packages. Publication errors fail the configured build/release.
+Machine-specific publisher paths and credentials remain in ignored settings.

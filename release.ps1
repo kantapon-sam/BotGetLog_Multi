@@ -636,6 +636,20 @@ $manifestInfo = Write-UpdateManifest `
     -ZipName $zipName `
     -Sha256 $sha256
 
+if ($SkipBuild) {
+    $privateProperties = Join-Path $projectRoot "nbproject\private\private.properties"
+    $publishConfigured = (Test-Path -LiteralPath $privateProperties) -and
+        ((Get-Content -LiteralPath $privateProperties -Raw) -match '(?m)^\s*true\.web\.publish\.config\s*=')
+    if ($publishConfigured) {
+        Write-Step "Publishing the prepared Bot runtime to configured TrueLogs"
+        $ant = Resolve-AntCommand -RequestedAntPath $AntPath
+        & $ant -noinput -buildfile (Join-Path $projectRoot "build.xml") publish-true-web-runtime
+        if ($LASTEXITCODE -ne 0) {
+            throw "Release package is ready, but configured TrueLogs runtime publication failed."
+        }
+    }
+}
+
 if ($CreateGitTag) {
     Write-Step "Creating local git tag"
     git -C $gitRoot tag "v$Version"
