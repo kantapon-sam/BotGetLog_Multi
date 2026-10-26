@@ -1,6 +1,6 @@
 {
-  "version": "1.2.19",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.19/BotGetLog_Multi-dist-1.2.19.zip",
-  "sha256": "dce03431af3a4819a38de4e2ae990dd5db16a559849c4fabbd92da4ff3486a43",
-  "notes": "Fix Juniper re0/re1 login identity and Junos paging detection. Restart interrupted Link Optical collections through the bounded retry queue. Include the daily-budget workbook command-cache fix while preserving unrelated tools and user data."
+  "version": "1.2.20",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.20/BotGetLog_Multi-dist-1.2.20.zip",
+  "sha256": "79f4d14f90ec33d7d02b05397bc8e23f32e33f0c7f91aa9dca021dbb3131d039",
+  "notes": "Use reported ZTE physical interface bandwidth instead of the SFP module label, correcting 10G ports labeled 6G. Preserve negotiated lower speeds and existing user data. Includes automatic TrueLogs runtime publication for configured maintainer builds."
 }
