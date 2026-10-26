@@ -1,6 +1,6 @@
 {
-  "version": "1.2.20",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.20/BotGetLog_Multi-dist-1.2.20.zip",
-  "sha256": "79f4d14f90ec33d7d02b05397bc8e23f32e33f0c7f91aa9dca021dbb3131d039",
-  "notes": "Use reported ZTE physical interface bandwidth instead of the SFP module label, correcting 10G ports labeled 6G. Preserve negotiated lower speeds and existing user data. Includes automatic TrueLogs runtime publication for configured maintainer builds."
+  "version": "1.2.21",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.21/BotGetLog_Multi-dist-1.2.21.zip",
+  "sha256": "7851d45f378a7321c09fcfa7278683342e082396487613118b0bd0064eb2f7ba",
+  "notes": "Fix Launcher startup crashes on Java 8 when update release notes are long. Retains the ZTE 10G bandwidth fix and existing user data."
 }
