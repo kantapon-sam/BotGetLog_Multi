@@ -1,0 +1,21 @@
+BotGetLog_Multi v1.2.20
+
+ZTE Link Optical exports now take Max BW from the physical interface's reported
+BW instead of the SFP module label. A port reporting BW 10 Gbit/s with a
+6G-10km-SFP module exports 10G. Interface state is reset at every interface
+header so subinterfaces and smartgroups cannot overwrite a physical port's BW.
+Older logs without interface BW retain the optical-label fallback.
+
+The Linux server update patches Check_Link_Optical.class and the version
+manifest in the installed BotGetLog_TrueCorp.jar and Link_Optical.jar. Other
+archive entries, libraries, scheduler scripts, inventory, credentials, daily
+budgets and retained logs stay unchanged. No new collection is needed to
+re-export existing completed logs. Keep previous JARs for rollback.
+
+Validation uses the exact candidate JARs: six regression suites per JAR cover
+ZTE bandwidth, Nokia state/neighbor/metrics, free ports and CPU/memory exports.
+The retained CCS8515 log exports xgei-1/1/0/26 to PN-CCS0013-1 port 2/1/12 as
+10G through both parser and complete single-file export paths.
+
+This server patch does not publish new Windows updater packages. The update
+manifest continues to reference the last verified downloadable release.
