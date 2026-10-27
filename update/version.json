@@ -1,6 +1,6 @@
 {
-  "version": "1.2.21",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.21/BotGetLog_Multi-dist-1.2.21.zip",
-  "sha256": "7851d45f378a7321c09fcfa7278683342e082396487613118b0bd0064eb2f7ba",
-  "notes": "Fix Launcher startup crashes on Java 8 when update release notes are long. Retains the ZTE 10G bandwidth fix and existing user data."
+  "version": "1.2.22",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.22/BotGetLog_Multi-dist-1.2.22.zip",
+  "sha256": "0970bb0d993381bb59ecd07d2104a326b3609d87b2b769239a6a7f6f871089bf",
+  "notes": "Released 1.2.22: Add Huawei-only HW-Interface collection, Launcher table and CSV report. Desktop release; server deployment deferred."
 }
