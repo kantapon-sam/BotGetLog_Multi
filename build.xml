@@ -150,6 +150,7 @@
             </manifest>
             <fileset dir="${build.classes.dir}">
                 <include name="com/java/botgetlog/dtac/**/*.class"/>
+                <include name="com/java/shared/HuaweiInterfaceCommands*.class"/>
                 <include name="com/java/shared/DeviceCommandFallback*.class"/>
                 <include name="com/java/shared/AppMetadata.class"/>
                 <include name="com/java/shared/DeviceEnableSettings*.class"/>
@@ -254,6 +255,20 @@
             </fileset>
         </jar>
 
+        <jar destfile="${dist.dir}/HW-Interface.jar">
+            <manifest>
+                <attribute name="Main-Class" value="com.java.tools.hwinterface.HuaweiInterfaceReport"/>
+                <attribute name="Implementation-Title" value="HW-Interface"/>
+                <attribute name="Implementation-Version" value="${application.version}"/>
+            </manifest>
+            <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/ToolDialogHelper.class"/>
+                <include name="com/java/shared/AppConsole*.class"/>
+                <include name="com/java/shared/AppMetadata.class"/>
+                <include name="com/java/tools/hwinterface/**/*.class"/>
+            </fileset>
+        </jar>
+
         <jar destfile="${dist.dir}/ISIS_Peer.jar">
             <manifest>
                 <attribute name="Main-Class" value="com.java.tools.isispeer.IsisPeer"/>
@@ -299,6 +314,14 @@
               tofile="${dist.dir}/defaults/UserInterface_Input.xlsx"
               failonerror="false"
               quiet="true"/>
+        <java classname="com.java.build.HuaweiInterfaceWorkbook" fork="true" failonerror="true">
+            <classpath>
+                <pathelement location="${build.classes.dir}"/>
+                <fileset dir="${basedir}/lib"><include name="*.jar"/></fileset>
+            </classpath>
+            <arg file="${basedir}/UserInterface_Input.xlsx"/>
+            <arg file="${dist.dir}/defaults/UserInterface_Input.xlsx"/>
+        </java>
         <copy file="${basedir}/defaults/NEW_Site.csv"
               tofile="${dist.dir}/defaults/NEW_Site.csv"
               failonerror="false"
@@ -308,7 +331,7 @@
 
     <!-- Configured maintainer builds publish only after every dist artifact exists.
          Keep SSH/DPAPI settings in ignored nbproject/private/private.properties. -->
-    <target name="publish-true-web-runtime" depends="-init-project" if="true.web.publish.config">
+    <target name="publish-true-web-runtime" depends="-init-project" if="true.web.publish.config" unless="true.web.publish.skip">
         <fail unless="true.web.publish.script"
               message="Set true.web.publish.script to LLDP_MapViewer/true-log-console/scripts/publish.ps1."/>
         <available file="${true.web.publish.script}" property="true.web.publisher.exists"/>

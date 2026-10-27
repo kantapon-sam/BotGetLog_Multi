@@ -1,5 +1,6 @@
 package com.java.botgetlog.dtac;
 
+import com.java.shared.HuaweiInterfaceCommands;
 import com.java.shared.DeviceEnableSettings;
 import com.java.shared.DeviceCommandFallback;
 import com.java.shared.ZteEnableFlow;
@@ -586,6 +587,10 @@ private void connectSSH(String host, int port, String user, String pass) throws 
                         + " actualPrompt=" + promptMatchHint + "\n");
             }
 
+            if (!HuaweiInterfaceCommands.permitsVendor(baseCmdSet, vendor)) {
+                all.append("\n[ERROR] HW-Interface is Huawei-only; collection skipped.\n");
+                return new RunResult(vendor, baseCmdSet, all.toString());
+            }
             String cmdSetUsed = baseCmdSet;
             if (vendor != null && !vendor.trim().isEmpty()) {
                 cmdSetUsed = applyVendorToCmdSet(baseCmdSet, vendor);
@@ -1057,6 +1062,9 @@ private void connectSSH(String host, int port, String user, String pass) throws 
 
 
     private List<String> loadCommandsFromExcel(String cmdSetName) throws IOException, InvalidFormatException {
+        if (HuaweiInterfaceCommands.matches(cmdSetName)) {
+            return new ArrayList<>(HuaweiInterfaceCommands.ROWS.subList(1, HuaweiInterfaceCommands.ROWS.size()));
+        }
         ensureCmdSetCacheLoaded();
 
         String key = normalizeCmdSetKey(cmdSetName);

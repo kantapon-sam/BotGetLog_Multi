@@ -1,0 +1,40 @@
+BotGetLog_Multi v1.2.22 - HW-Interface (desktop release)
+
+New collection and report
+- HW-Interface runs screen-length 0 temporary, display interface brief,
+  display interface, and quit. The built-in set works with existing TRUE and
+  DTAC workbooks; only Huawei devices are allowed after vendor detection.
+- Release defaults include an appended HW-Interface command column. The source
+  workbook and existing user command columns/settings are preserved.
+- The Launcher button opens HW-Interface.jar: searchable, sortable table and
+  UTF-8 CSV under _output/HW-Interface. Numeric sorting covers utilization/errors.
+- Columns: Site, IP node, Interface, Description, PHY, Protocol, InUti, OutUti,
+  InErrors, OutErrors. Includes down/standby ports, trunk members, subinterfaces,
+  loopbacks and other logical interfaces. GE/GigabitEthernet aliases and speed
+  suffixes are joined to the detail description without dropping brief values.
+- Latest filename collection date per IP wins. Missing data stays blank;
+  incomplete snapshots warn instead of borrowing stale values. Device -- values
+  remain --. CSV descriptions are quoted and formula-like text is escaped.
+
+Use
+1. Set HW-Interface in a selected Huawei node's command-set cell and run the
+   matching BotGetLog [TRUE] or [DTAC]. Keep the usual gateway/account settings.
+2. Click HW-Interface. The report reads _output/Total_Log and saves a new CSV.
+3. Search any column or sort headers. The table scrolls horizontally for all
+   ten columns. Open CSV folder opens the generated report directory.
+CLI: java -jar HW-Interface.jar --input LOG_FOLDER --output REPORT_FOLDER
+
+Validation
+- Java 8 Ant build and parser/template/command/vendor regression passed.
+- One live Huawei ATN 910C-A node: 49 interfaces; every status, utilization,
+  error count and description matched the command transcript independently.
+  The normal collector also completed the four-command set including quit.
+- Actual Launcher JAR button opened the report; subinterface filtering passed.
+- Vendor banner and updater/long-release-note regressions passed. Existing
+  daily selection regression passed with its collection date explicitly pinned
+  because its calendar-day fixture differs from the evening collection cycle.
+
+Delivery boundary
+Desktop-only. release.ps1 -DesktopOnly and Ant -Dtrue.web.publish.skip=true
+skip the configured TrueLogs runtime publisher. No scheduled Bot/TrueLogs
+server deployment, service restart or scheduler change belongs to this release.

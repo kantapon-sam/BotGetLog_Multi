@@ -1,5 +1,7 @@
 package com.java.botgetlog.dtac;
 
+import com.java.shared.HuaweiInterfaceCommands;
+
 import org.apache.poi.ss.usermodel.*;
 
 import javax.swing.*;
@@ -308,6 +310,7 @@ public class BotGetLog_DTAC {
 
         String trimmed = (baseCmdSet != null) ? baseCmdSet.trim() : "";
         if (trimmed.isEmpty()) return new ArrayList<>();
+        if (HuaweiInterfaceCommands.matches(trimmed)) return Collections.singletonList(HuaweiInterfaceCommands.NAME);
 
         names.add(trimmed);
 
@@ -339,6 +342,11 @@ public class BotGetLog_DTAC {
         LinkedHashSet<String> firsts = new LinkedHashSet<>();
         LinkedHashSet<String> lasts = new LinkedHashSet<>();
 
+        if (cmdSetCandidates != null && cmdSetCandidates.size() == 1
+                && HuaweiInterfaceCommands.matches(cmdSetCandidates.get(0))) {
+            return new CommandBoundary(Collections.singletonList("screen-length 0 temporary"),
+                    Collections.singletonList("quit"));
+        }
         if (workbook == null || cmdSetCandidates == null || cmdSetCandidates.isEmpty()) {
             return new CommandBoundary(new ArrayList<>(), new ArrayList<>());
         }

@@ -12,6 +12,7 @@ param(
     [string]$AntPath = "",
     [string]$ReleaseNotes = "",
     [switch]$SkipBuild,
+    [switch]$DesktopOnly,
     [switch]$CreateGitTag
 )
 
@@ -334,7 +335,9 @@ function Invoke-Build {
     param([string]$ProjectRoot, [string]$RequestedAntPath)
 
     $ant = Resolve-AntCommand -RequestedAntPath $RequestedAntPath
-    & $ant -noinput -buildfile (Join-Path $ProjectRoot "build.xml") clean jar
+    $buildArgs = @("-noinput", "-buildfile", (Join-Path $ProjectRoot "build.xml"))
+    if ($DesktopOnly) { $buildArgs += "-Dtrue.web.publish.skip=true" }
+    & $ant @buildArgs clean jar
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed."
     }
@@ -358,6 +361,7 @@ function Assert-RequiredReleaseArtifacts {
         "MPLS_LSP.jar",
         "SID.jar",
         "Segment_Routing_Prefix.jar",
+        "HW-Interface.jar",
         "ISIS_Peer.jar",
         "Deleted_Log_Checker.jar",
         "README.TXT",
@@ -636,7 +640,7 @@ $manifestInfo = Write-UpdateManifest `
     -ZipName $zipName `
     -Sha256 $sha256
 
-if ($SkipBuild) {
+if ($SkipBuild -and -not $DesktopOnly) {
     $privateProperties = Join-Path $projectRoot "nbproject\private\private.properties"
     $publishConfigured = (Test-Path -LiteralPath $privateProperties) -and
         ((Get-Content -LiteralPath $privateProperties -Raw) -match '(?m)^\s*true\.web\.publish\.config\s*=')

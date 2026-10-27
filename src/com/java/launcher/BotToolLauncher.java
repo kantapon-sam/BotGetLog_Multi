@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.21: Read long update notes without overflowing the Java 8 stack.
-    // Preserve ZTE interface bandwidth, daily budgets and bounded retries.
-    private static final String FALLBACK_VERSION = "1.2.21";
+    // Version 1.2.22: Add Huawei-only HW-Interface collection, Launcher table and CSV report.
+    // Desktop release; server deployment deferred.
+    private static final String FALLBACK_VERSION = "1.2.22";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
@@ -145,6 +145,7 @@ public class BotToolLauncher {
     private JButton trueLinkOpticalAutoButton;
     private JButton launchDtacButton;
     private JButton linkOpticalButton;
+    private JButton hwInterfaceButton;
     private JButton arpButton;
     private JButton ptpButton;
     private JButton mplsLspButton;
@@ -196,6 +197,7 @@ public class BotToolLauncher {
         trueLinkOpticalAutoButton = new LauncherButton("TRUE Link Optical Auto");
         launchDtacButton = new LauncherButton("BotGetLog [DTAC]");
         linkOpticalButton = new LauncherButton("Link Optical");
+        hwInterfaceButton = new LauncherButton("HW-Interface");
         arpButton = new LauncherButton("ARP");
         ptpButton = new LauncherButton("PTP");
         mplsLspButton = new LauncherButton("MPLS LSP");
@@ -211,6 +213,12 @@ public class BotToolLauncher {
         trueLinkOpticalAutoButton.addActionListener(e -> launchTrueLinkOpticalAutoJar());
         launchDtacButton.addActionListener(e -> launchDtacJar());
         linkOpticalButton.addActionListener(e -> launchLinkOpticalJar());
+        hwInterfaceButton.addActionListener(e -> {
+            hwInterfaceButton.setEnabled(false);
+            File jar = new File(getAppDirectory(), "HW-Interface.jar");
+            if (!jar.isFile()) jar = new File(getAppDirectory(), "dist/HW-Interface.jar");
+            launchProgram(jar, "HW-Interface.jar", hwInterfaceButton);
+        });
         arpButton.addActionListener(e -> launchArpJar());
         ptpButton.addActionListener(e -> launchPtpJar());
         mplsLspButton.addActionListener(e -> launchMplsLspJar());
@@ -225,6 +233,7 @@ public class BotToolLauncher {
         styleToolButton(trueLinkOpticalAutoButton, new Color(20, 132, 114));
         styleToolButton(launchDtacButton, DTAC_BUTTON_BACKGROUND);
         styleToolButton(linkOpticalButton);
+        styleToolButton(hwInterfaceButton);
         styleToolButton(arpButton);
         styleToolButton(ptpButton);
         styleToolButton(mplsLspButton);
@@ -247,6 +256,7 @@ public class BotToolLauncher {
         actionButtonsPanel.add(trueLinkOpticalAutoButton);
         actionButtonsPanel.add(launchDtacButton);
         actionButtonsPanel.add(linkOpticalButton);
+        actionButtonsPanel.add(hwInterfaceButton);
         actionButtonsPanel.add(arpButton);
         actionButtonsPanel.add(ptpButton);
         actionButtonsPanel.add(mplsLspButton);
@@ -308,6 +318,10 @@ public class BotToolLauncher {
         text.append(lineBreak);
         text.append("4. Link Optical").append(lineBreak);
         text.append("   Open the built-in Link_Optical tool from this project.").append(lineBreak);
+        text.append(lineBreak);
+        text.append("HW-Interface (Huawei only)").append(lineBreak);
+        text.append("   Collect cmdSet HW-Interface, then open all-interface status/description/traffic/error report.").append(lineBreak);
+        text.append("   CSV: _output/HW-Interface. Includes physical, logical and down interfaces.").append(lineBreak);
         text.append(lineBreak);
         text.append("5. ARP").append(lineBreak);
         text.append("   Open the built-in ARP tool from this project.").append(lineBreak);

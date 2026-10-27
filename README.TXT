@@ -11,6 +11,7 @@ Included tools:
 - MPLS_LSP.jar
 - SID.jar
 - Segment_Routing_Prefix.jar
+- HW-Interface.jar
 - ISIS_Peer.jar
 - Deleted_Log_Checker.jar
 
@@ -77,3 +78,16 @@ Maintainer release publication:
 - The runtime installer validates checksums and worker compatibility before
   switching the pointer. New jobs use the new Bot; running jobs retain their
   pinned runtime. No TrueLogs restart is needed for a Bot-only update.
+
+HW-Interface (desktop, Huawei only):
+- On Huawei rows in the TRUE or DTAC device sheet, set the command-set value to HW-Interface.
+- Built-in commands: screen-length 0 temporary; display interface brief; display interface; quit.
+  Older workbooks work without replacing the cmdSet sheet or existing settings.
+- Run BotGetLog [TRUE] or [DTAC] to collect, then click HW-Interface in the Tool Menu.
+- Opens a searchable/sortable all-interface table and saves UTF-8 CSV in _output/HW-Interface.
+- Columns: Site, IP node, Interface, Description, PHY, Protocol, InUti, OutUti, InErrors, OutErrors.
+- Includes down ports, subinterfaces, trunk members and logical interfaces. Latest collection
+  date per IP wins; older logs cannot fill missing current data. Incomplete logs show warnings.
+- Headless: java -jar HW-Interface.jar --input LOG_FOLDER --output REPORT_FOLDER
+- Desktop-only release: pass release.ps1 -DesktopOnly (or Ant -Dtrue.web.publish.skip=true).
+  This deliberately skips the configured TrueLogs publisher; install servers only when requested.

@@ -1,5 +1,6 @@
 package com.java.botgetlog.truecorp;
 
+import com.java.shared.HuaweiInterfaceCommands;
 import com.java.shared.AppMetadata;
 import com.java.shared.AppConsole;
 import com.java.updater.AutoUpdateManager;
@@ -1100,7 +1101,8 @@ public class BotGetLog_TrueCorp {
         if (targetCommand == null) {
             return 0;
         }
-        List<String> commands = CMDSET_COMMAND_CACHE.get(cacheKey(cmdSet));
+        List<String> commands = HuaweiInterfaceCommands.matches(cmdSet)
+                ? HuaweiInterfaceCommands.ROWS : CMDSET_COMMAND_CACHE.get(cacheKey(cmdSet));
         if (commands == null || commands.isEmpty()) {
             return 0;
         }
@@ -1114,14 +1116,17 @@ public class BotGetLog_TrueCorp {
     }
 
     public static String getCachedLastCommand(String cmdSet) {
+        if (HuaweiInterfaceCommands.matches(cmdSet)) return "quit";
         return CMDSET_LAST_COMMAND_CACHE.getOrDefault(cacheKey(cmdSet), "");
     }
 
     public static String getCachedFirstCommand(String cmdSet) {
+        if (HuaweiInterfaceCommands.matches(cmdSet)) return "screen-length 0 temporary";
         return CMDSET_FIRST_COMMAND_CACHE.getOrDefault(cacheKey(cmdSet), "");
     }
 
     public static int getCachedCommandCount(String cmdSet) {
+        if (HuaweiInterfaceCommands.matches(cmdSet)) return 4;
         return CMDSET_COMMAND_COUNT_CACHE.getOrDefault(cacheKey(cmdSet), 0);
     }
 

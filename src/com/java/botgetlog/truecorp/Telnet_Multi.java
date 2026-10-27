@@ -1,5 +1,6 @@
 package com.java.botgetlog.truecorp;
 
+import com.java.shared.HuaweiInterfaceCommands;
 import com.java.shared.DeviceEnableSettings;
 import com.java.shared.ZteEnableFlow;
 import com.java.shared.AppMetadata;
@@ -2421,6 +2422,11 @@ public class Telnet_Multi {
             boolean preLoginNokia = preLoginOut != null && preLoginOut.toLowerCase().contains("ogin:");
             String fallbackVendor = extractVendorPrefix(beforeCmdSet);
             String vendor = preLoginNokia ? fallbackVendor : detectVendorFromText(preLoginOut, fallbackVendor);
+            if (!HuaweiInterfaceCommands.permitsVendor(configuredCmdSet, vendor)) {
+                logwork("[SKIP] HW-Interface is Huawei-only; detected " + vendor + "\n");
+                disconnect();
+                return;
+            }
             cmdSet = vendor + beforeCmdSet.substring(beforeCmdSet.indexOf("-"));
 
             //   Auto Vendor Detect  vendor ( N-PTP -> HW-PTP)  reload command  Excel  cmdSet 
@@ -2511,6 +2517,11 @@ public class Telnet_Multi {
                     }
 
                     String detectedVendorAfterPassword = detectVendorFromPrompt(resp, extractVendorPrefix(cmdSet), preLoginNokia);
+                    if (!HuaweiInterfaceCommands.permitsVendor(configuredCmdSet, detectedVendorAfterPassword)) {
+                        logwork("[SKIP] HW-Interface is Huawei-only; detected " + detectedVendorAfterPassword + "\n");
+                        disconnect();
+                        return;
+                    }
                     if (cmdSet.indexOf("-") > 0) {
                         String adjustedCmdSet = detectedVendorAfterPassword + cmdSet.substring(cmdSet.indexOf("-"));
                         if (!adjustedCmdSet.equalsIgnoreCase(cmdSet)) {
@@ -2665,6 +2676,11 @@ public class Telnet_Multi {
                         }
 
                         String detectedVendorAfterPassword = detectVendorFromPrompt(resp, extractVendorPrefix(cmdSet), preLoginNokia);
+                        if (!HuaweiInterfaceCommands.permitsVendor(configuredCmdSet, detectedVendorAfterPassword)) {
+                            logwork("[SKIP] HW-Interface is Huawei-only; detected " + detectedVendorAfterPassword + "\n");
+                            disconnect();
+                            return;
+                        }
                         if (cmdSet.indexOf("-") > 0) {
                             String adjustedCmdSet = detectedVendorAfterPassword + cmdSet.substring(cmdSet.indexOf("-"));
                             if (!adjustedCmdSet.equalsIgnoreCase(cmdSet)) {
@@ -2723,6 +2739,10 @@ public class Telnet_Multi {
                 }
 
                 //
+                if (!HuaweiInterfaceCommands.permitsVendor(configuredCmdSet, extractVendorPrefix(cmdSet))) {
+                    disconnect();
+                    return;
+                }
                 expectedCollectionCommands = Arrays.copyOf(command, r);
                 for (int i = 1; i < r; i++) {
                     if (cmdSet.charAt(0) == 'N' && i > 1) {
