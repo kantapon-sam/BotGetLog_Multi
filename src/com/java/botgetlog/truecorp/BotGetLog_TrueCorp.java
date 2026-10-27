@@ -2676,7 +2676,7 @@ public class BotGetLog_TrueCorp {
                     .compile("_(\\d{4}-\\d{2}-\\d{2})(?:\\.txt)?$")
                     .matcher(fileName);
             if (m.find()) {
-                String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                String today = CollectionCycle.currentDay();
                 return today.equals(m.group(1));
             }
         } catch (Exception ignored) {

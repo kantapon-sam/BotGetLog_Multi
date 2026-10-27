@@ -26,8 +26,8 @@ public class DailyCollectionBudgetRegression {
         check(!exhaustedDecision.available && "DAILY_LIMIT".equals(exhaustedDecision.reason)
                 && exhaustedDecision.used==3 && exhaustedDecision.limit==3
                 && "2026-09-11".equals(exhaustedDecision.day),"exhausted diagnostic reports the capped Bangkok day");
-        Clock next=Clock.fixed(Instant.parse("2026-09-11T17:00:00Z"),ZoneOffset.UTC);
-        check(new DailyCollectionBudget(root,3,next).used(A)==0,"quota uses Bangkok midnight");
+        Clock next=Clock.fixed(Instant.parse("2026-09-11T13:00:00Z"),ZoneOffset.UTC);
+        check(new DailyCollectionBudget(root,3,next).used(A)==0,"quota uses Bangkok 20:00");
         check(new DailyCollectionBudget(root,3,next).start(A,"NEW_DAY"),"new day admitted");
         check(first.used(A)==3,"previous day preserved");
 

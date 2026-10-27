@@ -6,7 +6,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class RxDailyCollectionBudgetRegression {
-    private static final Clock DAY = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneOffset.UTC);
+    private static final Clock DAY = Clock.fixed(Instant.parse("2026-09-29T12:00:00Z"), ZoneOffset.UTC);
     private static final String A="10.1.1.1", B="10.1.1.2", C="10.1.1.3";
     private static void check(boolean value,String reason) { if(!value)throw new AssertionError(reason); }
     private static DailyCollectionBudget budget(Path root,Clock clock) throws Exception {
@@ -42,10 +42,10 @@ public class RxDailyCollectionBudgetRegression {
         first.registerDailyOnce(Collections.singletonList("10.1.1.4"),"2026-09-29");
         check(first.start("10.1.1.4","PRIMARY")&&first.available("10.1.1.4"),"yesterday's completed log cannot satisfy today");
         check(!budget(root,DAY).available(A),"additive registration retains earlier nodes");
-        Clock tomorrow=Clock.fixed(Instant.parse("2026-09-29T17:00:00Z"),ZoneOffset.UTC);
+        Clock tomorrow=Clock.fixed(Instant.parse("2026-09-29T13:00:00Z"),ZoneOffset.UTC);
         DailyCollectionBudget next=budget(root,tomorrow);
         next.registerDailyOnce(Collections.singletonList(A),"2026-09-30");
-        check(next.start(A,"NEW_DAY"),"Bangkok midnight starts a new policy and count");
+        check(next.start(A,"NEW_DAY"),"Bangkok 20:00 starts a new policy and count");
         boolean rejected=false;try{next.registerDailyOnce(Collections.singletonList(B),"2026-09-29");}catch(java.io.IOException expected){rejected=true;}
         check(rejected,"stale day plan rejected");
         ExecutorService pool=Executors.newFixedThreadPool(8);List<Future<Boolean>> results=new ArrayList<>();

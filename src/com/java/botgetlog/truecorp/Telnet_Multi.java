@@ -3714,7 +3714,7 @@ public class Telnet_Multi {
     }
 
     private static String currentDailyLogDateTag() {
-        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        return CollectionCycle.currentDay();
     }
 
     private static List<String> readPromptCandidatesFromLog(File logFile, String device, String cmdSet) {
@@ -5551,7 +5551,7 @@ public class Telnet_Multi {
         String identity = buildActiveLogSessionIdentity(Loopback, resolveLogDeviceName(Device), cmdSet, Num_row);
         if (!identity.equals(activeLogSessionIdentity) || activeLogDateTag == null || activeLogDateTag.isEmpty()) {
             activeLogSessionIdentity = identity;
-            activeLogDateTag = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            activeLogDateTag = CollectionCycle.currentDay();
         }
         return activeLogDateTag;
     }
@@ -5570,7 +5570,7 @@ public class Telnet_Multi {
     private String buildDailyLogFileNameForDeviceName(String Loopback, String logDeviceName, String cmdSet, int Num_row, String dateTag) {
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         String safeDateTag = dateTag == null || dateTag.trim().isEmpty()
-                ? LocalDateTime.now().format(dtf)
+                ? CollectionCycle.currentDay()
                 : dateTag.trim();
         return String.format("[%d]%s_%s_%s_%s.txt",
                 Num_row,

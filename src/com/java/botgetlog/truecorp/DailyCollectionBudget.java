@@ -10,7 +10,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +30,7 @@ public final class DailyCollectionBudget {
     private final Path root;
     private final int limit;
     private final Clock clock;
+    private final String collectionDay;
     private final ReentrantLock mutex;
     private final Map<String, String> prepaid = new HashMap<>();
     private String onceDay = "";
@@ -50,6 +50,7 @@ public final class DailyCollectionBudget {
         this.root = directory.toRealPath();
         this.limit = limit;
         this.clock = clock;
+        this.collectionDay = CollectionCycle.resolve(clock);
         this.completionCheck = completionCheck;
         this.mutex = MUTEXES.computeIfAbsent(root, key -> new ReentrantLock(true));
         locked(() -> {
@@ -77,7 +78,7 @@ public final class DailyCollectionBudget {
         catch (NumberFormatException invalid) { throw new IOException("Invalid daily collection limit", invalid); }
         scheduled = new DailyCollectionBudget(Paths.get(dir), max, Clock.system(ZONE));
         System.out.println("[DAILY-BUDGET] Scheduled collections share limit=" + max
-                + " per IP per Bangkok day, including primary and retries; state=" + scheduled.root);
+                + " per IP per collection cycle " + scheduled.collectionDay + ", including primary and retries; state=" + scheduled.root);
     }
 
     static synchronized DailyCollectionBudget active() { return scheduled; }
@@ -216,7 +217,7 @@ public final class DailyCollectionBudget {
         return pairs;
     }
 
-    private String day() { return LocalDate.now(clock.withZone(ZONE)).toString(); }
+    private String day() { return collectionDay; }
 
     /** Restrict named Rx targets to one complete log/day across all scheduled reasons.
      * Additive registration cannot erase another planner's restrictions or reset counters.
@@ -269,12 +270,11 @@ public final class DailyCollectionBudget {
         }
         if (count(day, ip) == 0) return false;
         // Reuse the collector's real command/header validator, not file size or [OK] text.
-        // The daily filename plus modification time prevents yesterday's checkpoint log
-        // from satisfying today's refresh. Incomplete/missing logs retain the normal cap.
+        // The filename carries the assigned collection cycle, including pre-midnight
+        // and weekly 18:00 logs. File modification time does not change ownership.
         Path logs = Paths.get(setting("true.daily.collection.logDir", "TRUE_DAILY_COLLECTION_LOG_DIR",
                 root.getParent().getParent().resolve("Total_Log").toString()));
         if (!Files.isDirectory(logs)) return false;
-        long midnight = LocalDate.parse(day).atStartOfDay(ZONE).toInstant().toEpochMilli();
         String suffix = "-LLDP-Link_OPTIC_" + day + ".txt";
         final java.util.regex.Pattern identity = java.util.regex.Pattern.compile("\\[\\d+\\]" + java.util.regex.Pattern.quote(ip) + "_.*");
         try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(logs,
@@ -282,8 +282,7 @@ public final class DailyCollectionBudget {
                         && path.getFileName().toString().endsWith(suffix))) {
             for (Path file : stream) {
                 String name = file.getFileName().toString();
-                if (!Files.isRegularFile(file)
-                        || Files.getLastModifiedTime(file).toMillis() < midnight) continue;
+                if (!Files.isRegularFile(file)) continue;
                 int end = name.length() - ("_" + day + ".txt").length();
                 int start = name.lastIndexOf('_', name.length() - suffix.length() - 1) + 1;
                 String commandSet = name.substring(start, end);
@@ -331,7 +330,7 @@ public final class DailyCollectionBudget {
             throw new IllegalArgumentException("Usage: --register-rx-once|--eligible-rx BUDGET_DIR LIMIT IP_FILE YYYY-MM-DD");
         }
         DailyCollectionBudget budget = new DailyCollectionBudget(Paths.get(args[1]), Integer.parseInt(args[2]), Clock.system(ZONE));
-        if (!budget.day().equals(args[4])) throw new IOException("Rx plan crossed Bangkok midnight; rebuild it");
+        if (!budget.day().equals(args[4])) throw new IOException("Rx plan belongs to another collection cycle; rebuild it");
         List<String> ips = Files.readAllLines(Paths.get(args[3]), StandardCharsets.UTF_8);
         if ("--register-rx-once".equals(args[0])) {
             int count = budget.registerDailyOnce(ips, args[4]);
@@ -339,7 +338,7 @@ public final class DailyCollectionBudget {
         } else {
             initializeOfflineValidation();
             for (String member : ips) if (!member.trim().isEmpty()) {
-                if (!budget.day().equals(args[4])) throw new IOException("Rx queue crossed Bangkok midnight; rebuild it");
+                if (!budget.day().equals(args[4])) throw new IOException("Rx queue belongs to another collection cycle; rebuild it");
                 System.out.println("RX_ELIGIBLE\t" + ip(member) + "\t" + budget.used(member) + "\t" + budget.available(member));
             }
         }
