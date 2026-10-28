@@ -1,6 +1,6 @@
 {
-  "version": "1.2.22",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.22/BotGetLog_Multi-dist-1.2.22.zip",
-  "sha256": "0970bb0d993381bb59ecd07d2104a326b3609d87b2b769239a6a7f6f871089bf",
-  "notes": "Released 1.2.22: Add Huawei-only HW-Interface collection, Launcher table and CSV report. Desktop release; server deployment deferred."
+  "version": "1.2.23",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.23/BotGetLog_Multi-dist-1.2.23.zip",
+  "sha256": "4afea99514df969d82af045dbbbf0b4d2dca0f66451a4fb6b8d8724c34fe1891",
+  "notes": "Released 1.2.23: Fix slow scheduled SSH collection with buffered reads while preserving paging, prompt detection and complete logs."
 }
