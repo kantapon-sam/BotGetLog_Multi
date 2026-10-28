@@ -1896,7 +1896,113 @@ public class Telnet_Multi {
         }
 
         private String readUntilPromptOnlyLarge(String... patterns) {
+            if (Boolean.parseBoolean(System.getProperty("true.log.bufferedRead", "true"))) {
+                return readBufferedCommandResponse(patterns);
+            }
             return readUntilInternal(patterns, false, 2_000_000, lastPromptToken);
+        }
+
+        /** Read command output in blocks, retaining unread bytes after the prompt.
+         * Login readers and the scheduled collector keep their existing paths. */
+        private String readBufferedCommandResponse(String[] patterns) {
+            try {
+                if (in == null) return "";
+                if (!(in instanceof java.io.PushbackInputStream)) {
+                    in = new java.io.PushbackInputStream(in, 8192);
+                }
+                java.io.PushbackInputStream input = (java.io.PushbackInputStream) in;
+                byte[] block = new byte[8192];
+                StringBuilder response = new StringBuilder(8192);
+                LiveReadWindow window = new LiveReadWindow(READ_MATCH_WINDOW_CHARS);
+                String established = lastPromptToken;
+                boolean exactPrompt = hasUsableEstablishedPrompt(established);
+                String expected = normalizeEstablishedPrompt(established);
+                String[] safePatterns = patterns == null ? new String[0] : patterns;
+                String[] normalizedPatterns = normalizePatterns(safePatterns);
+                long lastData = System.currentTimeMillis();
+                while (true) {
+                    int available = input.available();
+                    if (available <= 0) {
+                        if (System.currentTimeMillis() - lastData > SOCKET_TIMEOUT_MS) return "[TIMEOUT-READ]";
+                        sleepQuietly(25);
+                        continue;
+                    }
+                    int length = input.read(block, 0, Math.min(block.length, available));
+                    if (length < 0) return "";
+                    if (length == 0) continue;
+                    lastData = System.currentTimeMillis();
+                    recordLiveProgressActivity();
+                    for (int i = 0; i < length; i++) {
+                        char ch = (char) (block[i] & 255);
+                        response.append(ch);
+                        window.append(ch);
+                        // Prompt tokens can only complete at these terminators.
+                        // Avoid regex/string scans on ordinary interface output.
+                        if (ch == '#' || ch == '>' || ch == ']') {
+                            StringBuilder tail = window.snapshot();
+                            String prompt = extractPromptToken(tail);
+                            boolean matched = exactPrompt
+                                    ? !prompt.isEmpty() && normalizeEstablishedPrompt(prompt).equals(expected)
+                                    : matchesAnyPattern(tail, prompt, safePatterns, normalizedPatterns);
+                            if (matched && established.indexOf('@') >= 0) {
+                                int start = tail.lastIndexOf(prompt);
+                                matched = start > 0 && tail.charAt(start - 1) == '\n';
+                            }
+                            if (matched) {
+                                // The next command must still see bytes read ahead
+                                // in this block, including CR/LF and trailing output.
+                                input.unread(block, i + 1, length - i - 1);
+                                String data = response.toString();
+                                lastPromptToken = extractPromptToken(data);
+                                return data;
+                            }
+                        }
+                        // Every supported pagination form contains "more" and
+                        // finishes with '-' or '?'. Preserve the existing matcher
+                        // and send the space at the same first complete marker.
+                        if ((ch == '-' || ch == '?') && window.hasMore()) {
+                            StringBuilder tail = window.snapshot();
+                            if (containsPaginationMarker(tail)) {
+                                sendPaginationSpace(out, tail);
+                                if (out != null) window.clear();
+                            }
+                        }
+                        // Preserve the legacy transcript retention bound exactly.
+                        if (response.length() > 2_000_000) response.delete(0, response.length() - 1_500_000);
+                    }
+                }
+            } catch (Exception failure) {
+                return "[TIMEOUT-READ]";
+            }
+        }
+
+        /** Constant-time sliding tail; no 4 KB array shift for every input byte. */
+        private static final class LiveReadWindow {
+            private final char[] data;
+            private int start, size, moreCount;
+            LiveReadWindow(int capacity) { data = new char[capacity]; }
+            private char at(int offset) { return data[(start + offset) % data.length]; }
+            private boolean moreAt(int offset) {
+                return at(offset) == 'm' && at(offset + 1) == 'o'
+                        && at(offset + 2) == 'r' && at(offset + 3) == 'e';
+            }
+            void append(char ch) {
+                if (size == data.length) {
+                    if (moreAt(0)) moreCount--;
+                    start = (start + 1) % data.length;
+                    size--;
+                }
+                data[(start + size) % data.length] = Character.toLowerCase(ch);
+                size++;
+                if (size >= 4 && moreAt(size - 4)) moreCount++;
+            }
+            boolean hasMore() { return moreCount > 0; }
+            void clear() { start = size = moreCount = 0; }
+            StringBuilder snapshot() {
+                StringBuilder result = new StringBuilder(size);
+                for (int i = 0; i < size; i++) result.append(at(i));
+                return result;
+            }
         }
 
         private String readUntilInternal(String[] patterns, boolean stopOnAuthPrompt) {
