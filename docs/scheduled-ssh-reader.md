@@ -1,5 +1,8 @@
 # Scheduled SSH collection
 
+Released in BotGetLog_Multi 1.2.23 for the scheduled Bot, Windows packages,
+Windows Auto Update and the immutable TrueLogs runtime.
+
 The scheduled collector reads SSH output in blocks of up to 8192 available
 bytes. It writes the original bytes to the log, retains a fixed-size text
 window for matching, and checks command completion after each received block.

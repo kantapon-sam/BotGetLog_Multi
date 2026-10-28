@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.22: Add Huawei-only HW-Interface collection, Launcher table and CSV report.
-    // Desktop release; server deployment deferred.
-    private static final String FALLBACK_VERSION = "1.2.22";
+    // Version 1.2.23: Fix slow scheduled SSH collection with buffered reads while preserving
+    // paging, prompt detection and complete logs.
+    private static final String FALLBACK_VERSION = "1.2.23";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
