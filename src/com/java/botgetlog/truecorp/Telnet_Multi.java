@@ -4068,7 +4068,8 @@ public class Telnet_Multi {
             long startTime, long maxWaitMs, long idleTimeoutMs, String consolePrefix,
             String requiredNode, boolean exitCommand) throws IOException {
         StringBuilder response = new StringBuilder(4096);
-        StringBuilder lowerTail = new StringBuilder(256);
+        CredentialProbe.LiveReadWindow window = new CredentialProbe.LiveReadWindow(READ_MATCH_WINDOW_CHARS);
+        byte[] block = new byte[8192];
         long lastDataAt = startTime;
         long lastNoticeAt = startTime;
         boolean tailAtPrompt = false;
@@ -4082,7 +4083,8 @@ public class Telnet_Multi {
                 return CommandReadResult.ioError("SSH input stream unavailable");
             }
 
-            if (in.available() <= 0) {
+            int available = in.available();
+            if (available <= 0) {
                 long now = System.currentTimeMillis();
                 if (tailAtPrompt && now - lastDataAt >= PROMPT_SETTLE_MS) {
                     return CommandReadResult.prompt(response.toString());
@@ -4108,8 +4110,8 @@ public class Telnet_Multi {
                 continue;
             }
 
-            int next = in.read();
-            if (next == -1) {
+            int length = in.read(block, 0, Math.min(block.length, available));
+            if (length == -1) {
                 String snapshot = response.toString();
                 if (containsRemoteSessionClosedText(snapshot)) {
                     return CommandReadResult.remoteClosed(summarizeRemoteSessionCloseReason(snapshot));
@@ -4117,34 +4119,42 @@ public class Telnet_Multi {
                 return CommandReadResult.ioError("SSH stream ended before prompt");
             }
 
-            outFile.write(next);
-
-            char ch = (char) next;
+            if (length == 0) continue;
+            outFile.write(block, 0, length);
             tailAtPrompt = false;
-            response.append(ch);
-            appendLowerTail(lowerTail, ch, READ_MATCH_WINDOW_CHARS);
             lastDataAt = System.currentTimeMillis();
-
+            // Match the legacy unsigned byte-to-char conversion for diagnostics;
+            // the log itself always receives the original bytes unchanged.
+            String chunk = new String(block, 0, length, StandardCharsets.ISO_8859_1);
+            String closeSnapshot = window.snapshot().append(chunk).toString();
+            response.append(chunk);
             if (response.length() > 4096) {
                 response.delete(0, response.length() - 4096);
             }
-
-            if (containsPaginationMarker(lowerTail)) {
-                sendPaginationSpace(out, lowerTail);
+            // Include the whole new block and the prior tail: a split close
+            // marker or one followed by a long line must not be truncated away.
+            if (containsRemoteSessionClosedText(closeSnapshot)) {
+                return CommandReadResult.remoteClosed(summarizeRemoteSessionCloseReason(closeSnapshot));
             }
-
-            String lowerSnapshot = lowerTail.toString();
-            if (containsRemoteSessionClosedText(lowerSnapshot)) {
-                return CommandReadResult.remoteClosed(summarizeRemoteSessionCloseReason(lowerSnapshot));
+            for (int i = 0; i < length; i++) {
+                char ch = (char) (block[i] & 255);
+                window.append(ch);
+                // Keep fragmented pagers visible across reads, but scan only
+                // where a supported pagination marker can finish.
+                if ((ch == '-' || ch == '?') && window.hasMore()) {
+                    StringBuilder tail = window.snapshot();
+                    if (containsPaginationMarker(tail)) {
+                        sendPaginationSpace(out, tail);
+                        if (out != null) window.clear();
+                    }
+                }
             }
-
-            if (!promptCandidates.isEmpty() && shouldInspectReadBuffer(ch, response.length())) {
-                String promptToken = extractPromptToken(lowerTail);
+            StringBuilder lowerTail = window.snapshot();
+            // Only the end of received output can be a completed command.
+            // Preserve the quiet settle interval, including split prompts and
+            // trailing CR/LF, without rescanning or yielding after every byte.
+            if (safePatterns.length > 0) {
                 tailAtPrompt = matchesCollectionPrompt(lowerTail, safePatterns, normalizedPatterns, requiredNode, exitCommand);
-            }
-
-            if (response.length() % 512 == 0) {
-                Thread.yield();
             }
         }
     }
