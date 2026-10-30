@@ -48,6 +48,12 @@ ZTE Enable settings:
 - Server settings are managed separately by an Admin in Control Console > Bot Settings - ZTE Enable.
 
 Juniper Link Optical collection:
+- Log validation accepts initial empty SSH prompts from the same node before
+  paging setup. It still requires the paging command within the first 20 lines
+  and a complete session close; other nodes, RE changes and unexpected commands
+  remain invalid. A single CLLS q echo immediately before the close message is
+  accepted only after the same node's quit/exit/logout command. These checks
+  prevent complete captures being archived and retried.
 - At login, the collector accepts the configured hostname or its re0/re1 peer
   on the same chassis, then pins the actual RE name for prompts and the log file.
   Different chassis names and RE changes during collection remain failures.

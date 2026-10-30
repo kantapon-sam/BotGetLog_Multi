@@ -19,11 +19,28 @@ public final class JuniperLogCompletenessRegression {
             check(directory, "role and joined close", HEAD + CLOSE, true);
             check(directory, "no space before close", HEAD + CLOSE.replace("quit Connection", "quitConnection"), true);
             check(directory, "separate close", HEAD + CLOSE.replace("quit Connection", "quit\nConnection"), true);
+            check(directory, "CLLS quit-key echo before close", HEAD + CLOSE.replace("quit Connection", "quit\nqConnection"), true);
+            check(directory, "CLLS quit-key echo with empty initial prompt", PROMPT + "\n" + HEAD
+                    + CLOSE.replace("quit Connection", "quit\nqConnection"), true);
             check(directory, "backup role", HEAD.replace("{master}", "{backup:1}") + CLOSE, true);
             check(directory, "no role", HEAD.replace("{master}\n", "") + CLOSE, true);
             check(directory, "lowercase prompt", (HEAD + CLOSE).toLowerCase(), true);
             check(directory, "ANSI and CRLF", (HEAD + CLOSE).replace(PROMPT, "\u001b[32m" + PROMPT + "\u001b[0m").replace("\n", "\r\n"), true);
             check(directory, "hostname prompt only", (HEAD + CLOSE).replace("operator@clls@", ""), true);
+            String emptyPromptHead = "\n{master}\n" + PROMPT + "\n" + HEAD;
+            check(directory, "initial empty SSH prompt", emptyPromptHead + CLOSE, true);
+            check(directory, "repeated empty SSH prompts", PROMPT + "\n" + emptyPromptHead + CLOSE, true);
+            check(directory, "empty SSH prompt with ANSI and CRLF", (emptyPromptHead + CLOSE)
+                    .replace(PROMPT, "\u001b[32m" + PROMPT + "\u001b[0m").replace("\n", "\r\n"), true);
+            check(directory, "wrong node empty prompt", PROMPT.replace("CN-TEST-01", "OTHER-NODE") + "\n" + HEAD + CLOSE, false);
+            check(directory, "wrong RE empty prompt", PROMPT.replace("_re0", "_re1") + "\n" + HEAD + CLOSE, false);
+            check(directory, "only empty prompts", PROMPT + "\n{master}\n" + PROMPT + "\n" + CLOSE, false);
+            check(directory, "wrong command after empty prompt", PROMPT + "\n" + PROMPT
+                    + "show version\n" + HEAD + CLOSE, false);
+            check(directory, "unknown banner after empty prompt", PROMPT + "\nUnexpected banner\n" + HEAD + CLOSE, false);
+            StringBuilder manyPrompts = new StringBuilder();
+            for (int i = 0; i < 20; i++) manyPrompts.append(PROMPT).append('\n');
+            check(directory, "empty prompts cannot bypass head scan bound", manyPrompts + HEAD + CLOSE, false);
             check(directory, "missing first command", "{master}\n" + PROMPT + "show lldp neighbors detail\n" + CLOSE, false);
             check(directory, "unknown preamble", "Unexpected banner\n" + HEAD + CLOSE, false);
             check(directory, "wrong device", (HEAD + CLOSE).replace("CN-TEST-01", "OTHER-NODE"), false);
@@ -32,6 +49,9 @@ public final class JuniperLogCompletenessRegression {
             check(directory, "missing close command", HEAD + "Connection closed by foreign host.\n", false);
             check(directory, "missing close acknowledgement", HEAD + PROMPT + "quit\n", false);
             check(directory, "close command error", HEAD + PROMPT + "quit\nsyntax error\nConnection closed by foreign host.\n", false);
+            check(directory, "arbitrary text before close", HEAD + PROMPT + "quit\nqUnexpected Connection closed by foreign host.\n", false);
+            check(directory, "multiple keys before close", HEAD + PROMPT + "quit\nqqConnection closed by foreign host.\n", false);
+            check(directory, "CLLS echo without node quit", HEAD + "qConnection closed by foreign host.\n", false);
             check(directory, "unrelated closing text", HEAD + PROMPT + "quitOther output Connection closed by foreign host.\n", false);
             check(directory, "different closer", HEAD + CLOSE.replace("CN-TEST-01", "OTHER-NODE"), false);
             check(directory, "data mentions close", HEAD + "description: " + CLOSE, false);

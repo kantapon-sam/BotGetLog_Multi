@@ -14,7 +14,8 @@ import java.util.regex.Pattern;
 final class JuniperLogValidation {
     private static final Pattern ROLE = Pattern.compile("\\{(?:master|backup)(?::\\d+)?\\}", Pattern.CASE_INSENSITIVE);
     private static final Pattern PROMPT = Pattern.compile("^(?:[^\\s@>#]+@)*([A-Za-z0-9_.:-]+)>\\s*(.*)$");
-    private static final Pattern CLOSED = Pattern.compile("^Connection closed by foreign host\\.?$", Pattern.CASE_INSENSITIVE);
+    // CLLS can echo its single q keystroke directly before the close message.
+    private static final Pattern CLOSED = Pattern.compile("^q?Connection closed by foreign host\\.?$", Pattern.CASE_INSENSITIVE);
 
     private JuniperLogValidation() { }
 
@@ -35,8 +36,12 @@ final class JuniperLogValidation {
                 String line = clean(raw);
                 if (line.isEmpty() || ROLE.matcher(line).matches()) continue;
                 Matcher prompt = PROMPT.matcher(line);
-                return prompt.matches() && sameDevice(device, prompt.group(1))
-                        && "set cli screen-length 0".equalsIgnoreCase(prompt.group(2).trim());
+                if (!prompt.matches() || !sameDevice(device, prompt.group(1))) return false;
+                String command = prompt.group(2).trim();
+                // SSH captures may retain the initial prompt before the command echo.
+                // Only an empty prompt from this exact node may precede paging setup.
+                if (command.isEmpty()) continue;
+                return "set cli screen-length 0".equalsIgnoreCase(command);
             }
         } catch (IOException ignored) { }
         return false;
