@@ -1,6 +1,6 @@
 {
-  "version": "1.2.23",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.23/BotGetLog_Multi-dist-1.2.23.zip",
-  "sha256": "4afea99514df969d82af045dbbbf0b4d2dca0f66451a4fb6b8d8724c34fe1891",
-  "notes": "Released 1.2.23: Fix slow scheduled SSH collection with buffered reads while preserving paging, prompt detection and complete logs."
+  "version": "1.2.24",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.24/BotGetLog_Multi-dist-1.2.24.zip",
+  "sha256": "e9abce6df87cd33da119de8c0290d1d8f3baaf563c42e761419da098e3d44c6d",
+  "notes": "Released 1.2.24: Accept complete Juniper SSH logs with empty device prompts and CLLS close echoes, avoiding unnecessary recollection. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.24/docs/juniper-log-completeness.md"
 }
