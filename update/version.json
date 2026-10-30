@@ -1,6 +1,6 @@
 {
-  "version": "1.2.24",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.24/BotGetLog_Multi-dist-1.2.24.zip",
-  "sha256": "e9abce6df87cd33da119de8c0290d1d8f3baaf563c42e761419da098e3d44c6d",
-  "notes": "Released 1.2.24: Accept complete Juniper SSH logs with empty device prompts and CLLS close echoes, avoiding unnecessary recollection. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.24/docs/juniper-log-completeness.md"
+  "version": "1.2.25",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.25/BotGetLog_Multi-dist-1.2.25.zip",
+  "sha256": "55368a6fcd5b89352a8d0d504604cf565f9ca3af054195ff41cce7d351a9a723",
+  "notes": "Released 1.2.25: Add same-name devices at distinct management IPs and queue only newly added workbook rows. Preserve existing IPs and collection budgets. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.25/docs/auto-added-device-identity.md"
 }
