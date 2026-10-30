@@ -1,6 +1,6 @@
 {
-  "version": "1.2.25",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.25/BotGetLog_Multi-dist-1.2.25.zip",
-  "sha256": "55368a6fcd5b89352a8d0d504604cf565f9ca3af054195ff41cce7d351a9a723",
-  "notes": "Released 1.2.25: Add same-name devices at distinct management IPs and queue only newly added workbook rows. Preserve existing IPs and collection budgets. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.25/docs/auto-added-device-identity.md"
+  "version": "1.2.26",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.26/BotGetLog_Multi-dist-1.2.26.zip",
+  "sha256": "7040f2bf4fc09f812217ac94dc313eab61eabdbcf30ec2c1728bb86cdb923e67",
+  "notes": "Released 1.2.26: Cap scheduled daily work at 7,500 distinct IPs across all phases, with fair Ring rotation and evidenced LLDP exceptions. Friday Full is unchanged. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.26/docs/daily-unique-node-budget.md"
 }
