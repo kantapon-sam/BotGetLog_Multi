@@ -39,6 +39,7 @@ public final class DailyCollectionBudget {
     private Set<String> onceIps = Collections.emptySet();
     interface CompletionCheck { boolean complete(java.io.File file, String commandSet) throws IOException; }
     private final CompletionCheck completionCheck;
+    private final DailyUniqueNodeBudget uniqueNodes;
 
     public DailyCollectionBudget(Path directory, int limit, Clock clock) throws IOException {
         this(directory, limit, clock, DailyCollectionBudget::validateLog);
@@ -52,6 +53,8 @@ public final class DailyCollectionBudget {
         this.clock = clock;
         this.collectionDay = CollectionCycle.resolve(clock);
         this.completionCheck = completionCheck;
+        int uniqueLimit = DailyUniqueNodeBudget.configuredLimit(this.root, this.collectionDay);
+        this.uniqueNodes = uniqueLimit == 0 ? null : new DailyUniqueNodeBudget(this.root, this.collectionDay, uniqueLimit);
         this.mutex = MUTEXES.computeIfAbsent(root, key -> new ReentrantLock(true));
         locked(() -> {
             Path config = root.resolve("config.properties");
@@ -123,6 +126,8 @@ public final class DailyCollectionBudget {
             if (pairBlocked) return new Availability(false, "PAIR_RESERVATION_BLOCKED", used, limit, day);
             if (day.equals(prepaid.get(ip))) return new Availability(true, "PAIR_RESERVED", used, limit, day);
             if (rxComplete(day, ip)) return new Availability(false, "RX_LOG_ALREADY_COMPLETE", used, limit, day);
+            if (uniqueNodes != null && !uniqueNodes.available(ip))
+                return new Availability(false, "DAILY_UNIQUE_LIMIT", used, limit, day);
             return new Availability(used < limit, used < limit ? "AVAILABLE" : "DAILY_LIMIT", used, limit, day);
         });
     }
@@ -160,6 +165,10 @@ public final class DailyCollectionBudget {
                 defer(day, ip, "DAILY_LIMIT");
                 return false;
             }
+            if (uniqueNodes != null && !uniqueNodes.admitAll(Collections.singleton(ip))) {
+                defer(day, ip, "DAILY_UNIQUE_LIMIT");
+                return false;
+            }
             consume(day, ip, used, reason);
             return true;
         });
@@ -191,6 +200,8 @@ public final class DailyCollectionBudget {
                 else for (String member : pair) {
                     if (!day.equals(prepaid.get(member)) && (rxComplete(day, member) || count(day, member) >= limit)) reason = "PAIR_DAILY_LIMIT";
                 }
+                if (reason == null && uniqueNodes != null && !uniqueNodes.admitAll(java.util.Arrays.asList(pair)))
+                    reason = "DAILY_UNIQUE_LIMIT";
                 if (reason != null) {
                     for (String member : pair) { blocked.add(member); defer(day, member, reason); }
                     continue;
