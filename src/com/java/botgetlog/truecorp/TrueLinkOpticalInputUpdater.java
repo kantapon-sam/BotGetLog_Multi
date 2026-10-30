@@ -238,7 +238,7 @@ final class TrueLinkOpticalInputUpdater {
         int duplicateIp = 0;
         int duplicateDevice = 0;
         int duplicateInRun = 0;
-        List<String> addedDevices = new ArrayList<String>();
+        List<String> addedRowSelectors = new ArrayList<String>();
         File reportFile = createReportFile(fileInput, sourceLabel);
 
         try (Workbook workbook = WorkbookFactory.create(new BufferedInputStream(new FileInputStream(excelFile)))) {
@@ -249,24 +249,18 @@ final class TrueLinkOpticalInputUpdater {
             }
 
             Set<String> existingIps = new LinkedHashSet<String>();
-            Set<String> existingDeviceKeys = new LinkedHashSet<String>();
             for (int r = 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
                 if (row == null) {
                     continue;
                 }
-                String device = normalizeDeviceName(getCell(row, 2));
                 String ip = normalizeIp(getCell(row, 3));
-                if (!device.isEmpty()) {
-                    existingDeviceKeys.add(deviceIdentityKey(device));
-                }
                 if (!ip.isEmpty()) {
                     existingIps.add(ip);
                 }
             }
 
             Map<String, DiscoveredNode> uniqueByIp = new LinkedHashMap<String, DiscoveredNode>();
-            Set<String> uniqueDeviceKeys = new LinkedHashSet<String>();
             for (DiscoveredNode node : discovered) {
                 if (!isAllowedTrueAutoAddIp(node.ip)
                         || !isEligibleDiscoveredNodeName(node.deviceName)
@@ -278,21 +272,13 @@ final class TrueLinkOpticalInputUpdater {
                     duplicateIp++;
                     continue;
                 }
-                String deviceKey = deviceIdentityKey(node.deviceName);
-                if (existingDeviceKeys.contains(deviceKey)) {
-                    duplicateDevice++;
-                    continue;
-                }
-                if (uniqueDeviceKeys.contains(deviceKey)) {
-                    duplicateInRun++;
-                    continue;
-                }
+                // A hostname is not a physical identity: distinct management IPs
+                // may intentionally use the same name, even on different vendors.
                 if (uniqueByIp.containsKey(node.ip)) {
                     duplicateInRun++;
                     continue;
                 }
                 uniqueByIp.put(node.ip, node);
-                uniqueDeviceKeys.add(deviceKey);
             }
 
             int nextRowIndex = sheet.getLastRowNum() + 1;
@@ -306,8 +292,9 @@ final class TrueLinkOpticalInputUpdater {
                 setCell(row, 3, node.ip);
                 setCell(row, 4, node.cmdSet);
                 existingIps.add(node.ip);
-                existingDeviceKeys.add(deviceIdentityKey(node.deviceName));
-                addedDevices.add(node.deviceName);
+                // Name queries also select existing devices with this hostname.
+                // The recursive pass must collect only the newly appended row.
+                addedRowSelectors.add("#" + (row.getRowNum() + 1));
                 added++;
             }
 
@@ -324,7 +311,7 @@ final class TrueLinkOpticalInputUpdater {
                 backup == null ? "" : backup.getAbsolutePath(),
                 reportFile == null ? "" : reportFile.getAbsolutePath());
         return new UpdateResult(added, duplicateIp, duplicateDevice, duplicateInRun,
-                reportFile, addedDevices, true);
+                reportFile, addedRowSelectors, true);
     }
 
     private static File backupWorkbook(PathFile fileInput, File excelFile) throws Exception {
@@ -631,18 +618,18 @@ final class TrueLinkOpticalInputUpdater {
         final int duplicateDevice;
         final int duplicateInRun;
         final File reportFile;
-        final List<String> addedDevices;
+        final List<String> addedRowSelectors;
         final boolean successful;
 
         UpdateResult(int added, int duplicateIp, int duplicateDevice, int duplicateInRun,
-                File reportFile, List<String> addedDevices, boolean successful) {
+                File reportFile, List<String> addedRowSelectors, boolean successful) {
             this.added = added;
             this.duplicateIp = duplicateIp;
             this.duplicateDevice = duplicateDevice;
             this.duplicateInRun = duplicateInRun;
             this.reportFile = reportFile;
-            this.addedDevices = Collections.unmodifiableList(new ArrayList<String>(
-                    addedDevices == null ? Collections.<String>emptyList() : addedDevices));
+            this.addedRowSelectors = Collections.unmodifiableList(new ArrayList<String>(
+                    addedRowSelectors == null ? Collections.<String>emptyList() : addedRowSelectors));
             this.successful = successful;
         }
 

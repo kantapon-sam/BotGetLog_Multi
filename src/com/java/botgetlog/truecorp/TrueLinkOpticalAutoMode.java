@@ -487,7 +487,7 @@ final class TrueLinkOpticalAutoMode {
                 throw new IllegalStateException(
                         "UserInterface_Input update did not complete; the next-site queue was not replaced.");
             }
-            writeNewSiteQueue(newSiteQueueFile, updateResult.addedDevices);
+            writeNewSiteQueue(newSiteQueueFile, updateResult.addedRowSelectors);
             System.out.printf(Locale.ROOT,
                     "[AUTO-LINK] Pre-scan node update: processedLogs=%d added=%d duplicateIp=%d duplicateDevice=%d duplicateInRun=%d queue=%s%n",
                     result == null ? 0 : result.getTotalFiles(),

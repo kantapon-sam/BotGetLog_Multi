@@ -6,6 +6,12 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.io.FileOutputStream;
+import java.nio.file.Path;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 public final class TrueLinkOpticalInputUpdaterRegression {
 
@@ -23,6 +29,8 @@ public final class TrueLinkOpticalInputUpdaterRegression {
         verifyRecursiveNeighborDiscovery();
         verifyForeignNeighborAliasesNotDiscovered();
         verifyAtomicNextSiteQueue();
+        verifySameNameDifferentDevices(false);
+        verifySameNameDifferentDevices(true);
         System.out.println("PASS TrueLinkOpticalInputUpdaterRegression");
     }
 
@@ -199,6 +207,57 @@ public final class TrueLinkOpticalInputUpdaterRegression {
             Files.deleteIfExists(queue.toPath());
             Files.deleteIfExists(dir.toPath());
         }
+    }
+
+    private static void verifySameNameDifferentDevices(boolean existingZte) throws Exception {
+        final Path dir = Files.createTempDirectory("auto-input-hostname-collision-");
+        final Path input = dir.resolve("UserInterface_Input.xlsx");
+        File discovery = dir.resolve("quality.csv").toFile();
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("deviceList_TRUE");
+            Row header = sheet.createRow(0);
+            String[] columns = {"Run", "Group", "Device-Name", "Loopback-IP", "CmdSet-1"};
+            for (int i = 0; i < columns.length; i++) header.createCell(i).setCellValue(columns[i]);
+            if (existingZte) {
+                Row row = sheet.createRow(1);
+                String[] values = {"Y", "CPE", "CPE-SSK0075", "10.167.119.215", "ZTE-LLDP-Link_OPTIC"};
+                for (int i = 0; i < values.length; i++) row.createCell(i).setCellValue(values[i]);
+            }
+            try (FileOutputStream out = new FileOutputStream(input.toFile())) { workbook.write(out); }
+        }
+        Files.write(discovery.toPath(), Arrays.asList(
+                "CATEGORY,TARGET,TARGET_HAS_SITE_CODE,TARGET_IP_CANDIDATE,SOURCE_IP,DESCRIPTION,DETAIL",
+                "ONE_WAY_LLDP_PAIR,CPE-SSK0075,false,10.167.119.215,10.167.1.1,To_CPE-SSK0075_ZXCTN_10.167.119.215,ZTE ZXCTN 6120H-SC",
+                "ONE_WAY_LLDP_PAIR,CPE-SSK0075,false,10.167.120.112,10.167.1.1,To_CPE-SSK0075_H910C-A_10.167.120.112,Huawei ATN910C-A",
+                "ONE_WAY_LLDP_PAIR,CPE-SSK0075,false,10.167.120.112,10.167.1.2,To_CPE-SSK0075_H910C-A_10.167.120.112,Huawei ATN910C-A"),
+                StandardCharsets.UTF_8);
+        PathFile paths = new PathFile() {
+            @Override public String getCurrentFolder() { return dir.toString(); }
+            @Override public String getUserInterface_Input() { return input.toString(); }
+        };
+        TrueLinkOpticalInputUpdater.UpdateResult result = TrueLinkOpticalInputUpdater.updateFromDataQualityFile(paths, discovery);
+        assertEquals("true", Boolean.toString(result.successful));
+        assertEquals(existingZte ? "1" : "2", Integer.toString(result.added));
+        assertEquals("0", Integer.toString(result.duplicateDevice));
+        assertEquals("1", Integer.toString(result.duplicateInRun));
+        assertEquals(existingZte ? "#3" : "#2|#3", String.join("|", result.addedRowSelectors));
+        try (Workbook workbook = new XSSFWorkbook(Files.newInputStream(input))) {
+            Sheet sheet = workbook.getSheet("deviceList_TRUE");
+            assertEquals("2", Integer.toString(sheet.getLastRowNum()));
+            assertEquals("10.167.119.215", sheet.getRow(1).getCell(3).getStringCellValue());
+            assertEquals("ZTE-LLDP-Link_OPTIC", sheet.getRow(1).getCell(4).getStringCellValue());
+            assertEquals("10.167.120.112", sheet.getRow(2).getCell(3).getStringCellValue());
+            assertEquals("HW-LLDP-Link_OPTIC", sheet.getRow(2).getCell(4).getStringCellValue());
+            TrueLinkOpticalAutoMode.Selection selection = TrueLinkOpticalAutoMode.resolveSelection(new String[]{
+                "--auto-link-optical", "--link-optical-sites=" + String.join(",", result.addedRowSelectors)}, sheet);
+            assertEquals(existingZte ? "1" : "2", Integer.toString(selection.getSiteCount()));
+            assertEquals(Boolean.toString(!existingZte), Boolean.toString(selection.includesRow(sheet.getRow(1))));
+            assertEquals("true", Boolean.toString(selection.includesRow(sheet.getRow(2))));
+        }
+        TrueLinkOpticalInputUpdater.UpdateResult repeated = TrueLinkOpticalInputUpdater.updateFromDataQualityFile(paths, discovery);
+        assertEquals("0", Integer.toString(repeated.added));
+        assertEquals("3", Integer.toString(repeated.duplicateIp));
+        assertEquals("0", Integer.toString(repeated.addedRowSelectors.size()));
     }
 
     private static void assertEquals(String expected, String actual) {
