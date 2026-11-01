@@ -1,6 +1,6 @@
 {
-  "version": "1.2.29",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.29/BotGetLog_Multi-dist-1.2.29.zip",
-  "sha256": "07bb4a492cc2da369af2846acd6a6162c039516f38d3575c79b3f6bf8a33d281",
-  "notes": "Released 1.2.29: Optional preserved-log collection retains complete/duplicate logs; explicit discard removes only verified incomplete transcripts. Includes SSH SAM CLLS fallback fix. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.29/docs/clls-backup-accounts.md"
+  "version": "1.2.30",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.30/BotGetLog_Multi-dist-1.2.30.zip",
+  "sha256": "887ce37d0e77b474c60b613ce2db4fc79c8299146f282d24df51476c1411ef91",
+  "notes": "Released 1.2.30: ZTE backup accounts explicitly negotiate Enable before collection. Uses saved Enable passwords only when requested; fixes stale SSH prompt state and verifies the same node. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.30/docs/zte-enable-negotiation.md"
 }
