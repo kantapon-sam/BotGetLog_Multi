@@ -1,6 +1,6 @@
 {
-  "version": "1.2.27",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.27/BotGetLog_Multi-dist-1.2.27.zip",
-  "sha256": "e47faffd6c0298001958bbc74ff511dc6eed750e5251b276801701a212c13e50",
-  "notes": "Released 1.2.27: Optional encrypted CLLS backup accounts and verified alternative-login notes. Existing logs and collection budgets are preserved. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.27/docs/clls-backup-accounts.md"
+  "version": "1.2.28",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.28/BotGetLog_Multi-dist-1.2.28.zip",
+  "sha256": "45fe2b7c5e81c63e6b9a46c6ec17c69e9966ceeca99cb33f20373df07c1dcb1e",
+  "notes": "Released 1.2.28: Fix CLLS fallback through SSH SAM gateways with retained historical menus. Current gateway returns, transport failures and account locks still stop fallback. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.28/docs/clls-backup-accounts.md"
 }
