@@ -1,6 +1,6 @@
 {
-  "version": "1.2.26",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.26/BotGetLog_Multi-dist-1.2.26.zip",
-  "sha256": "7040f2bf4fc09f812217ac94dc313eab61eabdbcf30ec2c1728bb86cdb923e67",
-  "notes": "Released 1.2.26: Cap scheduled daily work at 7,500 distinct IPs across all phases, with fair Ring rotation and evidenced LLDP exceptions. Friday Full is unchanged. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.26/docs/daily-unique-node-budget.md"
+  "version": "1.2.27",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.27/BotGetLog_Multi-dist-1.2.27.zip",
+  "sha256": "e47faffd6c0298001958bbc74ff511dc6eed750e5251b276801701a212c13e50",
+  "notes": "Released 1.2.27: Optional encrypted CLLS backup accounts and verified alternative-login notes. Existing logs and collection budgets are preserved. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.27/docs/clls-backup-accounts.md"
 }
