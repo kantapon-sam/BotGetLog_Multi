@@ -234,7 +234,7 @@ final class TrueLinkOpticalAutoMode {
     }
 
     static boolean shouldClearSelectedLogsBeforeRerun(Selection selection) {
-        return selection != null
+        return !ExistingLogPreservation.enabled() && selection != null
                 && selection.isEnabled()
                 && !selection.isAllSites()
                 && selection.getSiteCount() > 0;
@@ -562,7 +562,7 @@ final class TrueLinkOpticalAutoMode {
     }
 
     static boolean shouldSkipGlobalDuplicateCleanup(String[] args) {
-        return hasArg(args, ARG_SKIP_GLOBAL_DEDUP);
+        return ExistingLogPreservation.enabled() || hasArg(args, ARG_SKIP_GLOBAL_DEDUP);
     }
 
     static void writeNewSiteQueue(File queueFile, List<String> siteNames) throws Exception {

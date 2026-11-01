@@ -1525,6 +1525,7 @@ public class BotGetLog_TrueCorp {
     }
     public static void main(String[] args) {
         AppConsole.install();
+        ExistingLogPreservation.configure(args);
         final boolean headlessAutoRun = TrueLinkOpticalAutoMode.isEnabled(args)
                 && java.awt.GraphicsEnvironment.isHeadless();
         if (!AppMetadata.isRunningFromIde()
@@ -2161,6 +2162,10 @@ public class BotGetLog_TrueCorp {
                                                 int dupIndex = 1;
                                                 while (dupIndex < matchedLogList.size()) {
                                                     File oldLog = matchedLogList.get(dupIndex);
+                                                    if (ExistingLogPreservation.enabled()) {
+                                                        dupIndex++;
+                                                        continue;
+                                                    }
                                                     if (Telnet_Multi.isProtectedLogFile(oldLog)) {
                                                         System.out.println("[DELETE-SKIP] Duplicate log is active/recent, keep for safety: " + oldLog.getName());
                                                         dupIndex++;

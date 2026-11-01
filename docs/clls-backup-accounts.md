@@ -1,4 +1,27 @@
-# Optional CLLS backup accounts — 1.2.28
+# Optional CLLS backup accounts — 1.2.29
+
+Version 1.2.29 adds opt-in collection with existing log preservation. Pass
+`--link-optical-preserve-existing-logs` or inherit
+`TRUE_LINKOPTICAL_PRESERVE_EXISTING_LOGS=1` through every child collector.
+Validated complete logs retain the ordinary checkpoint skip; duplicate logs
+stay in place. Global repair monitors, selected bulk cleanup and final global
+deduplication are disabled. A conflicting partial is moved to a unique UUID
+archive in `_output/Deleted_Log` without replacing an earlier archive. Despite
+that directory's legacy name, these files are retained. Failed archival stops
+that node before writing into the earlier transcript.
+
+Only when explicitly requested, also pass
+`--link-optical-discard-incomplete-logs` or set
+`TRUE_LINKOPTICAL_DISCARD_INCOMPLETE_LOGS=1`. This requires preservation mode and
+removes only a positively identified incomplete transcript before replacement:
+known command bounds, a matching node/vendor head, a stable readable regular
+UTF-8 file, the first command present, and a missing closing command or explicit
+`[BOT-COLLECTION-INCOMPLETE]` marker. Complete files, duplicates, unknown command
+sets, invalid headers, decoding/read errors and ambiguous partials are retained;
+uncertain conflicting files use the unique archive instead. The default remains
+archival without removal. These collector flags do not authorize shell-level
+cleanup, a daily-budget reset, or deletion of exported CSV files; configure the
+maintained companion scheduler/publisher preservation flags separately.
 
 Version 1.2.28 corrects SSH sessions whose accumulated login transcript retains
 the initial SAM IP-selection menu. That historical menu must not prevent a

@@ -30,6 +30,11 @@ Default input files:
 - defaults\NEW_Site.csv
 
 Update behavior:
+- Optional --link-optical-preserve-existing-logs (or TRUE_LINKOPTICAL_PRESERVE_EXISTING_LOGS=1)
+  retains complete/duplicate logs and archives conflicting partials without overwrite.
+  Only explicit --link-optical-discard-incomplete-logs (or TRUE_LINKOPTICAL_DISCARD_INCOMPLETE_LOGS=1)
+  additionally removes positively verified incomplete transcripts before replacement.
+  See docs/clls-backup-accounts.md; unknown or unreadable logs are retained.
 - Long GitHub release notes are parsed without recursive regex backtracking,
   preventing a Java 8 StackOverflowError before the launcher window opens.
 - The updater replaces application jars, defaults, lib, updater, and README.TXT.

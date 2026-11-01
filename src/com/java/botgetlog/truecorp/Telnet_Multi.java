@@ -6414,6 +6414,16 @@ public class Telnet_Multi {
             boolean owned;
             try { owned = NodeCollectionLease.ownedByCurrentThread(logDir.toPath(), Loopback); }
             catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            if (ExistingLogPreservation.enabled()) {
+                if (logFile.exists()) {
+                    if (!owned || isCompleteExistingLog(logFile)) {
+                        throw new IllegalStateException("Preserved existing log cannot be modified by this session");
+                    }
+                    if (!moveLogToArchiveIfInactive(logFile, "preserved previous incomplete attempt")) {
+                        throw new IllegalStateException("Cannot retain previous transcript; node collection stopped");
+                    }
+                }
+            } else {
             if (owned && logFile.exists() && !isCompleteExistingLog(logFile)) {
                 // A previous failed attempt can be only seconds old. Once we
                 // own the IP, archive it before writing this new transcript.
@@ -6458,6 +6468,7 @@ public class Telnet_Multi {
                 }
             }
 
+            }
             preparedLogSessionKey = sessionKey;
         }
 
@@ -7251,6 +7262,18 @@ public class Telnet_Multi {
 
     private static boolean moveLogToArchive(File file, String reason) {
         try {
+            if (ExistingLogPreservation.enabled()) {
+                String cmdSet = extractCmdSetFromLogName(file.getName());
+                if (BotGetLog_TrueCorp.isLogCompleteForCmdSet(file, cmdSet)) {
+                    System.out.println("[LOG-PRESERVE] Complete log retained: " + file.getName());
+                    return false;
+                }
+                if (ExistingLogPreservation.discardIncomplete() && isVerifiedIncompleteForRemoval(file)) {
+                    Files.delete(file.toPath());
+                    System.out.println("[INCOMPLETE-REMOVE] Verified incomplete log removed before replacement: " + file.getName());
+                    return true;
+                }
+            }
             File archiveDir = resolveDeletedLogDir(file);
             if (!archiveDir.exists()) {
                 archiveDir.mkdirs();
@@ -7258,13 +7281,50 @@ public class Telnet_Multi {
 
             String archiveName = buildArchivedLogName(file.getName(), reason);
             Path target = new File(archiveDir, archiveName).toPath();
-            Files.move(file.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+            if (ExistingLogPreservation.enabled()) {
+                target = ExistingLogPreservation.archive(file.toPath(), archiveDir.toPath(), archiveName);
+            } else {
+                Files.move(file.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+            }
             System.out.println("[DELETE-MOVE] Moved log to Deleted_Log (" + reason + "): " + target.toString());
             return true;
         } catch (Exception e) {
             System.out.println("[DELETE-FAIL] Cannot move log to Deleted_Log (" + reason + "): "
                     + file.getAbsolutePath() + " -> " + e.getMessage());
             return false;
+        }
+    }
+
+    static boolean isVerifiedIncompleteForRemoval(File file) {
+        // Completion=false also covers missing command metadata and I/O errors.
+        // Removal therefore requires independent positive incomplete evidence.
+        try {
+            Path path = file.toPath();
+            if (Files.isSymbolicLink(path) || !Files.isRegularFile(path)) return false;
+            Matcher name = DAILY_LOG_FILE_PATTERN.matcher(file.getName());
+            if (!name.matches()) return false;
+            String cmdSet = name.group(4);
+            String first = BotGetLog_TrueCorp.getCachedFirstCommand(cmdSet).trim();
+            String last = BotGetLog_TrueCorp.getCachedLastCommand(cmdSet).trim();
+            if (first.isEmpty() || !last.matches("(?i)quit|exit|logout")) return false;
+            java.nio.file.attribute.BasicFileAttributes before = Files.readAttributes(path,
+                    java.nio.file.attribute.BasicFileAttributes.class, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+            byte[] bytes = Files.readAllBytes(path);
+            String text = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            if (!isValidLogHead(file, name.group(3), cmdSet)) return false;
+            String lower = stripTerminalControlSequences(text).toLowerCase(Locale.ROOT);
+            if (!lower.contains(first.toLowerCase(Locale.ROOT))) return false;
+            boolean incomplete = lower.contains("[bot-collection-incomplete]")
+                    || !lower.contains(last.toLowerCase(Locale.ROOT));
+            java.nio.file.attribute.BasicFileAttributes after = Files.readAttributes(path,
+                    java.nio.file.attribute.BasicFileAttributes.class, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+            return incomplete && before.isRegularFile() && after.isRegularFile()
+                    && before.size() == bytes.length && before.size() == after.size()
+                    && before.lastModifiedTime().equals(after.lastModifiedTime())
+                    && java.util.Objects.equals(before.fileKey(), after.fileKey());
+        } catch (IOException | RuntimeException unknown) {
+            return false; // Unknown/unreadable/changed files are retained, never removed.
         }
     }
 
@@ -7398,7 +7458,7 @@ public class Telnet_Multi {
     }
 
     public static synchronized void startWrongVendorMonitor(PathFile fileInput) {
-        if (backgroundMonitorsSuppressed) {
+        if (backgroundMonitorsSuppressed || ExistingLogPreservation.enabled()) {
             return;
         }
         backgroundMonitorsActive = true;
@@ -7548,7 +7608,7 @@ public class Telnet_Multi {
     private static Thread commandMonitorThread = null;
 
     public static synchronized void startCommandCompletionMonitor(PathFile fileInput) {
-        if (backgroundMonitorsSuppressed) {
+        if (backgroundMonitorsSuppressed || ExistingLogPreservation.enabled()) {
             return;
         }
         backgroundMonitorsActive = true;
@@ -7867,7 +7927,7 @@ public class Telnet_Multi {
     private static Thread connFailMonitorThread = null;
 
     public static synchronized void startConnectionFailMonitor(PathFile fileInput) {
-        if (backgroundMonitorsSuppressed) {
+        if (backgroundMonitorsSuppressed || ExistingLogPreservation.enabled()) {
             return;
         }
         backgroundMonitorsActive = true;
