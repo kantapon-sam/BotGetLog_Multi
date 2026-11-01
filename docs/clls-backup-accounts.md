@@ -1,0 +1,48 @@
+# Optional CLLS backup accounts — 1.2.27
+
+Scheduled TRUE collection supports the existing primary CLLS login and up to
+five optional backup username/password pairs. An Admin manages the server pairs
+in the companion Control Console's SAM & CLLS settings. Leaving all backup slots
+empty preserves primary-only behavior. Windows installations keep their own
+local credential store; an old primary-only CLI or dialog save retains backups.
+
+The encrypted store keeps `clls.username` and `clls.password` for the primary
+account and adds `clls.backup.1.username` / `clls.backup.1.password` through slot
+5. Passwords use the existing encrypted v1 format. Empty, incomplete or
+undecryptable backup entries are not attempted. An identical username/password
+pair is tried at most once in the login sequence.
+
+For an operator-controlled idle installation, `TrueCllsCredentialCli
+--backup-slot=1 --stdin` accepts the username and password as two UTF-8 input
+lines, saves only that slot and verifies the encrypted readback. Use a slot from
+1 through 5. Do not put either secret in command arguments or shell history.
+The CLI preserves the primary and other backup slots, and refuses to overwrite
+an existing unreadable or malformed store. The Control Console supports removing
+unneeded slots; the CLI does not clear credentials implicitly.
+
+Fallback starts only after an explicit node authentication rejection. It reuses
+that node's existing login exchange and waits for a fresh username prompt before
+submitting the next pair. It stops on a verified matching node prompt, account
+lock, IP block, gateway return, timeout or closed connection. It does not open
+another connection or bypass the shared connection and daily admission budgets.
+The device may stop authentication before all configured slots are reached.
+Personal Live/TrueLogs credentials and L2 accounts remain separate.
+
+A verified successful backup login whose username is not literal `clls`
+(case-insensitive) appends one UTF-8 JSON object per line to
+`_output/System_Log/clls-fallback-events.jsonl`. Fields are `version` (1), `ip`,
+`node`, `slot` (1–5), `username`, and `timestamp` (ISO-8601 with Bangkok offset).
+No password is included. The same object appears after
+`[CLLS-FALLBACK-SUCCESS]` in console/work logs. These events support the companion
+Control Console's persistent, dismissible notes; dismissing a note never deletes
+collector logs. Primary success and failed authentication do not create notes.
+
+Upgrade the matching Control Console and Bot together while collection is idle.
+Preserve the workbook, credential store, daily budget state and all collected
+logs. This change requires no log cleanup or collection-counter reset.
+
+Validation uses fake authentication streams and isolated encrypted stores. It
+covers sparse/empty slots, duplicate pairs, explicit rejection, Huawei Error:
+responses, lock/block/timeout stops, exact prompt identity, primary-only saves,
+safe success events and concurrent append integrity. Existing Juniper login,
+scheduled SSH reader and network retry regressions also pass.

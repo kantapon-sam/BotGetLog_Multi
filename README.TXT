@@ -47,6 +47,22 @@ ZTE Enable settings:
 - Changes apply to new node connections. Each Windows installation has its own settings.
 - Server settings are managed separately by an Admin in Control Console > Bot Settings - ZTE Enable.
 
+Optional CLLS backup accounts:
+- Control Console can save up to five optional backup username/password pairs in
+  the existing encrypted CLLS store. Existing primary-only settings remain valid.
+- Scheduled TRUE collection tries a backup only after the node explicitly rejects
+  the prior login. Blank slots and repeated identical pairs are skipped. A primary
+  login that works never tries a backup, and primary-only saves preserve backups.
+- Backups use the current admitted node connection. A closed connection, timeout,
+  gateway failure, account lock or IP block stops the sequence; no connection or
+  daily-budget limit is bypassed. Devices may stop authentication before all five
+  configured backups can be tried. L2 accounts and personal Live/TrueLogs logins
+  are separate from these scheduled-Bot backups.
+- A backup success requires the expected node's authenticated prompt. Alternative
+  usernames other than literal clls write a password-free event to
+  _output/System_Log/clls-fallback-events.jsonl for the Control Console note list.
+  A failed login or a successful primary login does not create a note.
+
 Juniper Link Optical collection:
 - Log validation accepts initial empty SSH prompts from the same node before
   paging setup. It still requires the paging command within the first 20 lines

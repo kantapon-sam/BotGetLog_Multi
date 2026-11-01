@@ -14,10 +14,14 @@ conservative after a crash: reserved IPs remain counted. Damaged policy,
 journal or exception evidence fails closed instead of resetting the budget.
 
 The companion Ring planner uses the remaining total budget for whole eligible
-Chain/SubChain groups, prioritizing groups not sampled recently and using a
-deterministic daily shuffle for ties. Complete logs remain protected by the
-existing reciprocal-LLDP checks. Rotation history records sampled Ring IDs;
-sampling does not certify successful collection of every member.
+Chain/SubChain groups. With the matching November 2026 planner update, groups
+with missing complete logs have priority, followed by the oldest validated
+collection day among eligible members. All required command sets must have
+complete logs for that day. Selection history and a deterministic daily shuffle
+break ties; an unsuccessful attempt never makes log data newer. Complete logs
+remain protected by the existing reciprocal-LLDP checks. Rotation history records
+sampled Ring IDs, not successful completion. Deploy the matching companion
+planner and historical-log validator to enable this ordering.
 
 Only exact IPs with planner evidence of an LLDP topology change, one-way link,
 physical port mismatch, or newly discovered LLDP neighbor may exceed the

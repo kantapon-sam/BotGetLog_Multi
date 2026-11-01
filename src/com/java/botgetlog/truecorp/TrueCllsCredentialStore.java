@@ -4,11 +4,17 @@ import com.java.shared.AppMetadata;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Properties;
+import java.util.ArrayList;
+import java.util.List;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
@@ -53,7 +59,29 @@ final class TrueCllsCredentialStore {
         return new StoredCredential(username, password);
     }
 
+    static List<CllsFallback.Credential> loadBackups() {
+        return loadBackups(loadProperties());
+    }
+
+    static List<CllsFallback.Credential> loadBackups(Properties properties) {
+        List<CllsFallback.Credential> result = new ArrayList<>();
+        for (int slot = 1; slot <= CllsFallback.MAX_BACKUPS; slot++) {
+            String prefix = "clls.backup." + slot + ".";
+            String username = properties.getProperty(prefix + "username", "").trim();
+            String encoded = properties.getProperty(prefix + "password", "").trim();
+            if (username.isEmpty() && encoded.isEmpty()) continue;
+            CllsFallback.Credential credential = new CllsFallback.Credential(slot, username, decryptPassword(encoded));
+            if (credential.complete()) result.add(credential);
+            else System.out.println("[WARN] Ignoring incomplete CLLS backup slot " + slot + ".");
+        }
+        return result;
+    }
+
     static boolean save(String username, String password) {
+        return save(getStoreFile(), username, password);
+    }
+
+    static synchronized boolean save(File storeFile, String username, String password) {
         String safeUsername = safeValue(username);
         String safePassword = safeValue(password);
         if (safeUsername.isEmpty() || safePassword.isEmpty()) {
@@ -65,21 +93,63 @@ final class TrueCllsCredentialStore {
             return false;
         }
 
-        Properties properties = new Properties();
+        // A primary-only desktop/CLI save must retain configured optional backups.
+        Properties properties = loadForUpdate(storeFile);
+        if (properties == null) return false;
         properties.setProperty(KEY_USERNAME, safeUsername);
         properties.setProperty(KEY_PASSWORD, encryptedPassword);
-        File storeFile = getStoreFile();
-        File parent = storeFile.getParentFile();
-        if (parent != null) {
-            parent.mkdirs();
-        }
+        return writeProperties(storeFile, properties);
+    }
 
-        try (FileOutputStream output = new FileOutputStream(storeFile)) {
-            properties.store(output, "TRUE CLLS credentials. Password is encrypted for this Windows user/machine.");
+    static boolean saveBackup(int slot, String username, String password) {
+        return saveBackup(getStoreFile(), slot, username, password);
+    }
+
+    static synchronized boolean saveBackup(File storeFile, int slot, String username, String password) {
+        CllsFallback.Credential credential = new CllsFallback.Credential(slot, username, password);
+        if (!credential.complete()) return false;
+        Properties properties = loadForUpdate(storeFile);
+        if (properties == null) return false;
+        String encrypted = encryptPassword(credential.password);
+        if (encrypted.isEmpty()) return false;
+        String prefix = "clls.backup." + slot + ".";
+        properties.setProperty(prefix + "username", credential.username);
+        properties.setProperty(prefix + "password", encrypted);
+        return writeProperties(storeFile, properties);
+    }
+
+    private static Properties loadForUpdate(File storeFile) {
+        Properties properties = new Properties();
+        if (!storeFile.exists()) return properties;
+        try (FileInputStream input = new FileInputStream(storeFile)) {
+            properties.load(input);
+            return properties;
+        } catch (Exception error) {
+            System.out.println("[WARN] Existing CLLS credentials could not be read; settings were not changed.");
+            return null;
+        }
+    }
+
+    private static boolean writeProperties(File storeFile, Properties properties) {
+        Path temporary = null;
+        try {
+            Path target = storeFile.toPath().toAbsolutePath();
+            Files.createDirectories(target.getParent());
+            temporary = Files.createTempFile(target.getParent(), ".true-clls-", ".tmp");
+            try (FileOutputStream output = new FileOutputStream(temporary.toFile())) {
+                properties.store(output, "TRUE CLLS credentials. Password is encrypted for this Windows user/machine.");
+                output.getChannel().force(true);
+            }
+            try { Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+            catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             return true;
         } catch (Exception e) {
-            System.out.println("[WARN] Cannot save TRUE CLLS credentials: " + e.getMessage());
+            System.out.println("[WARN] Cannot save TRUE CLLS credentials.");
             return false;
+        } finally {
+            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (Exception ignored) { }
         }
     }
 
@@ -88,8 +158,11 @@ final class TrueCllsCredentialStore {
     }
 
     private static Properties loadProperties() {
+        return loadProperties(getStoreFile());
+    }
+
+    private static Properties loadProperties(File storeFile) {
         Properties properties = new Properties();
-        File storeFile = getStoreFile();
         if (!storeFile.isFile()) {
             return properties;
         }

@@ -2592,8 +2592,18 @@ public class Telnet_Multi {
 
                 if (sshNodeLoginFlow) {
                     String resp = completeSshNodeLogin(Loopback, Device, cmdSet, preLoginOut, User_CLLS, PW_CLLS);
+                    resp = tryOptionalCllsBackup(resp, Device, cmdSet);
+                    User_CLLS = this.nodeUsername;
+                    PW_CLLS = this.nodePassword;
                     appendLoginTranscriptDelta(LOG, preLoginOut, resp);
+                    if (CllsFallback.authenticationBlocked(resp)) {
+                        Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Auth failed - account or IP blocked]");
+                        failedAfterPassword = true;
+                        disconnect();
+                        return;
+                    }
                     if (resp == null || resp.isEmpty()
+                            || CllsFallback.hardStop(resp)
                             || resp.contains("[TIMEOUT-READ]")
                             || resp.contains("[TIMEOUT]")
                             || !hasNodeLoginSignal(resp)
@@ -2701,6 +2711,7 @@ public class Telnet_Multi {
                     }
                     write_NoShow(User_L2);
                 }
+                String earlyCllsResponse = null;
                 if (!sshNodeLoginFlow) {
                     if (cmdSet.charAt(0) == 'L') {
                         LOG.append(readUntil("ssword:"));
@@ -2711,7 +2722,13 @@ public class Telnet_Multi {
                     } else {
                         String passwordPrompt = readUntil("ssword:");
                         LOG.append(passwordPrompt);
-                        if ((cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z')
+                        if (CllsFallback.retryableRejection(passwordPrompt)) {
+                            earlyCllsResponse = tryOptionalCllsBackup(passwordPrompt, Device, cmdSet);
+                            User_CLLS = this.nodeUsername;
+                            PW_CLLS = this.nodePassword;
+                        }
+                        if (earlyCllsResponse == null
+                                && (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z')
                                 && (isTimeoutResponse(passwordPrompt)
                                 || containsTransportFailureText(passwordPrompt)
                                 || !containsPasswordPromptText(passwordPrompt))) {
@@ -2724,12 +2741,18 @@ public class Telnet_Multi {
                             disconnect();
                             return;
                         }
-                        write_NoShow(PW_CLLS);
+                        if (earlyCllsResponse == null) write_NoShow(PW_CLLS);
                     }
                     if (cmdSet.charAt(0) == 'J') {
-                        String resp = readUntil(">");
+                        String resp = earlyCllsResponse == null
+                                ? tryOptionalCllsBackup(readUntil(">"), Device, cmdSet) : earlyCllsResponse;
+                        User_CLLS = this.nodeUsername;
+                        PW_CLLS = this.nodePassword;
                         LOG.append(resp);
                         if (resp == null
+                                || CllsFallback.hardStop(resp)
+                                || containsLoginFailureText(resp)
+                                || !hasInteractivePromptToken(resp)
                                 || resp.contains("[TIMEOUT-READ]")
                                 || resp.contains("[TIMEOUT]")
                                 || resp.contains("[TIMEOUT-READ-LIMIT]")) {
@@ -2738,7 +2761,11 @@ public class Telnet_Multi {
                             logwork("\n[ERROR] Login prompt detected but no response after password at " + Loopback + "\n");
 
                             //  - Connection Failed
-                            Connection_failed(Num_row, Loopback, Device, cmdSet, "_[Connection failed - Timeout Limit]");
+                            Connection_failed(Num_row, Loopback, Device, cmdSet,
+                                    containsLoginFailureText(resp) || CllsFallback.authenticationBlocked(resp)
+                                            || (containsAuthPromptText(resp) && !hasInteractivePromptToken(resp))
+                                            ? "_[Auth failed - username or password rejected]"
+                                            : "_[Connection failed - Timeout Limit]");
                             failedAfterPassword = true;
                             disconnect();
                             return;
@@ -2754,15 +2781,20 @@ public class Telnet_Multi {
                         }
                         write("");
                     } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
-                        String resp = waitForPostPasswordPrompt(Loopback, User_CLLS, PW_CLLS);
+                        String resp = earlyCllsResponse == null
+                                ? tryOptionalCllsBackup(waitForPostPasswordPrompt(Loopback, User_CLLS, PW_CLLS), Device, cmdSet)
+                                : earlyCllsResponse;
+                        User_CLLS = this.nodeUsername;
+                        PW_CLLS = this.nodePassword;
                         LOG.append(resp);
                         if (resp == null
+                                || CllsFallback.hardStop(resp)
                                 || resp.contains("[TIMEOUT-READ]")
                                 || resp.contains("[TIMEOUT]")
                                 || containsTransportFailureText(resp)
                                 || containsLoginFailureText(resp)
                                 || (containsAuthPromptText(resp) && !hasInteractivePromptToken(resp))) {
-                            boolean invalidCredentials = containsLoginFailureText(resp)
+                            boolean invalidCredentials = containsLoginFailureText(resp) || CllsFallback.authenticationBlocked(resp)
                                     || (containsAuthPromptText(resp) && !hasInteractivePromptToken(resp));
                             if (invalidCredentials) {
                                 System.out.println("\n[ERROR] Username or password rejected at " + Loopback);
@@ -4858,7 +4890,6 @@ public class Telnet_Multi {
         }
         patterns.add(">");
         patterns.add("#");
-        patterns.add("error:");
         return patterns.toArray(new String[0]);
     }
 
@@ -4946,44 +4977,90 @@ public class Telnet_Multi {
     }
 
     private String waitForPostPasswordPrompt(String loopback, String username, String password) {
-        String firstRead = readUntilAny(">", "#", "error:");
+        // Read the full rejection through its next login prompt. Stopping at
+        // Huawei's bare "Error:" prefix hides the actual credential rejection.
+        String firstRead = readUntilAny(">", "#");
         if (firstRead == null || firstRead.isEmpty()) {
             return firstRead;
         }
         logwork("[LOGIN-RAW-1] " + loopback + " => " + summarizeResponseForLog(firstRead, username, password) + "\n");
-        if (!containsAuthPromptText(firstRead) || hasInteractivePromptToken(firstRead)) {
+        if (!containsAuthPromptText(firstRead) || hasInteractivePromptToken(firstRead)
+                || containsLoginFailureText(firstRead) || CllsFallback.hardStop(firstRead)) {
             return firstRead;
         }
 
         logwork("[LOGIN-WAIT] Auth prompt still visible after password for " + loopback
                 + ", waiting for actual prompt\n");
         String combined = firstRead;
-        String low = firstRead.toLowerCase();
+        // An echoed/stale prompt may need another read, never another blind
+        // submission of the same credentials. Explicit rejection owns fallback.
 
-        if ((low.contains("login incorrect") || low.contains("username:") || low.contains("user name:") || low.contains("login:") || low.contains("ogin:"))
-                && username != null && !username.trim().isEmpty()) {
-            logwork("[LOGIN-RECOVER] Re-sending username for " + loopback + "\n");
-            write_NoShow(username);
-            String pwPrompt = readUntil("ssword:");
-            logwork("[LOGIN-RAW-USER] " + loopback + " => " + summarizeResponseForLog(pwPrompt, username, password) + "\n");
-            if (pwPrompt != null) {
-                combined += pwPrompt;
-            }
-            if (containsAuthPromptText(pwPrompt) && password != null && !password.trim().isEmpty()) {
-                logwork("[LOGIN-RECOVER] Re-sending password for " + loopback + "\n");
-                write_NoShow(password);
-            }
-        } else if (low.contains("password:") && password != null && !password.trim().isEmpty()) {
-            logwork("[LOGIN-RECOVER] Re-sending password for " + loopback + "\n");
-            write_NoShow(password);
-        }
-
-        String secondRead = readUntilAny(">", "#", "error:");
+        String secondRead = readUntilAny(">", "#");
         logwork("[LOGIN-RAW-2] " + loopback + " => " + summarizeResponseForLog(secondRead, username, password) + "\n");
         if (secondRead == null || secondRead.isEmpty()) {
             return combined;
         }
         return combined + secondRead;
+    }
+
+    private String tryOptionalCllsBackup(String response, String device, String cmdSet) {
+        if (!CllsFallback.retryableRejection(response)) return response;
+        List<CllsFallback.Credential> backups = TrueCllsCredentialStore.loadBackups();
+        CllsFallback.Result result = CllsFallback.attempt(response, nodeUsername, nodePassword, backups,
+                (credential, rejected) -> loginCllsBackup(credential, rejected),
+                candidate -> verifiedFallbackNodePrompt(candidate, device, cmdSet));
+        if (result.successful != null) {
+            nodeUsername = result.successful.username;
+            nodePassword = result.successful.password;
+            String event = CllsFallback.successEvent(Loopback, device, result.successful);
+            if (!event.isEmpty()) {
+                try {
+                    CllsFallback.appendEvent(new File(com.java.shared.AppMetadata.getUpdateLogDirectory(),
+                            "clls-fallback-events.jsonl").toPath(), event);
+                } catch (IOException error) {
+                    logwork("[WARN] Unable to persist the CLLS fallback success note.\n");
+                }
+                System.out.println("[CLLS-FALLBACK-SUCCESS] " + event);
+                logwork("[CLLS-FALLBACK-SUCCESS] " + event + "\n");
+            }
+            return result.response.replace(result.successful.password, "<redacted>");
+        }
+        if (result.attempts > 0 && hasInteractivePromptToken(result.response))
+            return "Authentication failed - unexpected node prompt";
+        String safeResponse = result.response;
+        // A failed device may echo a submitted secret. Never return it to the
+        // generic diagnostics, which only know the active primary credential.
+        if (safeResponse != null) for (CllsFallback.Credential credential : backups)
+            if (!credential.password.isEmpty()) safeResponse = safeResponse.replace(credential.password, "<redacted>");
+        return safeResponse;
+    }
+
+    private String loginCllsBackup(CllsFallback.Credential credential, String rejectedResponse) {
+        String prompt = rejectedResponse;
+        if (CllsFallback.hardStop(prompt)) return prompt;
+        if (!endsWithUsernamePrompt(prompt))
+            prompt = readUntilAny("username:", "user name:", "login:", "ogin:");
+        if (CllsFallback.hardStop(prompt) || !endsWithUsernamePrompt(prompt)) return prompt;
+        // Reuse only this node's open authentication exchange. Never reconnect
+        // or obtain another gateway/session outside the daily admission budget.
+        write_NoShow(credential.username);
+        String passwordPrompt = readUntil("ssword:");
+        if (CllsFallback.hardStop(passwordPrompt) || containsLoginFailureText(passwordPrompt)
+                || !containsPasswordPromptText(passwordPrompt)) return passwordPrompt;
+        write_NoShow(credential.password);
+        return readUntilAny(">", "#");
+    }
+
+    private static boolean endsWithUsernamePrompt(String response) {
+        return response != null && response.matches("(?is).*(?:username|user name|login|ogin):\\s*$");
+    }
+
+    private boolean verifiedFallbackNodePrompt(String response, String device, String cmdSet) {
+        if (CllsFallback.hardStop(response) || containsLoginFailureText(response)
+                || !hasInteractivePromptToken(response)) return false;
+        if (cmdSet != null && cmdSet.startsWith("J")) return acceptJuniperLoginPrompt(response, device);
+        String actual = extractNodeNameFromPromptToken(extractPromptToken(stripTerminalControlSequences(response)));
+        return !safeTrim(device).isEmpty() && matchesDeviceForLogComparison(device, actual);
     }
 
     public void write(String value) {
