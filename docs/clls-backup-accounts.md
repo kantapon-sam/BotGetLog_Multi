@@ -1,4 +1,14 @@
-# Optional CLLS backup accounts — 1.2.27
+# Optional CLLS backup accounts — 1.2.28
+
+Version 1.2.28 corrects SSH sessions whose accumulated login transcript retains
+the initial SAM IP-selection menu. That historical menu must not prevent a
+backup after an explicit node authentication rejection, or reject a successful
+primary login. Only a current terminal SAM menu prompt means the node session
+has returned to the gateway. Actual transport failures and account/IP locks
+still stop fallback. Regression coverage includes the combined SAM banner and
+ZTE rejection through a verified backup prompt, plus current-menu, ANSI,
+timeout, closed-connection and lock cases. Existing logs and daily counts are
+retained; updating does not restore attempts consumed by a previous run.
 
 Scheduled TRUE collection supports the existing primary CLLS login and up to
 five optional backup username/password pairs. An Admin manages the server pairs

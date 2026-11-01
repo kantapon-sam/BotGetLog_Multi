@@ -58,6 +58,18 @@ public final class CllsFallbackRegression {
         equal(1, result.attempts, "wrong prompt cannot trigger another credential");
         equal(0, CllsFallback.attempt(REJECT, "clls", "primary", Collections.emptyList(),
                 (credential, previous) -> PROMPT, PROMPT::equals).attempts, "backups optional");
+        String sam = "Please Enter IP address\r\n192.0.2.1\r\nEnter IP address [press q/Q to quit]: 192.0.2.1\r\n"
+                + "Trying to connect to 192.0.2.1 ,please wait ...\r\nUsername:";
+        check(CllsFallback.retryableRejection(sam + "clls\r\nPassword:\r\n% Username or password error\r\nUsername:"),
+                "historical SAM menu does not mask current ZTE rejection");
+        check(!CllsFallback.hardStop(sam + "clls\r\nPassword:\r\nQA-NODE#"),
+                "historical SAM menu does not reject primary success");
+        for (String ending : Arrays.asList("Enter IP address [press q/Q to quit]: ", "Please Enter IP address\r\n",
+                "\u001b[32mEnter IP address [press q/Q to quit]:\u001b[0m\r\n  ", "Connection closed by foreign host",
+                "[TIMEOUT-READ]", "Account locked")) {
+            check(CllsFallback.hardStop(sam + "\r\n" + REJECT + "\r\n" + ending),
+                    "current gateway/transport/lock still stops after historical rejection");
+        }
     }
 
     private static void streamCases() throws Exception {
@@ -117,6 +129,26 @@ public final class CllsFallbackRegression {
         String sshRejection = (String) sshLogin.invoke(ssh[0], "192.0.2.1", "QA-NODE", "HW-LLDP-Link_OPTIC", "Username:", "clls", "primary");
         check(CllsFallback.retryableRejection(sshRejection), "SSH Huawei Error response remains complete");
         equal("clls\nprimary\n", ssh[1].toString().replace("\r", ""), "SSH primary submitted once");
+        Object[] zteSsh = collector("");
+        set(zteSsh[0], "in", new ByteArrayInputStream(("Password:\r\n% Username or password error\r\nUsername:"
+                + "Password:\r\nQA-NODE#").getBytes(StandardCharsets.UTF_8)) {
+            @Override public synchronized int read(byte[] bytes, int offset, int length) { return super.read(bytes, offset, Math.min(1, length)); }
+        });
+        String sam = "\u001b[32mPlease Enter IP address\u001b[0m\r\n192.0.2.1\r\n"
+                + "Enter IP address [press q/Q to quit]: 192.0.2.1\r\nTrying to connect to 192.0.2.1 ,please wait ...\r\nUsername:";
+        String zteRejection = (String) sshLogin.invoke(zteSsh[0], "192.0.2.1", "QA-NODE", "ZTE-LLDP-Link_OPTIC", sam, "clls", "primary");
+        check(CllsFallback.retryableRejection(zteRejection), "real SSH SAM transcript permits explicit ZTE auth fallback");
+        CllsFallback.Result zteResult = CllsFallback.attempt(zteRejection, "clls", "primary", BACKUPS,
+                (credential, previous) -> {
+                    try { return (String) login.invoke(zteSsh[0], credential, previous); }
+                    catch (Exception error) { throw new RuntimeException(error); }
+                }, candidate -> {
+                    try { return (Boolean) verify.invoke(zteSsh[0], candidate, "QA-NODE", "ZTE-LLDP-Link_OPTIC"); }
+                    catch (Exception error) { throw new RuntimeException(error); }
+                });
+        equal(1, zteResult.successful.slot, "real SSH SAM rejection reaches backup success");
+        equal("clls\nprimary\nbackup-a\nsecret-a\n", zteSsh[1].toString().replace("\r", ""),
+                "SSH historical menu sends primary and backup once each");
     }
 
     private static final class QuietCollector extends Telnet_Multi {

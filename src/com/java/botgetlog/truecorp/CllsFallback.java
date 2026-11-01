@@ -15,10 +15,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 
 /** Bounded alternative node logins, within the already admitted connection. */
 final class CllsFallback {
     static final int MAX_BACKUPS = 5;
+    private static final Pattern TERMINAL_CONTROL = Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
+    private static final Pattern CURRENT_GATEWAY_PROMPT = Pattern.compile(
+            "(?im)(?:^|\\n)[\\t ]*(?:please[\\t ]+)?enter[\\t ]+ip[\\t ]+address\\b[^\\n]*(?:\\n[\\t ]*)*\\z");
 
     static final class Credential {
         final int slot;
@@ -70,8 +74,16 @@ final class CllsFallback {
         return text.isEmpty() || text.contains("timeout") || text.contains("timed out")
                 || text.contains("connection closed") || text.contains("connection reset")
                 || text.contains("connection refused") || text.contains("broken pipe")
-                || text.contains("[eof]") || text.contains("enter ip address")
+                || text.contains("[eof]") || currentGatewayPrompt(response)
                 || authenticationBlocked(response);
+    }
+
+    private static boolean currentGatewayPrompt(String response) {
+        // SSH retains its initial SAM menu in the login transcript. Only a
+        // current menu prompt means the node connection returned to SAM.
+        String text = TERMINAL_CONTROL.matcher(response == null ? "" : response).replaceAll("")
+                .replace("\r\n", "\n").replace('\r', '\n');
+        return CURRENT_GATEWAY_PROMPT.matcher(text).find();
     }
 
     static boolean authenticationBlocked(String response) {
