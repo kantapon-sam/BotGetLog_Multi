@@ -1,6 +1,6 @@
 {
-  "version": "1.2.30",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.30/BotGetLog_Multi-dist-1.2.30.zip",
-  "sha256": "887ce37d0e77b474c60b613ce2db4fc79c8299146f282d24df51476c1411ef91",
-  "notes": "Released 1.2.30: ZTE backup accounts explicitly negotiate Enable before collection. Uses saved Enable passwords only when requested; fixes stale SSH prompt state and verifies the same node. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.30/docs/zte-enable-negotiation.md"
+  "version": "1.2.31",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.31/BotGetLog_Multi-dist-1.2.31.zip",
+  "sha256": "741c06f73176f9ee7eaf1bf05e15cd198c1bc41d7d934c6fa3053c7763b791d1",
+  "notes": "Released 1.2.31: Verified primary CLLS logins emit recovery events for automatic Control Console Note removal. Preserves actual usernames and alternative-account events; failures, gateway prompts and old logs never clear Notes. Requires matching Control update. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.31/docs/clls-note-recovery.md"
 }
