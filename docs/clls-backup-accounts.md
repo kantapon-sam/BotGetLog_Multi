@@ -67,8 +67,10 @@ A verified successful backup login whose username is not literal `clls`
 `node`, `slot` (1–5), `username`, and `timestamp` (ISO-8601 with Bangkok offset).
 No password is included. The same object appears after
 `[CLLS-FALLBACK-SUCCESS]` in console/work logs. These events support the companion
-Control Console's persistent, dismissible notes; dismissing a note never deletes
-collector logs. Primary success and failed authentication do not create notes.
+Control Console's persistent notes. Failed authentication does not create notes.
+Version 1.2.31 emits a verified
+`clls-success` recovery event for the same node so the matching Control Console
+can resolve its Note automatically. See [automatic recovery](clls-note-recovery.md).
 
 Upgrade the matching Control Console and Bot together while collection is idle.
 Preserve the workbook, credential store, daily budget state and all collected

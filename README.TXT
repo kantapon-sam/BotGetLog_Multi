@@ -72,7 +72,10 @@ Optional CLLS backup accounts:
 - A backup success requires the expected node's authenticated prompt. Alternative
   usernames other than literal clls write a password-free event to
   _output/System_Log/clls-fallback-events.jsonl for the Control Console note list.
-  A failed login or a successful primary login does not create a note.
+  A failed login does not create a note. A future verified primary CLLS login
+  automatically resolves the matching Note in Control Console. Recovery requires
+  a fresh same-node login using the actual configured primary account; old logs and
+  gateway prompts never clear Notes. See docs/clls-note-recovery.md.
 
 Juniper Link Optical collection:
 - Log validation accepts initial empty SSH prompts from the same node before

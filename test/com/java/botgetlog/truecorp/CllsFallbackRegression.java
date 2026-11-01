@@ -23,6 +23,7 @@ public final class CllsFallbackRegression {
         streamCases();
         storeCases();
         eventCases();
+        cllsRecoveryEventCases();
         System.out.println("PASS CllsFallbackRegression checks=" + checks);
     }
 
@@ -232,6 +233,72 @@ public final class CllsFallbackRegression {
             for (Future<?> task : tasks) task.get();
             equal(20, Files.readAllLines(path, StandardCharsets.UTF_8).size(), "concurrent appends retain whole events");
         } finally { pool.shutdownNow(); Files.deleteIfExists(path); Files.delete(dir); }
+    }
+
+    private static void cllsRecoveryEventCases() throws Exception {
+        Method event = Telnet_Multi.class.getDeclaredMethod("verifiedCllsSuccessEvent", String.class, String.class, String.class);
+        event.setAccessible(true);
+        Method submit = Telnet_Multi.class.getDeclaredMethod("writeNodeLoginCredential", String.class);
+        submit.setAccessible(true);
+        Method sshLogin = Telnet_Multi.class.getDeclaredMethod("completeSshNodeLogin", String.class, String.class,
+                String.class, String.class, String.class, String.class);
+        sshLogin.setAccessible(true);
+        Object[] fixture = collector("");
+        set(fixture[0], "nodeUsername", "CLLS");
+        set(fixture[0], "Loopback", "192.0.2.1");
+        equal("", event.invoke(fixture[0], PROMPT, "QA-NODE", "HW-LLDP-Link_OPTIC"),
+                "existing prompt without submitted node credentials cannot clear a note");
+        submit.invoke(fixture[0], "synthetic-secret");
+        for (String[] vendor : new String[][]{
+                {"HW-LLDP-Link_OPTIC", "QA-NODE", PROMPT},
+                {"ZTE-LLDP-Link_OPTIC", "QA-NODE", "QA-NODE#"},
+                {"N-LLDP-Link_OPTIC", "QA-NODE", "*A:QA-NODE#"},
+                {"J-LLDP-Link_OPTIC", "QA-NODE-re0", "clls@QA-NODE-re0>"}}) {
+            String json = (String) event.invoke(fixture[0], vendor[2], vendor[1], vendor[0]);
+            check(json.contains("\"kind\":\"clls-success\"") && json.contains("\"slot\":0"), "verified primary recovery " + vendor[0]);
+            check(json.contains("\"ip\":\"192.0.2.1\"") && json.contains("\"node\":\"" + vendor[1] + "\""), "exact note identity");
+            check(!json.contains("synthetic-secret"), "recovery event excludes the submitted secret");
+        }
+        for (String rejected : Arrays.asList("Username:", "Password:", "Enter IP address [press q/Q to quit]:",
+                "[TIMEOUT-READ]", "Authentication failed\r\nQA-NODE#", "Account locked\r\nQA-NODE#",
+                "Connection closed\r\nQA-NODE#", "<OTHER-NODE>", "SAM-GATEWAY#"))
+            equal("", event.invoke(fixture[0], rejected, "QA-NODE", "ZTE-LLDP-Link_OPTIC"), "unverified state cannot clear " + rejected);
+        set(fixture[0], "nodeUsername", "who");
+        set(fixture[0], "nodeCredentialSlot", 2);
+        equal("", event.invoke(fixture[0], "QA-NODE#", "QA-NODE", "ZTE-LLDP-Link_OPTIC"), "alternative username never clears");
+        set(fixture[0], "nodeUsername", "vdes2442@clls");
+        set(fixture[0], "nodeCredentialSlot", 0);
+        String primaryRole = (String) event.invoke(fixture[0], "QA-NODE#", "QA-NODE", "ZTE-LLDP-Link_OPTIC");
+        check(primaryRole.contains("\"accountRole\":\"clls-primary\"") && primaryRole.contains("\"username\":\"vdes2442@clls\""), "configured primary role retains actual username");
+        set(fixture[0], "out", new PrintStream(new OutputStream() { public void write(int value) throws IOException { throw new IOException("synthetic broken output"); } }));
+        submit.invoke(fixture[0], "synthetic-secret");
+        equal("", event.invoke(fixture[0], "QA-NODE#", "QA-NODE", "ZTE-LLDP-Link_OPTIC"), "failed credential write cannot prove authentication");
+        set(fixture[0], "out", null);
+        submit.invoke(fixture[0], "synthetic-secret");
+        equal("", event.invoke(fixture[0], "QA-NODE#", "QA-NODE", "ZTE-LLDP-Link_OPTIC"), "missing output cannot prove authentication");
+        set(fixture[0], "out", new PrintStream((ByteArrayOutputStream) fixture[1], true, "UTF-8"));
+        submit.invoke(fixture[0], "synthetic-secret");
+        set(fixture[0], "nodeUsername", " clls ");
+        set(fixture[0], "nodeCredentialSlot", 3);
+        String backup = (String) event.invoke(fixture[0], "QA-NODE#", "QA-NODE", "ZTE-LLDP-Link_OPTIC");
+        check(backup.contains("\"slot\":3") && backup.contains("\"username\":\"clls\""), "literal clls backup has recovery event with its actual slot");
+        check(backup.contains("\"eventId\":") && backup.contains("\"timestamp\":"), "recovery has replay identity and ordered timestamp");
+        String stamp = backup.split("\"timestamp\":\"")[1].split("\"")[0];
+        check(java.time.OffsetDateTime.parse(stamp).getOffset().getTotalSeconds() == 7 * 3600, "timestamp carries Bangkok offset");
+
+        // Actual SSH reader proves submission; an already-present node prompt
+        // must reset old submission state rather than fabricate recovery.
+        set(fixture[0], "in", new ByteArrayInputStream("Password:\r\nQA-NODE#".getBytes(StandardCharsets.UTF_8)) {
+            @Override public synchronized int read(byte[] b, int o, int n) { return super.read(b, o, Math.min(1, n)); }
+        });
+        set(fixture[0], "nodeCredentialSlot", 0);
+        String response = (String) sshLogin.invoke(fixture[0], "192.0.2.1", "QA-NODE", "ZTE-LLDP-Link_OPTIC", "Username:", "clls", "synthetic-secret");
+        check(!((String) event.invoke(fixture[0], response, "QA-NODE", "ZTE-LLDP-Link_OPTIC")).isEmpty(), "actual fresh SSH auth emits recovery candidate");
+        response = (String) sshLogin.invoke(fixture[0], "192.0.2.1", "QA-NODE", "ZTE-LLDP-Link_OPTIC", "QA-NODE#", "clls", "synthetic-secret");
+        equal("", event.invoke(fixture[0], response, "QA-NODE", "ZTE-LLDP-Link_OPTIC"), "new exchange cannot reuse previous submission evidence");
+        for (String invalid : Arrays.asList("", "clls\nother"))
+            equal("", CllsFallback.cllsSuccessEvent("192.0.2.1", "QA", invalid, 0), "builder rejects missing or malformed identity");
+        equal("", CllsFallback.cllsSuccessEvent("192.0.2.1", "QA\nNODE", "clls", 0), "builder rejects line-broken identity");
     }
     private static void check(boolean value, String label) { checks++; if (!value) throw new AssertionError(label); }
     private static void equal(Object expected, Object actual, String label) { check(Objects.equals(expected, actual), label + ": expected=" + expected + " actual=" + actual); }

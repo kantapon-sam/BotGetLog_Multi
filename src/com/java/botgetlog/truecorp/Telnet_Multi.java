@@ -390,6 +390,8 @@ public class Telnet_Multi {
     private String gatewayPassword = "";
     private String nodeUsername = "";
     private boolean nodeUsesBackupCredentials;
+    private int nodeCredentialSlot;
+    private boolean nodeLoginCredentialSubmitted;
     private String nodePassword = "";
     private String l2Username = "";
     private String l2Password = "";
@@ -2609,6 +2611,7 @@ public class Telnet_Multi {
             }
 
             while (true) {
+                nodeLoginCredentialSubmitted = false;
                 char loginVendorFamily = preLoginNokia ? 'N' : (cmdSet.charAt(0) == 'N' ? 'H' : cmdSet.charAt(0));
                 boolean sshNodeLoginFlow = isSshGatewayConnection()
                         && (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z');
@@ -2686,6 +2689,7 @@ public class Telnet_Multi {
 
                     updateRuntimeDeviceNameFromResponse(resp, Device, cmdSet);
 
+                    recordVerifiedCllsSuccess(resp, Device, cmdSet);
                     if (!checkEnvCommand(cmdSet, Loopback, Device, Num_row)) {
                         return;
                     }
@@ -2698,7 +2702,7 @@ public class Telnet_Multi {
                             Num_row, LOG, preLoginOut, false)) {
                         return;
                     }
-                    write_NoShow(User_CLLS);
+                    writeNodeLoginCredential(User_CLLS);
                 } else if (loginVendorFamily == 'N') {
                     sleepQuietly(randomDelayMs(
                             LOGIN_PROMPT_DELAY_BASE_MS,
@@ -2708,7 +2712,7 @@ public class Telnet_Multi {
                             Num_row, LOG, preLoginOut, false)) {
                         return;
                     }
-                    write_NoShow(User_CLLS);
+                    writeNodeLoginCredential(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'J') {
                     LOG.append(Checklogin("ogin:"));
                     if (LOG.toString().contains("Login_failed")) {
@@ -2716,7 +2720,7 @@ public class Telnet_Multi {
                                 "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         break;
                     }
-                    write_NoShow(User_CLLS);
+                    writeNodeLoginCredential(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'O') {
                     LOG.append(Checklogin(":"));
                     if (LOG.toString().contains("Login_failed")) {
@@ -2724,7 +2728,7 @@ public class Telnet_Multi {
                                 "_[" + NO_LOGIN_PROMPT_REASON + "]");
                         break;
                     }
-                    write_NoShow(User_CLLS);
+                    writeNodeLoginCredential(User_CLLS);
                 } else if (cmdSet.charAt(0) == 'L') {
                     LOG.append(Checklogin("Username:"));
                     if (LOG.toString().contains("Login_failed")) {
@@ -2741,7 +2745,7 @@ public class Telnet_Multi {
                         write_NoShow(PW_L2);
                     } else if (cmdSet.charAt(0) == 'O') {
                         LOG.append(readUntil(":"));
-                        write_NoShow(PW_CLLS);
+                        writeNodeLoginCredential(PW_CLLS);
                     } else {
                         String passwordPrompt = readUntil("ssword:");
                         LOG.append(passwordPrompt);
@@ -2764,7 +2768,7 @@ public class Telnet_Multi {
                             disconnect();
                             return;
                         }
-                        if (earlyCllsResponse == null) write_NoShow(PW_CLLS);
+                        if (earlyCllsResponse == null) writeNodeLoginCredential(PW_CLLS);
                     }
                     if (cmdSet.charAt(0) == 'J') {
                         String resp = earlyCllsResponse == null
@@ -2802,6 +2806,7 @@ public class Telnet_Multi {
                             disconnect();
                             return;
                         }
+                        recordVerifiedCllsSuccess(resp, Device, cmdSet);
                         write("");
                     } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
                         String resp = earlyCllsResponse == null
@@ -2867,12 +2872,15 @@ public class Telnet_Multi {
 
                         updateRuntimeDeviceNameFromResponse(resp, Device, cmdSet);
 
+                        recordVerifiedCllsSuccess(resp, Device, cmdSet);
                         if (!checkEnvCommand(cmdSet, Loopback, Device, Num_row)) {
                             return;
                         }
                         write("");
                     } else if (cmdSet.charAt(0) == 'O') {
-                        LOG.append(readUntil(">"));
+                        String loginResponse = readUntil(">");
+                        LOG.append(loginResponse);
+                        recordVerifiedCllsSuccess(loginResponse, Device, cmdSet);
                         write("enable");
                         LOG.append(readUntil("#"));
                         write("configure terminal");
@@ -4930,6 +4938,7 @@ public class Telnet_Multi {
 
     private String completeSshNodeLogin(String loopback, String device, String cmdSet,
             String initialResponse, String username, String password) {
+        nodeLoginCredentialSubmitted = false;
         StringBuilder combined = new StringBuilder();
         String current = initialResponse == null ? "" : initialResponse;
         String[] promptPatterns = buildSshNodePromptPatterns(device, cmdSet);
@@ -4974,7 +4983,7 @@ public class Telnet_Multi {
         String loginState = transcript;
         if (containsGatewayUsernamePrompt(loginState) && username != null && !username.trim().isEmpty()) {
             logwork("[SSH-NODE] Sending username for " + loopback + "\n");
-            write_NoShow(username);
+            writeNodeLoginCredential(username);
             current = readSshBootstrapResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
             logwork("[SSH-NODE-RAW-USER] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
@@ -4991,7 +5000,7 @@ public class Telnet_Multi {
 
         if (containsGatewayPasswordPrompt(loginState) && password != null && !password.trim().isEmpty()) {
             logwork("[SSH-NODE] Sending password for " + loopback + "\n");
-            write_NoShow(password);
+            writeNodeLoginCredential(password);
             current = readSshBootstrapResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
             logwork("[SSH-NODE-RAW-PASS] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
@@ -5040,6 +5049,7 @@ public class Telnet_Multi {
             nodeUsername = result.successful.username;
             nodePassword = result.successful.password;
             nodeUsesBackupCredentials = true;
+            nodeCredentialSlot = result.successful.slot;
             String event = CllsFallback.successEvent(Loopback, device, result.successful);
             if (!event.isEmpty()) {
                 try {
@@ -5071,16 +5081,50 @@ public class Telnet_Multi {
         if (CllsFallback.hardStop(prompt) || !endsWithUsernamePrompt(prompt)) return prompt;
         // Reuse only this node's open authentication exchange. Never reconnect
         // or obtain another gateway/session outside the daily admission budget.
-        write_NoShow(credential.username);
+        writeNodeLoginCredential(credential.username);
         String passwordPrompt = readUntil("ssword:");
         if (CllsFallback.hardStop(passwordPrompt) || containsLoginFailureText(passwordPrompt)
                 || !containsPasswordPromptText(passwordPrompt)) return passwordPrompt;
-        write_NoShow(credential.password);
+        writeNodeLoginCredential(credential.password);
         return readUntilAny(">", "#");
     }
 
     private static boolean endsWithUsernamePrompt(String response) {
         return response != null && response.matches("(?is).*(?:username|user name|login|ogin):\\s*$");
+    }
+
+    private void writeNodeLoginCredential(String value) {
+        nodeLoginCredentialSubmitted = false;
+        if (out == null || value == null || value.isEmpty() || Thread.currentThread().isInterrupted()) return;
+        try {
+            if (isSshGatewayConnection()) out.print(normalizeSshInteractiveInput(value));
+            else out.println(value);
+            out.flush();
+            nodeLoginCredentialSubmitted = !out.checkError();
+        } catch (RuntimeException failure) {
+            // Failed output is never evidence of a submitted node credential.
+        }
+    }
+
+    private String verifiedCllsSuccessEvent(String response, String device, String cmdSet) {
+        if (!nodeLoginCredentialSubmitted
+                || !verifiedFallbackNodePrompt(response, device, cmdSet)) return "";
+        return CllsFallback.cllsSuccessEvent(Loopback, device, nodeUsername, nodeCredentialSlot);
+    }
+
+    private void recordVerifiedCllsSuccess(String response, String device, String cmdSet) {
+        String event = verifiedCllsSuccessEvent(response, device, cmdSet);
+        if (event.isEmpty()) return;
+        try {
+            CllsFallback.appendEvent(new File(com.java.shared.AppMetadata.getUpdateLogDirectory(),
+                    "clls-fallback-events.jsonl").toPath(), event);
+            // One outcome per fresh authenticated exchange. Reconnect resets it.
+            nodeLoginCredentialSubmitted = false;
+            System.out.println("[CLLS-PRIMARY-SUCCESS] " + event);
+            logwork("[CLLS-PRIMARY-SUCCESS] " + event + "\n");
+        } catch (IOException error) {
+            logwork("[WARN] Unable to persist the verified CLLS recovery event.\n");
+        }
     }
 
     private boolean verifiedFallbackNodePrompt(String response, String device, String cmdSet) {
@@ -7025,6 +7069,7 @@ public class Telnet_Multi {
 
     private boolean restoreNodeSessionAfterReconnect(String Loopback, String Device, String cmdSet,
             int Num_row, String preLoginOut) {
+        nodeLoginCredentialSubmitted = false;
         boolean preLoginNokia = preLoginOut != null && preLoginOut.toLowerCase(Locale.ROOT).contains("ogin:");
         char loginVendorFamily = preLoginNokia ? 'N' : (cmdSet.charAt(0) == 'N' ? 'H' : cmdSet.charAt(0));
         boolean sshNodeLoginFlow = isSshGatewayConnection()
@@ -7049,7 +7094,9 @@ public class Telnet_Multi {
                 return false;
             }
             updateRuntimeDeviceNameFromResponse(resp, Device, cmdSet);
-            return checkEnvCommand(cmdSet, Loopback, Device, Num_row);
+            recordVerifiedCllsSuccess(resp, Device, cmdSet);
+            if (!checkEnvCommand(cmdSet, Loopback, Device, Num_row)) return false;
+            return true;
         }
 
         if (loginVendorFamily == 'H' || loginVendorFamily == 'Z') {
@@ -7058,26 +7105,26 @@ public class Telnet_Multi {
                     Num_row, LOG, preLoginOut, true)) {
                 return false;
             }
-            write_NoShow(nodeUsername);
+            writeNodeLoginCredential(nodeUsername);
         } else if (loginVendorFamily == 'N') {
             sleepQuietly(randomDelayMs(LOGIN_PROMPT_DELAY_BASE_MS, LOGIN_PROMPT_DELAY_JITTER_MS));
             if (!checkVendorLoginPrompt("ogin:", "Username:", "N", Loopback, Device, cmdSet,
                     Num_row, LOG, preLoginOut, true)) {
                 return false;
             }
-            write_NoShow(nodeUsername);
+            writeNodeLoginCredential(nodeUsername);
         } else if (cmdSet.charAt(0) == 'J') {
             LOG.append(Checklogin("ogin:"));
             if (LOG.toString().contains("Login_failed")) {
                 return false;
             }
-            write_NoShow(nodeUsername);
+            writeNodeLoginCredential(nodeUsername);
         } else if (cmdSet.charAt(0) == 'O') {
             LOG.append(Checklogin(":"));
             if (LOG.toString().contains("Login_failed")) {
                 return false;
             }
-            write_NoShow(nodeUsername);
+            writeNodeLoginCredential(nodeUsername);
         } else if (cmdSet.charAt(0) == 'L') {
             LOG.append(Checklogin("Username:"));
             if (LOG.toString().contains("Login_failed")) {
@@ -7092,7 +7139,7 @@ public class Telnet_Multi {
                 write_NoShow(l2Password);
             } else if (cmdSet.charAt(0) == 'O') {
                 LOG.append(readUntil(":"));
-                write_NoShow(nodePassword);
+                writeNodeLoginCredential(nodePassword);
             } else {
                 String passwordPrompt = readUntil("ssword:");
                 LOG.append(passwordPrompt);
@@ -7104,7 +7151,7 @@ public class Telnet_Multi {
                             + " | response: " + summarizeResponseForLog(passwordPrompt, nodeUsername, nodePassword) + "\n");
                     return false;
                 }
-                write_NoShow(nodePassword);
+                writeNodeLoginCredential(nodePassword);
             }
 
             if (cmdSet.charAt(0) == 'J') {
@@ -7118,6 +7165,7 @@ public class Telnet_Multi {
                 }
                 if ("lldp-link_optic".equals(normalizeCmdSetFamily(cmdSet))
                         && !acceptJuniperLoginPrompt(resp, Device)) return false;
+                recordVerifiedCllsSuccess(resp, Device, cmdSet);
                 write("");
             } else if (cmdSet.charAt(0) == 'H' || cmdSet.charAt(0) == 'N' || cmdSet.charAt(0) == 'Z') {
                 String resp = waitForPostPasswordPrompt(Loopback, nodeUsername, nodePassword);
@@ -7131,12 +7179,15 @@ public class Telnet_Multi {
                 }
 
                 updateRuntimeDeviceNameFromResponse(resp, Device, cmdSet);
+                recordVerifiedCllsSuccess(resp, Device, cmdSet);
                 if (!checkEnvCommand(cmdSet, Loopback, Device, Num_row)) {
                     return false;
                 }
                 write("");
             } else if (cmdSet.charAt(0) == 'O') {
-                LOG.append(readUntil(">"));
+                String loginResponse = readUntil(">");
+                LOG.append(loginResponse);
+                recordVerifiedCllsSuccess(loginResponse, Device, cmdSet);
                 write("enable");
                 LOG.append(readUntil("#"));
                 write("configure terminal");

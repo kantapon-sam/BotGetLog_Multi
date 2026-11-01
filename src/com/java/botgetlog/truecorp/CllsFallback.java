@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -111,6 +112,20 @@ final class CllsFallback {
         if (credential == null || !credential.complete() || "clls".equalsIgnoreCase(credential.username)) return "";
         return "{\"version\":1,\"ip\":" + json(ip) + ",\"node\":" + json(node)
                 + ",\"slot\":" + credential.slot + ",\"username\":" + json(credential.username)
+                + ",\"timestamp\":" + json(OffsetDateTime.now(ZoneId.of("Asia/Bangkok")).toString()) + "}";
+    }
+
+    /** Verified configured-primary CLLS role, or a backup using literal clls. */
+    static String cllsSuccessEvent(String ip, String node, String username, int slot) {
+        String user = username == null ? "" : username.trim();
+        if (user.isEmpty() || hasLineBreak(user) || slot < 0 || slot > MAX_BACKUPS
+                || (slot > 0 && !"clls".equalsIgnoreCase(user))
+                || ip == null || ip.trim().isEmpty() || node == null || node.trim().isEmpty()
+                || hasLineBreak(ip) || hasLineBreak(node)) return "";
+        return "{\"version\":1,\"kind\":\"clls-success\",\"accountRole\":"
+                + json(slot == 0 ? "clls-primary" : "clls-backup") + ",\"eventId\":" + json(UUID.randomUUID().toString())
+                + ",\"ip\":" + json(ip.trim()) + ",\"node\":" + json(node.trim())
+                + ",\"slot\":" + slot + ",\"username\":" + json(user)
                 + ",\"timestamp\":" + json(OffsetDateTime.now(ZoneId.of("Asia/Bangkok")).toString()) + "}";
     }
 
