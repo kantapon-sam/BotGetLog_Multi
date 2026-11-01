@@ -42,6 +42,12 @@ Update behavior:
 - SID.jar exports Huawei, ZTE, and Nokia loopback/SID rows. Segment_Routing_Prefix.jar remains as a compatibility entry point.
 
 ZTE Enable settings:
+- TRUE collection uses the latest authenticated node prompt. User mode (>) sends
+  enable before collection; a normal primary login already at # stays unchanged.
+- ZTE CLLS backup logins explicitly negotiate enable even when their login prompt
+  is #. Only a requested Enable password uses the saved Enable settings; login
+  passwords are never substituted. Errors, timeouts and different-node prompts
+  stop collection. See docs/zte-enable-negotiation.md.
 - Open Bot Settings - ZTE Enable in the Windows launcher.
 - No Enable passwords are embedded in the application. Add passwords and Save before first use.
 - Only saved passwords are used. Clear saved passwords or delete device-enable.enc to leave no passwords for new connections.

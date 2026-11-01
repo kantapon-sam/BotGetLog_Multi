@@ -55,10 +55,17 @@ public class ZteEnableSettingsRegression {
             public ZteEnableFlow.State current() { return ZteEnableFlow.State.USER; }
             public void command(String command) { sentWithoutSettings[0]++; }
             public void password(String password) { sentWithoutSettings[0]++; }
-            public ZteEnableFlow.State read() { throw new AssertionError("Must not read with missing credentials"); }
+            public ZteEnableFlow.State read() { return ZteEnableFlow.State.PASSWORD; }
             public void attempt(int number, boolean success) { }
         }, Collections.emptyList()));
-        check(sentWithoutSettings[0] == 0, "Missing passwords must not send enable or credentials");
+        check(sentWithoutSettings[0] == 1, "Missing passwords may send enable, never a guessed password");
+        check(ZteEnableFlow.enter(new ZteEnableFlow.Session() {
+            public ZteEnableFlow.State current() { return ZteEnableFlow.State.USER; }
+            public void command(String command) { check("enable".equals(command), "Password-free enable command"); }
+            public void password(String password) { throw new AssertionError("Must not guess an enable password"); }
+            public ZteEnableFlow.State read() { return ZteEnableFlow.State.PRIVILEGED; }
+            public void attempt(int number, boolean success) { }
+        }, Collections.emptyList()), "Password-free enable does not require saved credentials");
         flow(ZteEnableFlow.State.USER, Arrays.asList(ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.PRIVILEGED), 1, 1, true);
         flow(ZteEnableFlow.State.USER, Arrays.asList(ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.USER, ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.PRIVILEGED), 2, 2, true);
         flow(ZteEnableFlow.State.USER, Arrays.asList(ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.PRIVILEGED), 2, 1, true);
@@ -66,6 +73,16 @@ public class ZteEnableSettingsRegression {
         flow(ZteEnableFlow.State.USER, Arrays.asList(ZteEnableFlow.State.PASSWORD, ZteEnableFlow.State.FAILED), 1, 1, false);
         flow(ZteEnableFlow.State.USER, Arrays.asList(ZteEnableFlow.State.PRIVILEGED), 0, 1, true);
         flow(ZteEnableFlow.State.PRIVILEGED, Collections.emptyList(), 0, 0, true);
+        Thread.currentThread().interrupt();
+        try {
+            check(!ZteEnableFlow.enter(new ZteEnableFlow.Session() {
+                public ZteEnableFlow.State current() { throw new AssertionError("Cancelled negotiation must not inspect session"); }
+                public void command(String command) { throw new AssertionError("Cancelled negotiation must not write"); }
+                public void password(String password) { throw new AssertionError("Cancelled negotiation must not send credentials"); }
+                public ZteEnableFlow.State read() { throw new AssertionError("Cancelled negotiation must not read"); }
+                public void attempt(int number, boolean success) { throw new AssertionError("Cancelled negotiation must not attempt"); }
+            }, Arrays.asList("synthetic-primary"), true), "Interrupted session stops before enable");
+        } finally { Thread.interrupted(); }
         System.out.println("PASS ZTE settings: no embedded credentials, first save, clear, deletion, missing key, corruption, encryption, five slots, ordering, cap, stale writes, redaction and negotiation.");
     }
     static void flow(final ZteEnableFlow.State initial, List<ZteEnableFlow.State> responses, int passwords, int commands, boolean expected) throws Exception {
