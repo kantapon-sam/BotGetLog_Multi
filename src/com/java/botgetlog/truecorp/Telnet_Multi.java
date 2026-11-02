@@ -4221,12 +4221,14 @@ public class Telnet_Multi {
                     }
                 }
             }
-            StringBuilder lowerTail = window.snapshot();
             // Only the end of received output can be a completed command.
             // Preserve the quiet settle interval, including split prompts and
             // trailing CR/LF, without rescanning or yielding after every byte.
+            // ANSI instructions are case-sensitive: the pager's CSI D erases
+            // More before the final prompt. The lowercased pagination window
+            // turns it into CSI d and cannot be used to interpret that redraw.
             if (safePatterns.length > 0) {
-                tailAtPrompt = matchesCollectionPrompt(lowerTail, safePatterns, normalizedPatterns, requiredNode, exitCommand);
+                tailAtPrompt = matchesCollectionPrompt(response, safePatterns, normalizedPatterns, requiredNode, exitCommand);
             }
         }
     }
@@ -4667,7 +4669,7 @@ public class Telnet_Multi {
         String text = stripTerminalControlSequences(tail.toString());
         String token = extractPromptToken(text);
         if (requiredNode.isEmpty()) {
-            return matchesAnyPattern(tail, token, patterns, normalizedPatterns)
+            return matchesAnyPattern(new StringBuilder(text.toLowerCase(Locale.ROOT)), token, patterns, normalizedPatterns)
                     || isInteractivePromptToken(token) || containsGatewayMenuPrompt(text);
         }
         if (exitCommand && containsGatewayMenuPrompt(text)) return true;

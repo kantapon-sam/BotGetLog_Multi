@@ -30,6 +30,11 @@ Default input files:
 - defaults\NEW_Site.csv
 
 Update behavior:
+- Scheduled SSH collection interprets ANSI pager erasure using the original
+  response case. Huawei's cursor-left sequence must remain CSI D, so the final
+  same-node prompt is recognized after Space advances a page. Pagination and
+  completion checks remain enabled; this source fix needs a published runtime
+  before it changes installed collectors.
 - Optional --link-optical-preserve-existing-logs (or TRUE_LINKOPTICAL_PRESERVE_EXISTING_LOGS=1)
   retains complete/duplicate logs and archives conflicting partials without overwrite.
   Only explicit --link-optical-discard-incomplete-logs (or TRUE_LINKOPTICAL_DISCARD_INCOMPLETE_LOGS=1)

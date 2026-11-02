@@ -77,6 +77,24 @@ public final class ScheduledSshReadRegression {
             }
         }
         complete("more\r\n"+repeat("x",17000)+"\r\n----\r\nEND\r\n"+PROMPT,8192,"QA-HW",PROMPT);
+        // Huawei erases its pager with CSI D (cursor left), then writes the
+        // prompt on that same line. Lowercasing the raw tail changes D to d,
+        // a different terminal instruction, and leaves More before the prompt.
+        String erasedPager="  ---- More ----\u001b[16D                \u001b[16D";
+        for(int chunk:new int[]{1,7,8192}) {
+            String paged=repeat("version information\r\n",240)+erasedPager
+                    +"next page\r\n"+erasedPager+"last page\r\n"+erasedPager+PROMPT;
+            Result r=read(paged,chunk,"QA-HW",PROMPT,false);
+            check(r.flag("promptDetected"),"ANSI-erased pager hid final prompt, chunk="+chunk);
+            check(r.writes.equals("   "),"exactly one space per erased pager");
+            check(Arrays.equals(paged.getBytes(StandardCharsets.ISO_8859_1),r.saved),"erased pager raw bytes changed");
+            Result wrong=read(erasedPager+"<OTHER-NODE>",chunk,"QA-HW",PROMPT,false);
+            check(wrong.flag("timedOut")&&!wrong.flag("promptDetected"),"erased pager accepted another node");
+            Result continued=read(erasedPager+PROMPT+" continued output",chunk,"QA-HW",PROMPT,false);
+            check(continued.flag("timedOut")&&!continued.flag("promptDetected"),"erased pager accepted unfinished response");
+        }
+        check(read("Response complete\r\nREADY:",7,"","Ready:",false).flag("promptDetected"),
+                "legacy prompt patterns remain case-insensitive");
         for(String tail:new String[]{"", "<OTHER-NODE>", "DescriptionEnding#", "<QA-HW> continued output"}) {
             Result r=read("partial output\r\n"+tail,7,"QA-HW",PROMPT,false);
             check(!r.flag("promptDetected")&&r.flag("timedOut"),"accepted incomplete/wrong prompt");
