@@ -1,6 +1,6 @@
 {
-  "version": "1.2.32",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.32/BotGetLog_Multi-dist-1.2.32.zip",
-  "sha256": "1ad9a3377decd5d16977644b32e01160e24aad008668600d4b7c0b262f89924c",
-  "notes": "Released 1.2.32: Accept parenthesized ZTE site aliases during privilege checks. Retains same-node validation and rejects config prompts. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.32/docs/zte-enable-negotiation.md"
+  "version": "1.2.33",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.33/BotGetLog_Multi-dist-1.2.33.zip",
+  "sha256": "99dab719f337c96c7383b5cf8158d0cee3cc967c2db989e3c41f068a9f4d0083",
+  "notes": "Released 1.2.33: Fix Huawei SSH prompt timeout after Space paging by preserving ANSI control case. Keeps same-node checks and collection limits. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.33/docs/ssh-pagination.md"
 }
