@@ -50,6 +50,27 @@ public final class ZtePrivilegeRegression {
             for (String bad : Arrays.asList("[TIMEOUT-READ]", "Connection closed by foreign host", "OTHER-NODE#", "#", "QA-NODE(config)#"))
                 check(state.invoke(null,bad,"QA-NODE")==ZteEnableFlow.State.FAILED,"reject timeout/foreign/invalid prompt: "+bad);
             check(state.invoke(null,"\u001b[32mQA-NODE#\u001b[0m","QA-NODE")==ZteEnableFlow.State.PRIVILEGED,"ANSI same-node prompt");
+            for (String node : Arrays.asList("CPE-LBR0053_(LBR8566)", "CPE-LBR0191_(LBR1504)",
+                    "CPE-SBR0048_(SBR0004)", "CPE-SBR0092_(SBR1530)", "CPE-SBR7106_(SBR6701)",
+                    "CPE-SPB0127_(SPB7400)", "CPE-SPB0139_(SPB8568)", "CPE-SPB0174_(SPB6019)",
+                    "CPE-SRB0016_(SRB6737)", "CPE-SRB0222_(SRB1101)")) {
+                loginThenEnable(false, node, "#", "", true, "");
+                loginThenEnable(false, node, ">", "Password:\r\n"+node+"#", true, "enable\nsynthetic-enable\n");
+                loginThenEnable(true, node, "#", node+"#", true, "enable\n");
+                loginThenEnable(true, node, ">", "Password:\r\n"+node+"#", true, "enable\nsynthetic-enable\n");
+                check(state.invoke(null,"\u001b[32m"+node+"#\u001b[0m",node.replace('_','-'))
+                        ==ZteEnableFlow.State.PRIVILEGED,"ANSI and filename-normalized parenthesized identity");
+                check(state.invoke(null,node+"(config)#",node)==ZteEnableFlow.State.FAILED,"reject appended config mode");
+            }
+            for (String bad : Arrays.asList("CPE-LBR0053_(OTHER)#", "CPE-LBR0053_(LBR8566#",
+                    "CPE-LBR0053_LBR8566)#", "CPE-LBR0053_((LBR8566))#", "CPE-LBR0053_()#"))
+                check(state.invoke(null,bad,"CPE-LBR0053_(LBR8566)")==ZteEnableFlow.State.FAILED,"reject wrong or malformed suffix");
+            for (String mode : Arrays.asList("config", "config-if", "CONFIG-ROUTER")) {
+                String node="QA-NODE("+mode+")";
+                check(state.invoke(null,node+"#",node)==ZteEnableFlow.State.FAILED,"config remains invalid even if captured as expected node");
+            }
+            loginThenEnable(true,"CPE-LBR0053_(LBR8566)","#","Password:\r\nIncorrect password\r\nCPE-LBR0053_(LBR8566)#",
+                    false,"enable\nsynthetic-enable\n");
             for(String secret:Arrays.asList("QA","wrong-password")) {
                 entry.put("password",secret);
                 settings.save("ZTE",(String)settings.status().get("revision"),Collections.singletonList(entry),1,false);
@@ -67,19 +88,24 @@ public final class ZtePrivilegeRegression {
         }
     }
     private static void loginThenEnable(boolean backup,String suffix,String enableResponse,boolean expected,String sent) throws Exception {
-        Object[] fixture=fixture("Password:\r\nQA-NODE"+suffix+"\r\n"+enableResponse);
+        loginThenEnable(backup,"QA-NODE",suffix,enableResponse,expected,sent);
+    }
+    private static void loginThenEnable(boolean backup,String node,String suffix,String enableResponse,boolean expected,String sent) throws Exception {
+        Object[] fixture=fixture("Password:\r\n"+node+suffix+"\r\n"+enableResponse);
         Object collector=fixture[0];String response;
         if(backup) {
             response=(String)invoke(collector,"loginCllsBackup",new Class[]{CllsFallback.Credential.class,String.class},
                     new CllsFallback.Credential(1,"synthetic-backup","synthetic-login"),"Authentication failed\r\nUsername:");
         } else {
             response=(String)invoke(collector,"completeSshNodeLogin",new Class[]{String.class,String.class,String.class,String.class,String.class,String.class},
-                    "192.0.2.1","QA-NODE",CMD,"Username:","clls","synthetic-login");
+                    "192.0.2.1",node,CMD,"Username:","clls","synthetic-login");
         }
         set(collector,"nodeUsesBackupCredentials",backup);
-        invoke(collector,"updateRuntimeDeviceNameFromResponse",new Class[]{String.class,String.class,String.class},response,"QA-NODE",CMD);
+        invoke(collector,"updateRuntimeDeviceNameFromResponse",new Class[]{String.class,String.class,String.class},response,node,CMD);
         ((ByteArrayOutputStream)fixture[1]).reset();
-        check(Boolean.valueOf(expected).equals(enable(collector)),"privilege result primary/backup="+backup+" prompt="+suffix);
+        check(Boolean.valueOf(expected).equals(invoke(collector,"ensureZtePrivilegedMode",
+                new Class[]{String.class,String.class,String.class,int.class},CMD,"192.0.2.1",node,1)),
+                "privilege result primary/backup="+backup+" prompt="+node+suffix);
         check(sent.equals(writes(fixture)),"only expected enable/password writes");
         check(!get(collector,"LOG").toString().contains("synthetic-enable"),"enable secret excluded from transcript");
     }

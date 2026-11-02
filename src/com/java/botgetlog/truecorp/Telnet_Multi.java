@@ -463,7 +463,12 @@ public class Telnet_Multi {
         if (isTimeoutResponse(failureText) || containsTransportFailureText(failureText)
                 || CllsFallback.authenticationBlocked(failureText)) return ZteEnableFlow.State.FAILED;
         if (interactive) {
-            if (!prompt.matches("[A-Za-z0-9_][A-Za-z0-9_.-]*[>#]")) return ZteEnableFlow.State.FAILED;
+            // Parenthesized site aliases are part of real ZTE hostnames. Keep
+            // their balanced suffix and same-node check, but never accept a
+            // configuration-mode prompt as operational privilege.
+            if (!prompt.matches("[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\\([A-Za-z0-9_.-]+\\))?[>#]")
+                    || prompt.matches("(?i).*\\(config(?:-[A-Za-z0-9_.-]+)?\\)[>#]"))
+                return ZteEnableFlow.State.FAILED;
             String actual = extractNodeNameFromPromptToken(prompt);
             if (safeTrim(expectedNode).isEmpty() || !matchesDeviceForLogComparison(expectedNode, actual))
                 return ZteEnableFlow.State.FAILED;
@@ -472,7 +477,7 @@ public class Telnet_Multi {
                     return ZteEnableFlow.State.FAILED;
                 return ZteEnableFlow.State.PRIVILEGED;
             }
-            if (isSingleSidedGreaterPromptToken(prompt)) return ZteEnableFlow.State.USER;
+            if (prompt.endsWith(">")) return ZteEnableFlow.State.USER;
         }
         if (clean.trim().toLowerCase(Locale.ROOT).matches("(?s).*(?:password|ssword)\\s*:$")) return ZteEnableFlow.State.PASSWORD;
         return ZteEnableFlow.State.FAILED;

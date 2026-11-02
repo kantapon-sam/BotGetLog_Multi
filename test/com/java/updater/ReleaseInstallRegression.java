@@ -96,7 +96,12 @@ public final class ReleaseInstallRegression {
         require(process.exitValue() == 0, "Updater failed: " + log);
         Path marker = target.resolve("installed-version.txt");
         long deadline = System.currentTimeMillis() + 15000;
-        while (!Files.exists(marker) && System.currentTimeMillis() < deadline) Thread.sleep(100);
+        // Files.write creates the marker before its bytes are visible. Wait
+        // for the expected content, not merely the new empty file's existence.
+        while (System.currentTimeMillis() < deadline) {
+            if (Files.exists(marker) && expected.equals(new String(Files.readAllBytes(marker), StandardCharsets.UTF_8))) break;
+            Thread.sleep(100);
+        }
         require(Files.exists(marker), "Relaunched probe did not run");
         require(expected.equals(new String(Files.readAllBytes(marker), StandardCharsets.UTF_8)), "Wrong relaunched version");
         for (String jar : new String[]{"BotGetLog_TrueCorp.jar", "Bot Tool Launcher.jar"}) {
