@@ -1,6 +1,6 @@
 {
-  "version": "1.2.33",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.33/BotGetLog_Multi-dist-1.2.33.zip",
-  "sha256": "99dab719f337c96c7383b5cf8158d0cee3cc967c2db989e3c41f068a9f4d0083",
-  "notes": "Released 1.2.33: Fix Huawei SSH prompt timeout after Space paging by preserving ANSI control case. Keeps same-node checks and collection limits. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.33/docs/ssh-pagination.md"
+  "version": "1.2.34",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.34/BotGetLog_Multi-dist-1.2.34.zip",
+  "sha256": "8afd71d4d4bcf467d786949bfe786a1309ff4171301c6e6cf5152e18d855fecb",
+  "notes": "Released 1.2.34: Accept finished ZTE service-timeout captures as Complete (Partial), retain usable data and keep daily retries within existing limits. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.34/docs/zte-partial-collection.md"
 }
