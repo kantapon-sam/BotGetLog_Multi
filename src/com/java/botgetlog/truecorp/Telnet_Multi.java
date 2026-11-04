@@ -6295,6 +6295,10 @@ public class Telnet_Multi {
                     command = boundary.group(2).trim();
                 }
                 if (containsWrongVendorSignal(line)) {
+                    // A rejected display preference is harmless only when a
+                    // finished same-node capture proves every data response.
+                    if ("ZTE".equals(vendor)
+                            && com.java.shared.ZtePartialLog.inspect(logFile).isCompleteWithPagingFallback()) continue;
                     String fallback = commandFallback(vendor, command, line);
                     if (!fallback.isEmpty() && expectedNode.equalsIgnoreCase(node)) {
                         br.mark(2100000);

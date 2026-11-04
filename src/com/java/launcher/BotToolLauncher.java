@@ -68,10 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.34: Accept finished ZTE service-timeout captures as Complete (Partial), retain
-    // usable data and keep daily retries within existing limits. Details:
-    // https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.34/docs/zte-partial-collection.md
-    private static final String FALLBACK_VERSION = "1.2.34";
+    // Version 1.2.35: Treat verified ZTE paging setup rejection as Complete;
+    // preserve Partial only when data commands have supported service timeouts.
+    private static final String FALLBACK_VERSION = "1.2.35";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

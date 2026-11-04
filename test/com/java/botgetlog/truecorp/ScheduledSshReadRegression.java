@@ -76,6 +76,9 @@ public final class ScheduledSshReadRegression {
                 check(Arrays.equals(text.getBytes(StandardCharsets.ISO_8859_1),r.saved),"pagination log changed");
             }
         }
+        Result ztePaged=read("show interface\r\nFIRST PAGE\r\n--More--\b\b\r\nSECOND PAGE\r\nQA-ZTE#\r\n",
+                7,"QA-ZTE","QA-ZTE#",false);
+        check(ztePaged.writes.equals(" ") && ztePaged.flag("promptDetected"),"ZTE Space continuation reaches final prompt");
         complete("more\r\n"+repeat("x",17000)+"\r\n----\r\nEND\r\n"+PROMPT,8192,"QA-HW",PROMPT);
         // Huawei erases its pager with CSI D (cursor left), then writes the
         // prompt on that same line. Lowercasing the raw tail changes D to d,
