@@ -68,10 +68,10 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.33: Fix Huawei SSH prompt timeout after Space paging by preserving ANSI control
-    // case. Keeps same-node checks and collection limits. Details:
-    // https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.33/docs/ssh-pagination.md
-    private static final String FALLBACK_VERSION = "1.2.33";
+    // Version 1.2.34: Accept finished ZTE service-timeout captures as Complete (Partial), retain
+    // usable data and keep daily retries within existing limits. Details:
+    // https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.34/docs/zte-partial-collection.md
+    private static final String FALLBACK_VERSION = "1.2.34";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";

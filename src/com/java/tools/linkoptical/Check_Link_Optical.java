@@ -25,6 +25,8 @@ public class Check_Link_Optical {
         while ((line = br.readLine()) != null) {
             lines.add(line);
         }
+        com.java.shared.ZtePartialLog.Result partial = com.java.shared.ZtePartialLog.inspect(lines, path);
+        if (partial.isPartial()) lines = partial.safeLines();
 
         if (path.contains("_J-LLDP-Link_OPTIC_")) {
             return JuniperExportParser.parse(lines, path);
@@ -1016,6 +1018,12 @@ Pattern pHasNeighbor = Pattern.compile(
                 String outPeak = intfRec != null ? intfRec.getOrDefault("OutPeak(G)", "0") : "0";
                 String inTime = intfRec != null ? intfRec.getOrDefault("InTime(TH)", "") : "";
                 String outTime = intfRec != null ? intfRec.getOrDefault("OutTime(TH)", "") : "";
+
+                if (partial.isPartial() && partial.missingCommands().contains("show interface")) {
+                    oper = "UNKNOWN";
+                    inPeak = "";
+                    outPeak = "";
+                }
 
                 Str_LLDP_all += csvSafe(siteCode) + "," + csvSafe(ipLoopback) + "," + csvSafe(port) + ","
                         + csvSafe(oper) + "," + csvSafe(desc) + "," + csvSafe(neighName) + ","

@@ -412,7 +412,7 @@ final class TrueLinkOpticalAutoMode {
                 continue;
             }
             String cmdSet = extractLinkOpticalCmdSetFromFileName(log.getName());
-            if (!cmdSet.isEmpty() && BotGetLog_TrueCorp.isLogCompleteForCmdSet(log, cmdSet)) {
+            if (!cmdSet.isEmpty() && BotGetLog_TrueCorp.isLogUsableForCmdSet(log, cmdSet)) {
                 completed.add(log);
             }
         }
@@ -1198,6 +1198,7 @@ final class TrueLinkOpticalAutoMode {
         }
         String prefix = "[" + rowNum + "]";
         String marker = "_" + cmdSet + "_";
+        File partial = null;
         for (File log : rowLogs) {
             if (log == null) {
                 continue;
@@ -1209,8 +1210,9 @@ final class TrueLinkOpticalAutoMode {
             if (BotGetLog_TrueCorp.isLogCompleteForCmdSet(log, cmdSet)) {
                 return log;
             }
+            if (partial == null && BotGetLog_TrueCorp.isLogUsableForCmdSet(log, cmdSet)) partial = log;
         }
-        return null;
+        return partial;
     }
 
     private static Set<String> selectedIps(Selection selection, Sheet deviceSheet) {

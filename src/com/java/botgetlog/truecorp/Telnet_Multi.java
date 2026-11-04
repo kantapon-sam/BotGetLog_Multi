@@ -3425,8 +3425,10 @@ public class Telnet_Multi {
 
 //  END log   node
             String endTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
-            String endLog = String.format("[END] %s (%s, %s) at %s",
-                    Loopback, Device, cmdSet, endTime);
+            com.java.shared.ZtePartialLog.Result partial = com.java.shared.ZtePartialLog.inspect(logFile);
+            String endLog = String.format("[%s] %s (%s, %s) at %s",
+                    partial.isPartial() ? "PARTIAL" : "END", Loopback, Device, cmdSet, endTime);
+            if (partial.isPartial()) endLog += " - " + partial.detail();
             if (!completedExitWarning.isEmpty()) {
                 endLog += " - Completed; session close warning: " + completedExitWarning;
             }
@@ -5361,7 +5363,7 @@ public class Telnet_Multi {
 
     static String withAttemptId(String event, String attemptId) {
         if (event == null || !(event.startsWith("[START] ") || event.startsWith("[END] ")
-                || event.startsWith("[FAIL] ") || event.startsWith("[TIMEOUT] ")
+                || event.startsWith("[FAIL] ") || event.startsWith("[TIMEOUT] ") || event.startsWith("[PARTIAL] ")
                 || event.startsWith("[SKIP] Completed equivalent log"))) return event;
         String suffix = event.endsWith("\n") ? "\n" : "";
         return event.trim() + " [ATTEMPT=" + attemptId + "]" + suffix;
@@ -7021,6 +7023,8 @@ public class Telnet_Multi {
     }
 
     private boolean validateCollectedCommands(File logFile, int row, String ip, String device, String cmdSet) {
+        if ("ZTE-LLDP-Link_OPTIC".equalsIgnoreCase(cmdSet)
+                && com.java.shared.ZtePartialLog.inspect(logFile).isPartial()) return true;
         if (!hasWrongVendorSignal(logFile)) {
             return true;
         }
@@ -7585,6 +7589,8 @@ public class Telnet_Multi {
                         if (isActiveLogSession(f)) {
                             continue;
                         }
+                        // Keep usable device-timeout captures. Strict validators still select daily repairs.
+                        if (com.java.shared.ZtePartialLog.inspect(f).isPartial()) continue;
                         if (shouldSkipMonitorScan(wrongVendorScanCache, f, now)) {
                             continue;
                         }
@@ -7733,6 +7739,8 @@ public class Telnet_Multi {
                         if (isActiveLogSession(f)) {
                             continue;
                         }
+                        // Keep usable device-timeout captures. Strict validators still select daily repairs.
+                        if (com.java.shared.ZtePartialLog.inspect(f).isPartial()) continue;
                         if (shouldSkipMonitorScan(commandMonitorScanCache, f, now)) {
                             continue;
                         }
@@ -8052,6 +8060,8 @@ public class Telnet_Multi {
                         if (isActiveLogSession(f)) {
                             continue;
                         }
+                        // Keep usable device-timeout captures. Strict validators still select daily repairs.
+                        if (com.java.shared.ZtePartialLog.inspect(f).isPartial()) continue;
                         if (shouldSkipMonitorScan(connFailMonitorScanCache, f, now)) {
                             continue;
                         }

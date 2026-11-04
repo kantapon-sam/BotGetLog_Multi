@@ -103,6 +103,7 @@ public class BotGetLog_TrueCorp {
     private static final AtomicInteger ACTIVE_TASKS = new AtomicInteger(0);
 //  Summary counters
     public static final AtomicInteger successCount = new AtomicInteger(0);
+    public static final AtomicInteger partialCount = new AtomicInteger(0);
     public static final AtomicInteger failCount = new AtomicInteger(0);
     public static final AtomicInteger stoppedCount = new AtomicInteger(0);
     public static final AtomicInteger authFailCount = new AtomicInteger(0);
@@ -119,6 +120,7 @@ public class BotGetLog_TrueCorp {
 
     public static void resetRunCounters() {
         successCount.set(0);
+        partialCount.set(0);
         failCount.set(0);
         stoppedCount.set(0);
         authFailCount.set(0);
@@ -616,6 +618,7 @@ public class BotGetLog_TrueCorp {
     private enum NetworkRetryStatus {
         SUCCESS,
         NETWORK_FAILED,
+        PARTIAL,
         NON_NETWORK_FAILED,
         STOPPED
     }
@@ -2350,6 +2353,13 @@ public class BotGetLog_TrueCorp {
                                             }
 
                                             File latestLog = findLatestMatchingLog(fFile, fRowNum, fLoop, fCmd);
+                                            if (!telnetObj.hasSessionFailureRecorded()
+                                                    && com.java.shared.ZtePartialLog.inspect(latestLog).isPartial()) {
+                                                partialCount.incrementAndGet();
+                                                taskSucceeded = true; // Accepted capture, not full-data completion.
+                                                realOut.printf("[PARTIAL-RETAINED] %s; strict completion remains false for daily retry%n", fLoop);
+                                                break;
+                                            }
                                             if (latestLog != null && hasConnectionFailureSignalInLog(latestLog)) {
                                                 BotGetLog_TrueCorp.recordNetworkFailure();
                                                 networkRetryQueue.putIfAbsent(
@@ -2996,6 +3006,7 @@ public class BotGetLog_TrueCorp {
 
             System.out.println("\n========== SUMMARY ==========");
             System.out.printf("[OK] Success: %d nodes (%.2f%%)%n", successCount, successPercent);
+            System.out.printf("[PARTIAL] Complete (Partial): %d nodes; daily repair remains eligible%n", partialCount.get());
             System.out.printf("[WARN] Wrong vendor: %d nodes%n", wrongVendorCount);
             System.out.printf("[FAIL] Connection failed: %d nodes%n", connFailCount);
             System.out.printf("[INFO] Total processed: %d nodes%n", totalProcessed);
@@ -3194,6 +3205,13 @@ public class BotGetLog_TrueCorp {
             }
         }
         return isLogComplete(logFile, firstCommand, lastCommand, safeCmdSet);
+    }
+
+    /** Export admission only. Partial captures must never grant completion/retry protection. */
+    public static boolean isLogUsableForCmdSet(File logFile, String cmdSet) {
+        return isLogCompleteForCmdSet(logFile, cmdSet)
+                || ("ZTE-LLDP-Link_OPTIC".equalsIgnoreCase(cmdSet)
+                && com.java.shared.ZtePartialLog.inspect(logFile).isPartial());
     }
 
     private static boolean isLogCompleteForLogFileCmdSet(File logFile, String fallbackCmdSet) {
@@ -3782,6 +3800,11 @@ public class BotGetLog_TrueCorp {
 
             File latestLog = findLatestMatchingLog(retryTask.fileInput,
                     task.rowNum, task.loopback, task.cmdSet);
+            if (!connection.hasSessionFailureRecorded() && "ZTE-LLDP-Link_OPTIC".equalsIgnoreCase(task.cmdSet)
+                    && com.java.shared.ZtePartialLog.inspect(latestLog).isPartial()) {
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.PARTIAL,
+                        com.java.shared.ZtePartialLog.inspect(latestLog).detail());
+            }
             boolean retryableNetworkFailure = connection.hasRetryableNetworkFailureRecorded()
                     || (latestLog != null && hasConnectionFailureSignalInLog(latestLog));
             if (retryableNetworkFailure) {
@@ -3859,6 +3882,10 @@ public class BotGetLog_TrueCorp {
                     realOut.printf("[RETRY-QUEUE][TRUE] Recovered Row %d %s (%s) in round %d/%d: %s%n",
                             retryTask.task.rowNum, retryTask.task.device, retryTask.task.loopback,
                             round, MAX_NETWORK_RERUN_ROUNDS, result.detail);
+                } else if (result.status == NetworkRetryStatus.PARTIAL) {
+                    partialCount.incrementAndGet();
+                    realOut.printf("[RETRY-QUEUE][TRUE] Complete (Partial) Row %d %s (%s): %s%n",
+                            retryTask.task.rowNum, retryTask.task.device, retryTask.task.loopback, result.detail);
                 } else if (result.status == NetworkRetryStatus.NETWORK_FAILED
                         && round < MAX_NETWORK_RERUN_ROUNDS) {
                     nextQueue.putIfAbsent(retryTask.key(), retryTask);

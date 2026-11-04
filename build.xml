@@ -165,6 +165,7 @@
                 <attribute name="Implementation-Version" value="${application.version}"/>
             </manifest>
             <fileset dir="${build.classes.dir}">
+                <include name="com/java/shared/ZtePartialLog*.class"/>
                 <include name="com/java/shared/AppConsole.class"/>
                 <include name="com/java/shared/AppConsole$ConsoleOutputStream.class"/>
                 <include name="com/java/launcher/LauncherGate.class"/>
