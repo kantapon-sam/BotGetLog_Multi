@@ -1,6 +1,6 @@
 {
-  "version": "1.2.35",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.35/BotGetLog_Multi-dist-1.2.35.zip",
-  "sha256": "e194f904c0d24ac0d34f2ba903669fdd28c8bdcfc1d984d011be3dd4d0ed97ef",
-  "notes": "Released 1.2.35: Recognize complete ZTE captures when only terminal length 0 is rejected; retain strict data checks and Partial for service timeouts. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.35/docs/zte-partial-collection.md"
+  "version": "1.2.36",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.36/BotGetLog_Multi-dist-1.2.36.zip",
+  "sha256": "8361f159b84f08e3064b77d992db1abb3746c1d59075851f5402ce52ffa1cd3b",
+  "notes": "Released 1.2.36: Keep ZTE PN Live Node Monitor within its timeout using compact interface inventory and selected-port details. Scheduled full collection remains unchanged. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.36/docs/live-pn-monitor.md"
 }
