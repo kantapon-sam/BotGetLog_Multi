@@ -243,7 +243,10 @@ public final class TrueLiveNodeProbeCli {
     private static boolean isLargeZteNode(String node, String nodeType) {
         String type = nodeType == null ? "" : nodeType.trim().toUpperCase(Locale.ROOT);
         String name = node == null ? "" : node.trim().toUpperCase(Locale.ROOT);
-        return "RN".equals(type) || "AGN".equals(type)
+        // PN chassis can expose thousands of logical interfaces. Keep live
+        // polling compact; selected physical ports still get detail commands.
+        return "PN".equals(type) || "RN".equals(type) || "AGN".equals(type)
+                || name.matches("PN\\d*-.*")
                 || name.startsWith("RN-") || name.startsWith("AGN-");
     }
 
