@@ -1,4 +1,20 @@
-# Optional CLLS backup accounts — 1.2.37
+# Optional CLLS backup accounts — 1.2.38
+
+Version 1.2.38 supports server-enabled TrueLogs fallback to the Control Console's
+saved backup slots. The job always tries its own saved SAM and CLLS login first.
+An explicit node rejection may then try Control backups in slot order, skipping
+duplicate pairs. The personal SAM account remains unchanged. A gateway failure,
+timeout, account lock or IP block does not authorize another account.
+Control's primary CLLS and SAM accounts are never used by this fallback; only
+the explicitly saved Backup 1–5 pairs are eligible.
+
+The trusted TrueLogs worker supplies the Control store and shared-budget paths;
+job input cannot select them. Each backup opens the same requested node and must
+verify its prompt. ZTE backups negotiate enable even at `#`. Separate-account
+jobs additionally acquire a shared Bot connection permit before using a Control
+backup; shared jobs retain their existing permit. All permits close with the
+connection. Backup passwords are redacted before transcripts leave the core.
+Personal settings and the Control credential store remain unchanged.
 
 Version 1.2.37 waits up to 120 seconds per node authentication response, with an
 absolute deadline and interruption handling. Ordinary gateway and command read
@@ -16,8 +32,8 @@ do not authorize fallback. Duplicate pairs and the five-slot limit still apply.
 
 Personal Live/TrueLogs logins use the same bounded authentication reader and
 retain their prompt for enable/collection. They do not blindly resubmit rejected
-credentials or borrow scheduled Bot backup accounts; the job's personal profile
-and existing retry policy remain authoritative.
+credentials. Unconfigured clients keep personal-only behavior; the server-enabled
+TrueLogs exception introduced in 1.2.38 follows the policy above.
 For the ZTE local `who` account, Live/TrueLogs explicitly negotiate `enable` even
 when login displays `#`; this account can otherwise reject all operational
 commands with Error 140303. Other personal accounts retain their normal privilege

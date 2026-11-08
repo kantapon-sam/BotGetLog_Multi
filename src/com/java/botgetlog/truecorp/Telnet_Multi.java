@@ -981,7 +981,7 @@ public class Telnet_Multi {
             List<String> commands, Map<String, List<String>> commandSets, boolean includeActivePortDetails) {
         long startedAt = System.currentTimeMillis();
         try (CredentialProbe probe = new CredentialProbe()) {
-            LoginValidationResult login = probe.validate(server, userServer, pwServer,
+            LoginValidationResult login = probe.validateWithControlBackups(server, userServer, pwServer,
                     loopback, userCLLS, pwCLLS, cmdSet, device);
             if (!login.isSuccess()) {
                 return LiveProbeResult.failure(login.status.name(), login.message,
@@ -1003,6 +1003,7 @@ public class Telnet_Multi {
                 }
             }
             String transcript = probe.executeCommands(commands, includeActivePortDetails);
+            transcript = probe.redactControlBackups(transcript);
             if (probe.enableSnapshot != null) transcript = probe.enableSnapshot.redact(transcript);
             if (isTimeoutResponse(transcript)) {
                 return LiveProbeResult.failure("COMMAND_TIMEOUT",
@@ -1225,7 +1226,7 @@ public class Telnet_Multi {
         return CredentialProbe.extractHuaweiActivePorts(response, maxPorts);
     }
 
-    private static final class CredentialProbe implements AutoCloseable {
+    static class CredentialProbe implements AutoCloseable {
 
         private final TelnetClient telnet = new TelnetClient();
         private Session sshSession;
@@ -1234,6 +1235,10 @@ public class Telnet_Multi {
         private PrintStream out;
         private String lastPromptToken = "";
         private boolean forceZteEnableAfterLogin;
+        private String lastAuthenticationResponse = "";
+        private boolean personalCredentialSubmitted;
+        private List<CllsFallback.Credential> controlBackups = java.util.Collections.emptyList();
+        private com.truelinkoptical.shared.SharedConnectionBudget.Lease controlBackupLease;
         private DeviceEnableSettings.Snapshot enableSnapshot;
         private GatewayEndpoint gatewayEndpoint;
         private int liveProgressCompleted = -1;
@@ -1242,7 +1247,7 @@ public class Telnet_Multi {
         private long liveProgressLastActivityAt;
         private long liveProgressLastWriteAt;
 
-        private LoginValidationResult validate(String server, String userServer, String pwServer,
+        LoginValidationResult validate(String server, String userServer, String pwServer,
                 String loopback, String userCLLS, String pwCLLS, String cmdSet, String device) {
 
             String safeUserServer = safeTrim(userServer);
@@ -1250,6 +1255,8 @@ public class Telnet_Multi {
             String safeLoopback = safeTrim(loopback);
             String safeUserCLLS = safeTrim(userCLLS);
             String safePwCLLS = safeTrim(pwCLLS);
+            lastAuthenticationResponse = "";
+            personalCredentialSubmitted = false;
             // ZTE's local who account can display '#' before enabling its
             // operational commands. Personal TrueLogs has no backup-slot flag.
             forceZteEnableAfterLogin = "who".equalsIgnoreCase(safeUserCLLS);
@@ -1310,11 +1317,13 @@ public class Telnet_Multi {
                         || usernamePromptLow.indexOf("ssword:") >= 0;
                 if (!waitingForPassword) {
                     writeNoShow(safeUserCLLS);
+                    personalCredentialSubmitted = true;
                 }
 
                 String passwordPrompt = waitingForPassword
                         ? usernamePrompt
                         : readNodeAuthentication("ssword:");
+                lastAuthenticationResponse = passwordPrompt;
                 if (containsLoginFailureText(passwordPrompt)) {
                     return LoginValidationResult.invalidCredentials("Username or password was rejected on " + target + ".");
                 }
@@ -1330,9 +1339,11 @@ public class Telnet_Multi {
                 }
 
                 writeNoShow(safePwCLLS);
+                personalCredentialSubmitted = true;
                 String postPassword = (family == 'J')
                         ? readNodeAuthentication(">", "#")
                         : waitForPostPasswordPrompt(safeUserCLLS, safePwCLLS);
+                lastAuthenticationResponse = postPassword;
 
                 if (postPassword == null || postPassword.isEmpty()) {
                     return LoginValidationResult.retryableFailure("No response after password on " + target + ".");
@@ -1363,6 +1374,71 @@ public class Telnet_Multi {
                 }
                 return LoginValidationResult.retryableFailure("Validation error on " + target + ": " + message);
             }
+        }
+
+        private LoginValidationResult validateWithControlBackups(String server, String samUser, String samPassword,
+                String ip, String personalUser, String personalPassword, String cmdSet, String device) throws Exception {
+            // The job's personal login always runs first; gateway failures never
+            // borrow Control SAM credentials. Only explicitly rejected node auth
+            // may consult the trusted worker-configured backup store.
+            LoginValidationResult primary = validate(server, samUser, samPassword, ip,
+                    personalUser, personalPassword, cmdSet, device);
+            if (primary.isSuccess() || !personalCredentialSubmitted
+                    || !CllsFallback.retryableRejection(lastAuthenticationResponse)) return primary;
+            String store = System.getProperty("botgetlog.live.cllsBackupStore", "");
+            if (store.isEmpty() || System.getProperty("true.log.progress.file", "").isEmpty()) return primary;
+            controlBackups = TrueCllsCredentialStore.loadBackups(new File(store));
+            if (controlBackups.isEmpty()) return primary;
+            String rejected = lastAuthenticationResponse;
+            resetGatewayConnection();
+            if (!acquireControlBackupLease())
+                return LoginValidationResult.retryableFailure("Waiting for Control backup connection capacity.");
+            CllsFallback.Result result = CllsFallback.attempt(rejected, personalUser, personalPassword, controlBackups,
+                    (credential, previous) -> {
+                        resetGatewayConnection();
+                        System.out.println("[TRUELOGS-CLLS-BACKUP] " + ip + " slot=" + credential.slot + " username=" + credential.username);
+                        LoginValidationResult next = validate(server, samUser, samPassword, ip,
+                                credential.username, credential.password, cmdSet, device);
+                        if (next.isSuccess()) return lastAuthenticationResponse;
+                        return personalCredentialSubmitted && !lastAuthenticationResponse.isEmpty()
+                                ? lastAuthenticationResponse : "[TIMEOUT-READ]";
+                    }, response -> !CllsFallback.hardStop(response) && !containsLoginFailureText(response)
+                            && hasInteractivePromptToken(response)
+                            && matchesDeviceForLogComparison(device, extractNodeNameFromPromptToken(lastPromptToken)));
+            if (result.successful != null) {
+                forceZteEnableAfterLogin = true;
+                System.out.println("[TRUELOGS-CLLS-BACKUP-SUCCESS] " + ip + " slot=" + result.successful.slot
+                        + " username=" + result.successful.username);
+                return LoginValidationResult.success("Validated node login with a configured Control backup.");
+            }
+            return LoginValidationResult.invalidCredentials("Personal and configured Control logins did not verify the expected node.");
+        }
+
+        private boolean acquireControlBackupLease() throws IOException {
+            String shared = System.getProperty("botgetlog.live.cllsBackupBudgetDir", "");
+            String held = System.getProperty("true.shared.connectionBudget.dir", "");
+            if (shared.isEmpty() || held.isEmpty()) return false;
+            if (java.nio.file.Paths.get(shared).toRealPath().equals(java.nio.file.Paths.get(held).toRealPath())) return true;
+            // Separate personal accounts retain their web permit and acquire a
+            // shared Bot permit before any connection using Control credentials.
+            com.truelinkoptical.shared.SharedConnectionBudget budget = new com.truelinkoptical.shared.SharedConnectionBudget(
+                    java.nio.file.Paths.get(shared), Integer.parseInt(System.getProperty("botgetlog.live.cllsBackupBudgetTotal", "20")),
+                    Integer.parseInt(System.getProperty("botgetlog.live.cllsBackupBudgetMaxLive", "5")));
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(60);
+            do {
+                if (Thread.currentThread().isInterrupted()) return false;
+                controlBackupLease = budget.tryAcquireBot();
+                if (controlBackupLease != null) return true;
+                sleepQuietly(200);
+            } while (System.nanoTime() < deadline);
+            return false;
+        }
+
+        private String redactControlBackups(String text) {
+            if (text == null) return "";
+            for (CllsFallback.Credential credential : controlBackups)
+                if (!credential.password.isEmpty()) text = text.replace(credential.password, "[REDACTED]");
+            return text;
         }
 
         private boolean ensureZtePrivilegedMode() {
@@ -2235,8 +2311,9 @@ public class Telnet_Multi {
         }
 
         @Override
-        public void close() {
+        public void close() throws IOException {
             resetGatewayConnection();
+            if (controlBackupLease != null) { controlBackupLease.close(); controlBackupLease = null; }
         }
     }
 

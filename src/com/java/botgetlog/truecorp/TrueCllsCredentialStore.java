@@ -63,6 +63,10 @@ final class TrueCllsCredentialStore {
         return loadBackups(loadProperties());
     }
 
+    static List<CllsFallback.Credential> loadBackups(File storeFile) {
+        return loadBackups(loadProperties(storeFile));
+    }
+
     static List<CllsFallback.Credential> loadBackups(Properties properties) {
         List<CllsFallback.Credential> result = new ArrayList<>();
         for (int slot = 1; slot <= CllsFallback.MAX_BACKUPS; slot++) {

@@ -55,6 +55,9 @@ ZTE Enable settings:
   stop collection. See docs/zte-enable-negotiation.md.
 - Personal Live/TrueLogs logins using the ZTE local who account also explicitly
   negotiate enable at # before collecting operational commands.
+- Server-enabled TrueLogs tries each job's saved SAM/CLLS login first. Only an
+  explicit node rejection permits Control backup slots, under shared capacity,
+  with the personal SAM account and saved settings preserved.
 - Open Bot Settings - ZTE Enable in the Windows launcher.
 - No Enable passwords are embedded in the application. Add passwords and Save before first use.
 - Only saved passwords are used. Clear saved passwords or delete device-enable.enc to leave no passwords for new connections.
