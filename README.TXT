@@ -39,7 +39,7 @@ Update behavior:
   retains complete/duplicate logs and archives conflicting partials without overwrite.
   Only explicit --link-optical-discard-incomplete-logs (or TRUE_LINKOPTICAL_DISCARD_INCOMPLETE_LOGS=1)
   additionally removes positively verified incomplete transcripts before replacement.
-  See docs/clls-backup-accounts.md; unknown or unreadable logs are retained.
+  See docs/guides/clls-backup-accounts.md; unknown or unreadable logs are retained.
 - Long GitHub release notes are parsed without recursive regex backtracking,
   preventing a Java 8 StackOverflowError before the launcher window opens.
 - The updater replaces application jars, defaults, lib, updater, and README.TXT.
@@ -52,7 +52,7 @@ ZTE Enable settings:
 - ZTE CLLS backup logins explicitly negotiate enable even when their login prompt
   is #. Only a requested Enable password uses the saved Enable settings; login
   passwords are never substituted. Errors, timeouts and different-node prompts
-  stop collection. See docs/zte-enable-negotiation.md.
+  stop collection. See docs/guides/zte-enable-negotiation.md.
 - Personal Live/TrueLogs logins using the ZTE local who account also explicitly
   negotiate enable at # before collecting operational commands.
 - Server-enabled TrueLogs tries each job's saved SAM/CLLS login first. Only an
@@ -86,7 +86,7 @@ Optional CLLS backup accounts:
   A failed login does not create a note. A future verified primary CLLS login
   automatically resolves the matching Note in Control Console. Recovery requires
   a fresh same-node login using the actual configured primary account; old logs and
-  gateway prompts never clear Notes. See docs/clls-note-recovery.md.
+  gateway prompts never clear Notes. See docs/guides/clls-note-recovery.md.
 
 Juniper Link Optical collection:
 - Log validation accepts initial empty SSH prompts from the same node before

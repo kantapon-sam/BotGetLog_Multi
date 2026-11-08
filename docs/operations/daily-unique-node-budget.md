@@ -1,10 +1,13 @@
 # Daily distinct-IP budget (1.2.26)
 
-The scheduled 20:00 workflow may enable a 7,500 distinct management-IP budget
+The scheduled daily workflow may enable a 7,500 distinct management-IP budget
 shared by the primary pass, RX, SFP, checkpoint retries, discovery and Ring work.
 An IP counts once across all these phases and across restarts. Retrying the
 same IP still uses its existing per-IP attempt allowance, without consuming
 another distinct-IP slot. The Friday Full remains uncapped by this policy.
+
+See the companion [OPERATIONS](https://github.com/kantapon-sam/LLDP_MapViewer/blob/main/docs/OPERATIONS.md)
+for the current schedule, configured policy and deployment steps.
 
 The companion LLDP_MapViewer scheduler freezes the policy in the assigned
 collection cycle's `unique-node-policy.properties`. A durable append journal

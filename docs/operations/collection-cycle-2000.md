@@ -1,5 +1,12 @@
 # Scheduled collection cycles at 20:00 Bangkok
 
+> Historical design note: the maintained scheduler now starts the daily cycle
+> at **19:00 Bangkok**. The pinned collection-day rules below still explain the
+> design, but the old times and deployment-helper procedure are not the current
+> deployment baseline. Use the companion
+> [OPERATIONS](https://github.com/kantapon-sam/LLDP_MapViewer/blob/main/docs/OPERATIONS.md)
+> for the active schedule and deployment workflow.
+
 The Linux scheduler assigns `TRUE_COLLECTION_DAY` once. October 25 at 20:00 and October 26 after midnight are cycle `2026-10-26`. Every JVM/batch/retry inherits the assignment, including runs extending past the following 20:00. Without an assignment a collector resolves the current 20:00 cycle once when it starts. Invalid assignments fail closed.
 
 Total_Log filename date suffixes identify the assigned collection cycle. System_Log event timestamps retain actual collection time. Complete transcripts from another cycle are not current; touching an old file cannot change its cycle. The shared per-IP attempt count and Rx completion policy use the same pinned day, without a midnight reset.
