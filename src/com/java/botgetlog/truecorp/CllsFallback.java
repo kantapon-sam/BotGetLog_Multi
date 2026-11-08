@@ -100,7 +100,23 @@ final class CllsFallback {
     }
 
     static boolean retryableRejection(String response) {
-        if (hardStop(response)) return false;
+        if (hardStop(response) && !reconnectableRejection(response)) return false;
+        return explicitRejection(response);
+    }
+
+    /** A rejected node login may close Telnet and return to SAM. Never infer
+     * rejection from a timeout, disconnect alone, or an account/IP lock. */
+    static boolean reconnectableRejection(String response) {
+        String text = lower(response);
+        return explicitRejection(response) && !authenticationBlocked(response)
+                && !text.contains("timeout") && !text.contains("timed out")
+                && !text.contains("connection refused") && !text.contains("connection reset")
+                && !text.contains("broken pipe")
+                && (text.contains("connection closed") || text.contains("[eof]")
+                    || currentGatewayPrompt(response));
+    }
+
+    static boolean explicitRejection(String response) {
         String text = lower(response);
         return text.contains("login incorrect") || text.contains("authentication failed")
                 || text.contains("invalid password") || text.contains("access denied")

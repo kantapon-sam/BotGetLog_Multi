@@ -1,4 +1,27 @@
-# Optional CLLS backup accounts — 1.2.29
+# Optional CLLS backup accounts — 1.2.37
+
+Version 1.2.37 waits up to 120 seconds per node authentication response, with an
+absolute deadline and interruption handling. Ordinary gateway and command read
+timeouts remain unchanged. Partial replies survive timeouts. Explicit rejection
+text is retained even if no new prompt follows; a short bounded drain captures
+following lock details or a node disconnect instead of losing them on timeout.
+
+When an explicitly rejected login closes Telnet or returns to SAM, each backup
+slot may reopen the same configured target once. The collector closes its old
+gateway session before reconnecting, retains its shared connection lease and
+daily admission, and waits for a fresh node username prompt. A verified matching
+node prompt is still required for success. Disconnect without rejection, timeout,
+connection reset/refusal, gateway failure, account/IP locks and expired accounts
+do not authorize fallback. Duplicate pairs and the five-slot limit still apply.
+
+Personal Live/TrueLogs logins use the same bounded authentication reader and
+retain their prompt for enable/collection. They do not blindly resubmit rejected
+credentials or borrow scheduled Bot backup accounts; the job's personal profile
+and existing retry policy remain authoritative.
+For the ZTE local `who` account, Live/TrueLogs explicitly negotiate `enable` even
+when login displays `#`; this account can otherwise reject all operational
+commands with Error 140303. Other personal accounts retain their normal privilege
+handling. Only the configured Enable password is sent when requested.
 
 Version 1.2.29 adds opt-in collection with existing log preservation. Pass
 `--link-optical-preserve-existing-logs` or inherit
@@ -54,11 +77,10 @@ an existing unreadable or malformed store. The Control Console supports removing
 unneeded slots; the CLI does not clear credentials implicitly.
 
 Fallback starts only after an explicit node authentication rejection. It reuses
-that node's existing login exchange and waits for a fresh username prompt before
-submitting the next pair. It stops on a verified matching node prompt, account
-lock, IP block, gateway return, timeout or closed connection. It does not open
-another connection or bypass the shared connection and daily admission budgets.
-The device may stop authentication before all configured slots are reached.
+an open login exchange or performs the bounded reconnection described above,
+waiting for a fresh username prompt before submitting the next pair. It stops
+on a verified matching node prompt or a nonretryable failure and never bypasses
+shared connection or daily admission budgets.
 Personal Live/TrueLogs credentials and L2 accounts remain separate.
 
 A verified successful backup login whose username is not literal `clls`

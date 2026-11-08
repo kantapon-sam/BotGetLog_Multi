@@ -23,9 +23,14 @@ public class LiveVendorSelectionRegression {
  static void privilege(String prompt,String response,boolean expected)throws Exception{
   Class<?> type=Class.forName("com.java.botgetlog.truecorp.Telnet_Multi$CredentialProbe");java.lang.reflect.Constructor<?> ctor=type.getDeclaredConstructor();ctor.setAccessible(true);Object probe=ctor.newInstance();
   java.io.ByteArrayOutputStream written=new java.io.ByteArrayOutputStream();
-  for(String name:new String[]{"in","out","lastPromptToken"}){java.lang.reflect.Field f=type.getDeclaredField(name);f.setAccessible(true);f.set(probe,name.equals("in")?new java.io.ByteArrayInputStream(response.getBytes("UTF-8")):name.equals("out")?new java.io.PrintStream(written):prompt);}
+  java.io.InputStream input=new java.io.InputStream(){final byte[] data=response.getBytes(java.nio.charset.StandardCharsets.UTF_8);int pos;
+   public int available()throws java.io.IOException{if(pos==data.length)throw new java.io.EOFException("End of synthetic response");return data.length-pos;}
+   public int read(){return pos<data.length?data[pos++]&255:-1;}};
+  for(String name:new String[]{"in","out","lastPromptToken"}){java.lang.reflect.Field f=type.getDeclaredField(name);f.setAccessible(true);f.set(probe,name.equals("in")?input:name.equals("out")?new java.io.PrintStream(written):prompt);}
   java.lang.reflect.Method enable=type.getDeclaredMethod("ensureZtePrivilegedMode");enable.setAccessible(true);if(!Boolean.valueOf(expected).equals(enable.invoke(probe)))throw new AssertionError("Privilege prompt was not verified");
   if(prompt.endsWith("#")&&written.size()!=0)throw new AssertionError("Existing privileged session was changed");
-  if(response.isEmpty()&&!expected&&written.size()!=0)throw new AssertionError("Missing settings sent data to device");
+  // Enable itself may succeed without a password. Empty settings prohibit
+  // password submission, not this initial privilege negotiation.
+  if(response.isEmpty()&&!expected&&!written.toString("UTF-8").replace("\r","").equals("enable\n"))throw new AssertionError("Missing settings sent a password");
  }
 }

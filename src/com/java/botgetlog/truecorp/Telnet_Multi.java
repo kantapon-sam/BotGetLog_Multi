@@ -279,6 +279,8 @@ public class Telnet_Multi {
     private static final int DEFAULT_SSH_PORT = 22;
     private static final int CONNECT_TIMEOUT_MS = 20000;
     private static final int SOCKET_TIMEOUT_MS = 30000;
+    // Slow AAA can reject CLLS well after the ordinary transport read timeout.
+    private static final int NODE_AUTH_TIMEOUT_MS = 120000;
     private static final long DEFAULT_COMMAND_MAX_WAIT_MS = 60L * 60L * 1000L;
     private static final long DEFAULT_COMMAND_IDLE_TIMEOUT_MS = 3L * 60L * 1000L;
     private static final long COMMAND_WAIT_LOG_INTERVAL_MS = 30L * 1000L;
@@ -700,6 +702,16 @@ public class Telnet_Multi {
 
     private static String readSshBootstrapResponse(InputStream input, PrintStream output,
             int timeoutMs, String... patterns) {
+        return readLoginResponse(input, output, timeoutMs, false, patterns);
+    }
+
+    private static String readNodeLoginResponse(InputStream input, PrintStream output,
+            int timeoutMs, String... patterns) {
+        return readLoginResponse(input, output, timeoutMs, true, patterns);
+    }
+
+    private static String readLoginResponse(InputStream input, PrintStream output,
+            int timeoutMs, boolean nodeAuthentication, String... patterns) {
         if (input == null) {
             return "[TIMEOUT-READ]";
         }
@@ -709,13 +721,23 @@ public class Telnet_Multi {
         String[] safePatterns = patterns == null ? new String[0] : patterns;
         String[] normalizedPatterns = normalizePatterns(safePatterns);
         long lastData = System.currentTimeMillis();
+        long started = lastData;
+        boolean rejected = false;
+        final int rejectionSettleMs = Math.min(350, Math.max(10, timeoutMs / 4));
         final int pollDelayMs = 10;
 
         try {
             while (true) {
+                if (Thread.currentThread().isInterrupted()) return sb + "[INTERRUPTED][TIMEOUT-READ]";
+                long now = System.currentTimeMillis();
+                if (nodeAuthentication && now - started > timeoutMs) return sb + "[TIMEOUT-READ]";
                 if (input.available() <= 0) {
+                    // Read the entire rejection (including lock details or a
+                    // following disconnect), even without another login prompt.
+                    if (nodeAuthentication && rejected && now - lastData >= rejectionSettleMs)
+                        return sb.toString();
                     if (System.currentTimeMillis() - lastData > timeoutMs) {
-                        return "[TIMEOUT-READ]";
+                        return sb + "[TIMEOUT-READ]";
                     }
                     sleepQuietly(pollDelayMs);
                     continue;
@@ -723,7 +745,7 @@ public class Telnet_Multi {
 
                 int c = input.read();
                 if (c == -1) {
-                    break;
+                    return sb + "[EOF]";
                 }
 
                 char ch = (char) c;
@@ -732,6 +754,15 @@ public class Telnet_Multi {
                 lastData = System.currentTimeMillis();
 
                 if (shouldInspectReadBuffer(ch, sb.length())) {
+                    if (nodeAuthentication) {
+                        rejected = rejected || CllsFallback.explicitRejection(sb.toString())
+                                || CllsFallback.authenticationBlocked(sb.toString())
+                                || containsTransportFailureText(sb.toString());
+                        if (rejected) {
+                            if (sb.length() > 12000) return sb + "[TIMEOUT-READ]";
+                            continue;
+                        }
+                    }
                     if (containsPaginationMarker(lowerTail)) {
                         sendPaginationSpace(output, lowerTail);
                     }
@@ -751,10 +782,8 @@ public class Telnet_Multi {
                 }
             }
         } catch (Exception e) {
-            return "[TIMEOUT-READ]";
+            return sb + "[TIMEOUT-READ]";
         }
-
-        return sb.toString();
     }
 
     private static boolean containsPreLoginReadyPrompt(CharSequence text) {
@@ -1204,6 +1233,7 @@ public class Telnet_Multi {
         private InputStream in;
         private PrintStream out;
         private String lastPromptToken = "";
+        private boolean forceZteEnableAfterLogin;
         private DeviceEnableSettings.Snapshot enableSnapshot;
         private GatewayEndpoint gatewayEndpoint;
         private int liveProgressCompleted = -1;
@@ -1220,6 +1250,9 @@ public class Telnet_Multi {
             String safeLoopback = safeTrim(loopback);
             String safeUserCLLS = safeTrim(userCLLS);
             String safePwCLLS = safeTrim(pwCLLS);
+            // ZTE's local who account can display '#' before enabling its
+            // operational commands. Personal TrueLogs has no backup-slot flag.
+            forceZteEnableAfterLogin = "who".equalsIgnoreCase(safeUserCLLS);
             String safeCmdSet = safeTrim(cmdSet);
             String target = describeValidationTarget(loopback, device, cmdSet);
 
@@ -1281,7 +1314,7 @@ public class Telnet_Multi {
 
                 String passwordPrompt = waitingForPassword
                         ? usernamePrompt
-                        : readUntil("ssword:");
+                        : readNodeAuthentication("ssword:");
                 if (containsLoginFailureText(passwordPrompt)) {
                     return LoginValidationResult.invalidCredentials("Username or password was rejected on " + target + ".");
                 }
@@ -1298,7 +1331,7 @@ public class Telnet_Multi {
 
                 writeNoShow(safePwCLLS);
                 String postPassword = (family == 'J')
-                        ? readUntilAny(">", "#")
+                        ? readNodeAuthentication(">", "#")
                         : waitForPostPasswordPrompt(safeUserCLLS, safePwCLLS);
 
                 if (postPassword == null || postPassword.isEmpty()) {
@@ -1344,7 +1377,7 @@ public class Telnet_Multi {
                     public void attempt(int number, boolean success) {
                         System.out.println("[ZTE-ENABLE] Live credential slot " + number + (success ? " accepted" : " not accepted"));
                     }
-                }, enableSnapshot.candidates());
+                }, enableSnapshot.candidates(), forceZteEnableAfterLogin);
             } catch (IOException ex) {
                 System.out.println("[ZTE-ENABLE-FAIL] Enable settings unavailable or empty. Save ZTE Enable passwords in Bot Settings before collecting logs.");
                 return false;
@@ -2176,40 +2209,29 @@ public class Telnet_Multi {
         }
 
         private String waitForPostPasswordPrompt(String username, String password) {
-            String firstRead = readUntilAny(">", "#", "error:");
+            String firstRead = readNodeAuthentication(">", "#");
             if (firstRead == null || firstRead.isEmpty()) {
                 return firstRead;
             }
-            if (!containsAuthPromptText(firstRead) || hasInteractivePromptToken(firstRead)) {
+            if (!containsAuthPromptText(firstRead) || hasInteractivePromptToken(firstRead)
+                    || containsLoginFailureText(firstRead) || CllsFallback.hardStop(firstRead)) {
                 return firstRead;
             }
 
             String combined = firstRead;
-            String low = firstRead.toLowerCase(Locale.ROOT);
-
-            if ((low.contains("login incorrect")
-                    || low.contains("username:")
-                    || low.contains("user name:")
-                    || low.contains("login:")
-                    || low.contains("ogin:"))
-                    && username != null && !username.trim().isEmpty()) {
-                writeNoShow(username);
-                String pwPrompt = readUntil("ssword:");
-                if (pwPrompt != null) {
-                    combined += pwPrompt;
-                }
-                if (containsAuthPromptText(pwPrompt) && password != null && !password.trim().isEmpty()) {
-                    writeNoShow(password);
-                }
-            } else if (low.contains("password:") && password != null && !password.trim().isEmpty()) {
-                writeNoShow(password);
-            }
-
-            String secondRead = readUntilAny(">", "#", "error:");
+            // Personal Live/TrueLogs accounts never borrow scheduled backups or
+            // blindly resend a rejected password. Their job owns retry policy.
+            String secondRead = readNodeAuthentication(">", "#");
             if (secondRead == null || secondRead.isEmpty()) {
                 return combined;
             }
             return combined + secondRead;
+        }
+
+        private String readNodeAuthentication(String... patterns) {
+            String response = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, patterns);
+            lastPromptToken = extractPromptToken(response);
+            return response;
         }
 
         @Override
@@ -4962,7 +4984,7 @@ public class Telnet_Multi {
 
         int settleRead = 1;
         while (!hasNodeLoginSignal(combined.toString()) && settleRead <= 3) {
-            current = readSshBootstrapResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
+            current = readNodeLoginResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
             logwork("[SSH-NODE-RAW-" + settleRead + "] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
             if (current == null || current.isEmpty()) {
@@ -4993,7 +5015,7 @@ public class Telnet_Multi {
         if (containsGatewayUsernamePrompt(loginState) && username != null && !username.trim().isEmpty()) {
             logwork("[SSH-NODE] Sending username for " + loopback + "\n");
             writeNodeLoginCredential(username);
-            current = readSshBootstrapResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
+            current = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, promptPatterns);
             logwork("[SSH-NODE-RAW-USER] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
             if (current != null && !current.isEmpty()) {
@@ -5010,7 +5032,7 @@ public class Telnet_Multi {
         if (containsGatewayPasswordPrompt(loginState) && password != null && !password.trim().isEmpty()) {
             logwork("[SSH-NODE] Sending password for " + loopback + "\n");
             writeNodeLoginCredential(password);
-            current = readSshBootstrapResponse(in, out, SOCKET_TIMEOUT_MS, promptPatterns);
+            current = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, promptPatterns);
             logwork("[SSH-NODE-RAW-PASS] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
             if (current != null && !current.isEmpty()) {
@@ -5024,7 +5046,7 @@ public class Telnet_Multi {
     private String waitForPostPasswordPrompt(String loopback, String username, String password) {
         // Read the full rejection through its next login prompt. Stopping at
         // Huawei's bare "Error:" prefix hides the actual credential rejection.
-        String firstRead = readUntilAny(">", "#");
+        String firstRead = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
         if (firstRead == null || firstRead.isEmpty()) {
             return firstRead;
         }
@@ -5040,7 +5062,7 @@ public class Telnet_Multi {
         // An echoed/stale prompt may need another read, never another blind
         // submission of the same credentials. Explicit rejection owns fallback.
 
-        String secondRead = readUntilAny(">", "#");
+        String secondRead = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
         logwork("[LOGIN-RAW-2] " + loopback + " => " + summarizeResponseForLog(secondRead, username, password) + "\n");
         if (secondRead == null || secondRead.isEmpty()) {
             return combined;
@@ -5084,18 +5106,48 @@ public class Telnet_Multi {
 
     private String loginCllsBackup(CllsFallback.Credential credential, String rejectedResponse) {
         String prompt = rejectedResponse;
+        if (CllsFallback.reconnectableRejection(prompt)) {
+            prompt = reconnectForCllsBackup();
+            if (!endsWithUsernamePrompt(prompt)) return prompt + "[TIMEOUT-READ]";
+        }
         if (CllsFallback.hardStop(prompt)) return prompt;
-        if (!endsWithUsernamePrompt(prompt))
-            prompt = readUntilAny("username:", "user name:", "login:", "ogin:");
+        if (!endsWithUsernamePrompt(prompt)) {
+            String next = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, "username:", "user name:", "login:", "ogin:");
+            if (CllsFallback.reconnectableRejection(rejectedResponse + next)) {
+                prompt = reconnectForCllsBackup();
+                if (!endsWithUsernamePrompt(prompt)) return prompt + "[TIMEOUT-READ]";
+            } else prompt = next;
+        }
         if (CllsFallback.hardStop(prompt) || !endsWithUsernamePrompt(prompt)) return prompt;
-        // Reuse only this node's open authentication exchange. Never reconnect
-        // or obtain another gateway/session outside the daily admission budget.
         writeNodeLoginCredential(credential.username);
-        String passwordPrompt = readUntil("ssword:");
+        String passwordPrompt = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, "ssword:");
         if (CllsFallback.hardStop(passwordPrompt) || containsLoginFailureText(passwordPrompt)
                 || !containsPasswordPromptText(passwordPrompt)) return passwordPrompt;
         writeNodeLoginCredential(credential.password);
-        return readUntilAny(">", "#");
+        String response = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
+        s = extractPromptToken(response);
+        return response;
+    }
+
+    /** Replace a rejected node connection while retaining the collector's
+     * existing shared lease and daily admission. One reconnect per backup slot. */
+    String reconnectForCllsBackup() {
+        if (safeTrim(Loopback).isEmpty() || safeTrim(gatewayServerAddress).isEmpty()
+                || Thread.currentThread().isInterrupted()) return "[TIMEOUT-READ]";
+        logwork("[CLLS-FALLBACK-RECONNECT] Reopening rejected node login for " + Loopback + "\n");
+        try {
+            resetGatewayConnection();
+            s = "";
+            nodeLoginCredentialSubmitted = false;
+            connectGateway(gatewayServerAddress, gatewayUsername, gatewayPassword);
+            writeLoopBack(Loopback);
+            // Only a fresh node username prompt may receive a backup. An
+            // auto-login, gateway menu, failure or arbitrary shell sends none.
+            return readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
+        } catch (Exception failure) {
+            logwork("[CLLS-FALLBACK-RECONNECT-FAILED] " + Loopback + "\n");
+            return "[TIMEOUT-READ]";
+        }
     }
 
     private static boolean endsWithUsernamePrompt(String response) {

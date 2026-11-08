@@ -53,6 +53,8 @@ ZTE Enable settings:
   is #. Only a requested Enable password uses the saved Enable settings; login
   passwords are never substituted. Errors, timeouts and different-node prompts
   stop collection. See docs/zte-enable-negotiation.md.
+- Personal Live/TrueLogs logins using the ZTE local who account also explicitly
+  negotiate enable at # before collecting operational commands.
 - Open Bot Settings - ZTE Enable in the Windows launcher.
 - No Enable passwords are embedded in the application. Add passwords and Save before first use.
 - Only saved passwords are used. Clear saved passwords or delete device-enable.enc to leave no passwords for new connections.
@@ -69,10 +71,11 @@ Optional CLLS backup accounts:
 - Scheduled TRUE collection tries a backup only after the node explicitly rejects
   the prior login. Blank slots and repeated identical pairs are skipped. A primary
   login that works never tries a backup, and primary-only saves preserve backups.
-- Backups use the current admitted node connection. A closed connection, timeout,
-  gateway failure, account lock or IP block stops the sequence; no connection or
-  daily-budget limit is bypassed. Devices may stop authentication before all five
-  configured backups can be tried. L2 accounts and personal Live/TrueLogs logins
+- Node authentication waits up to 120 seconds for slow AAA responses, preserving
+  received rejection details. A confirmed rejection followed by a closed node
+  connection can reopen that same target once per backup slot, retaining the
+  existing shared lease and daily admission. Timeout alone, gateway failure,
+  account lock or IP block stops the sequence. L2 and personal Live/TrueLogs logins
   are separate from these scheduled-Bot backups.
 - A backup success requires the expected node's authenticated prompt. Alternative
   usernames other than literal clls write a password-free event to

@@ -102,7 +102,7 @@ public final class CllsFallbackRegression {
         fixture = collector("Password:\r\n" + PROMPT);
         response = (String) login.invoke(fixture[0], BACKUPS.get(0), "Authentication failed: user was locked\r\nUsername:");
         equal("", fixture[1].toString(), "locked initial prompt sends nothing");
-        Object[] sequence = collector("Password:\r\nError: Username or password error.\r\nUsername:Password:\r\n" + PROMPT);
+        Object[] sequence = gatedCollector("Password:", "\r\nError: Username or password error.\r\nUsername:", "Password:", "\r\n" + PROMPT);
         CllsFallback.Result result = CllsFallback.attempt(REJECT, "clls", "primary", BACKUPS,
                 (credential, previous) -> {
                     try { return (String) login.invoke(sequence[0], credential, previous); }
@@ -130,11 +130,7 @@ public final class CllsFallbackRegression {
         String sshRejection = (String) sshLogin.invoke(ssh[0], "192.0.2.1", "QA-NODE", "HW-LLDP-Link_OPTIC", "Username:", "clls", "primary");
         check(CllsFallback.retryableRejection(sshRejection), "SSH Huawei Error response remains complete");
         equal("clls\nprimary\n", ssh[1].toString().replace("\r", ""), "SSH primary submitted once");
-        Object[] zteSsh = collector("");
-        set(zteSsh[0], "in", new ByteArrayInputStream(("Password:\r\n% Username or password error\r\nUsername:"
-                + "Password:\r\nQA-NODE#").getBytes(StandardCharsets.UTF_8)) {
-            @Override public synchronized int read(byte[] bytes, int offset, int length) { return super.read(bytes, offset, Math.min(1, length)); }
-        });
+        Object[] zteSsh = gatedCollector("Password:", "\r\n% Username or password error\r\nUsername:", "Password:", "\r\nQA-NODE#");
         String sam = "\u001b[32mPlease Enter IP address\u001b[0m\r\n192.0.2.1\r\n"
                 + "Enter IP address [press q/Q to quit]: 192.0.2.1\r\nTrying to connect to 192.0.2.1 ,please wait ...\r\nUsername:";
         String zteRejection = (String) sshLogin.invoke(zteSsh[0], "192.0.2.1", "QA-NODE", "ZTE-LLDP-Link_OPTIC", sam, "clls", "primary");
@@ -155,6 +151,22 @@ public final class CllsFallbackRegression {
     private static final class QuietCollector extends Telnet_Multi {
         private QuietCollector() { super("", "", "", "", "", "", "", "", 0, "", ""); }
         @Override public void logwork(String ignored) { }
+    }
+
+    private static Object[] gatedCollector(String... replies) throws Exception {
+        Object[] fixture = collector("");
+        ByteArrayOutputStream sent = (ByteArrayOutputStream) fixture[1];
+        set(fixture[0], "in", new InputStream() {
+            int phase, offset;
+            public int available() {
+                while (phase < replies.length && offset == replies[phase].length()) { phase++; offset = 0; }
+                int writes = 0;
+                for (byte value : sent.toByteArray()) if (value == '\n') writes++;
+                return phase < replies.length && writes > phase ? replies[phase].length() - offset : 0;
+            }
+            public int read() { return available() > 0 ? replies[phase].charAt(offset++) : -1; }
+        });
+        return fixture;
     }
 
     private static Object[] collector(String incoming) throws Exception {
