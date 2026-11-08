@@ -1,6 +1,6 @@
 {
-  "version": "1.2.36",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.36/BotGetLog_Multi-dist-1.2.36.zip",
-  "sha256": "8361f159b84f08e3064b77d992db1abb3746c1d59075851f5402ce52ffa1cd3b",
-  "notes": "Released 1.2.36: Keep ZTE PN Live Node Monitor within its timeout using compact interface inventory and selected-port details. Scheduled full collection remains unchanged. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.36/docs/live-pn-monitor.md"
+  "version": "1.2.38",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.38/BotGetLog_Multi-dist-1.2.38.zip",
+  "sha256": "48d42639ecf333010157dfa869b07e222e8272a8273e6f6c0e4e00d67b95aeb0",
+  "notes": "Released 1.2.38: Try personal TrueLogs login first, then Control backups after explicit node rejection. Handle slow authentication and ZTE backup enable with shared connection limits. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.38/docs/clls-backup-accounts.md"
 }
