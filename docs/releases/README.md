@@ -7,6 +7,8 @@
 
 ## รุ่นปัจจุบัน
 
+- [1.2.39](release-1.2.39.md): รองรับพอร์ต ZTE xxvgei และ LACP ที่ตัดบรรทัด; Free port และ Live Monitor นับ 25G เป็น 10G และคง 100G ตามข้อมูลจริง
+
 - [1.2.38](https://github.com/kantapon-sam/BotGetLog_Multi/releases/tag/v1.2.38): รวมการแก้ slow authentication ใน 1.2.37 และเพิ่ม TrueLogs ให้ลองบัญชีผู้ใช้ก่อน Control backups ดู [รายละเอียด](../guides/clls-backup-accounts.md)
 - 1.2.37 เป็นรุ่นที่ทดสอบบนเซิร์ฟเวอร์ก่อนเพิ่มเงื่อนไข TrueLogs โดยยังไม่ได้ปล่อย Desktop release แยก ผู้ใช้ 1.2.36 อัปเดตเป็น 1.2.38 ได้โดยตรง
 

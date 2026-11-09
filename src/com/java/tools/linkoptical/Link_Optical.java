@@ -797,6 +797,22 @@ public class Link_Optical {
         }
 
         String ifx = iface == null ? "" : iface.trim().toLowerCase();
+        if (ifx.matches("(?:gei|xgei|xxvgei|cgei)-.*") && !nz(bw).trim().isEmpty()) {
+            // Multi-rate ZTE ports use collected BW. The operator intentionally
+            // counts 25G in the existing 10G Free port category.
+            String rate = nz(bw).replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+            Matcher speed = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)([GMK]?)(?:BPS|BIT/S)?$").matcher(rate);
+            if (!speed.matches()) return "";
+            double bits = Double.parseDouble(speed.group(1));
+            String unit = speed.group(2);
+            bits *= "G".equals(unit) ? 1e9 : "M".equals(unit) ? 1e6 : "K".equals(unit) ? 1e3 : 1;
+            if (bits > 0 && bits <= 1e9) return "1G";
+            if (bits == 10e9) return "10G";
+            if (bits == 25e9) return "10G";
+            if (bits == 100e9) return "100G";
+            return "";
+        }
+        if (ifx.startsWith("xxvgei-")) return "";
         if (ifx.matches("ge-\\d+/\\d+/\\d+(?::\\d+)?")) return "1G";
         if (ifx.matches("xe-\\d+/\\d+/\\d+(?::\\d+)?")) return "10G";
         if (ifx.matches("et-\\d+/\\d+/\\d+(?::\\d+)?")) {

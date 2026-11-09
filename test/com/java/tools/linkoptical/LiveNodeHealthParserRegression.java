@@ -164,9 +164,9 @@ public final class LiveNodeHealthParserRegression {
     private static void verifyZtePortClassSpeedOverrides() {
         String transcript = "RN-LIVE#show interface brief\n"
                 + "Interface               Attribute  Mode         BW    Admin Phy   Prot\n"
-                + "gei-1/1/0/1             optical    Duplex/full  25G   up    up    up\n"
+                + "gei-1/1/0/1             optical    Duplex/full  1G    up    up    up\n"
                 + "xgei-1/1/0/30           optical    Duplex/full  25G   up    up    up\n"
-                + "cgei-1/1/0/31           optical    Duplex/full  25G   up    up    up\n";
+                + "cgei-1/1/0/31           optical    Duplex/full  100G  up    up    up\n";
         List<LiveNodeHealthParser.PortSnapshot> ports
                 = LiveNodeHealthParser.parsePorts("RN-LIVE", "10.0.0.4",
                         "ZTE-LLDP-Link_OPTIC", transcript);

@@ -42,6 +42,7 @@ final class AggregationMembership {
     private final Set<String> conflictingDescriptions = new LinkedHashSet<String>();
     private String descriptionGroup = "", memberGroup = "", nokiaPort = "";
     private boolean zteLacp, huaweiMembers, nokiaSummary;
+    private String pendingZteMember = "";
 
     AggregationMembership(String filename) {
         vendor = filename.contains("_ZTE-LLDP-Link_OPTIC_") ? "ZTE"
@@ -84,6 +85,13 @@ final class AggregationMembership {
     }
 
     private void zte(String text) {
+        // Long interface names can wrap only the closing Flags bracket onto
+        // the next line. Require that continuation before accepting membership.
+        if (!pendingZteMember.isEmpty()) {
+            String pending = pendingZteMember;
+            pendingZteMember = "";
+            if ("]".equals(text)) { zte(pending); return; }
+        }
         if (ZTE_LACP_COMMAND.matcher(text).matches()) {
             zteLacp = true; memberGroup = ""; descriptionGroup = ""; return;
         }
@@ -99,6 +107,11 @@ final class AggregationMembership {
         if (!zteLacp) return;
         Matcher group = ZTE_GROUP.matcher(text);
         if (group.matches()) { memberGroup = "smartgroup" + group.group(1); return; }
+        Matcher wrapped = Pattern.compile("^(\\S+)\\[([^]\\s]+)\\s+((?:ACTIVE|INACTIVE)\\s+.*)$", Pattern.CASE_INSENSITIVE).matcher(text);
+        if (!memberGroup.isEmpty() && wrapped.matches()) {
+            pendingZteMember = wrapped.group(1) + "[" + wrapped.group(2) + "] " + wrapped.group(3);
+            return;
+        }
         Matcher member = ZTE_MEMBER.matcher(text);
         if (!memberGroup.isEmpty() && member.matches()) {
             add(member.group(1), memberGroup, member.group(3).toUpperCase(Locale.ROOT) + " / " + member.group(4));

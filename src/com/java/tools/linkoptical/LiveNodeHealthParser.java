@@ -133,7 +133,7 @@ public final class LiveNodeHealthParser {
             return rows;
         }
         Pattern startPattern = Pattern.compile(
-                "^\\s*(\\S+)\\s+is\\s+(up|down),\\s*ifindex\\s*:",
+                "^\\s*(\\S+)\\s+is\\s+(up|(?:administratively\\s+)?down),\\s*ifindex\\s*:",
                 Pattern.CASE_INSENSITIVE);
         Pattern descriptionPattern = Pattern.compile("^\\s*Description\\s*:\\s*(.*)$",
                 Pattern.CASE_INSENSITIVE);
@@ -204,6 +204,22 @@ public final class LiveNodeHealthParser {
 
     private static String ztePortSpeed(String port, String reportedSpeed) {
         String value = safe(port).toLowerCase(Locale.ROOT);
+        String speed = safe(reportedSpeed).toUpperCase(Locale.ROOT);
+        if (!speed.isEmpty()) {
+            // Match the operator's 25G-as-10G display/counting policy. Keep
+            // other collected rates (including 1G and 100M) unchanged.
+            Matcher rate = Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)\\s*([GMK]?)(?:BPS|BIT/S)?$").matcher(speed);
+            if (rate.matches()) {
+                double bits = Double.parseDouble(rate.group(1));
+                String unit = rate.group(2);
+                bits *= "G".equals(unit) ? 1e9 : "M".equals(unit) ? 1e6 : "K".equals(unit) ? 1e3 : 1;
+                if (bits == 25e9 || bits == 10e9) return "10G";
+                if (bits == 100e9) return "100G";
+                if (bits == 1e9) return "1G";
+                if (bits > 0) return speed;
+            }
+            return "";
+        }
         if (value.startsWith("cgei-")) {
             return "100G";
         }
@@ -218,7 +234,7 @@ public final class LiveNodeHealthParser {
 
     private static boolean isZtePhysicalPort(String port) {
         String value = safe(port).toLowerCase(Locale.ROOT);
-        return value.matches("^(?:gei|xgei|cgei|100gei|40gei|25gei|fei|eth|ethernet)"
+        return value.matches("^(?:gei|xgei|xxvgei|cgei|100gei|40gei|25gei|fei|eth|ethernet)"
                 + "-?[0-9]+(?:/[0-9]+){2,5}$");
     }
 
