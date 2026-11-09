@@ -1,6 +1,6 @@
 {
-  "version": "1.2.38",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.38/BotGetLog_Multi-dist-1.2.38.zip",
-  "sha256": "48d42639ecf333010157dfa869b07e222e8272a8273e6f6c0e4e00d67b95aeb0",
-  "notes": "Released 1.2.38: Try personal TrueLogs login first, then Control backups after explicit node rejection. Handle slow authentication and ZTE backup enable with shared connection limits. Details: https://github.com/kantapon-sam/BotGetLog_Multi/blob/v1.2.38/docs/clls-backup-accounts.md"
+  "version": "1.2.39",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.39/BotGetLog_Multi-dist-1.2.39.zip",
+  "sha256": "e45ae020b245968f979e1df3d98e105cd1458e8c2a84bbacbccba74f8930d415",
+  "notes": "Released 1.2.39: Support ZTE xxvgei physical ports and wrapped LACP. Use interface bandwidth; Free port and Live Monitor count 25G as 10G and preserve 100G."
 }
