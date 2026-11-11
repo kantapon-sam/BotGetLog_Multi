@@ -68,9 +68,9 @@ public class BotToolLauncher {
     private static final String DELETED_LOG_CHECKER_JAR_NAME = "Deleted_Log_Checker.jar";
     private static final String OUTPUT_DIR = "_output";
     private static final String TRUE_LINK_OPTICAL_AUTO_ARG = "--auto-link-optical";
-    // Version 1.2.39: Support ZTE xxvgei physical ports and wrapped LACP. Use interface bandwidth;
-    // Free port and Live Monitor count 25G as 10G and preserve 100G.
-    private static final String FALLBACK_VERSION = "1.2.39";
+    // Version 1.2.40: TRUE auto-add supports IPv4 Allow and Exclude ranges. Preserve manual nodes
+    // and use same-port LLDP and Description evidence to prevent repeat additions.
+    private static final String FALLBACK_VERSION = "1.2.40";
     private static final int WEB_PING_TIMEOUT_MS = 800;
     private static final String JAVA_INITIAL_HEAP = "-Xms256m";
     private static final String JAVA_MAX_HEAP = "-Xmx2048m";
