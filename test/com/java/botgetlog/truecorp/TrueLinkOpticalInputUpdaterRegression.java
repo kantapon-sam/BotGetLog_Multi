@@ -24,6 +24,7 @@ public final class TrueLinkOpticalInputUpdaterRegression {
         verifyGroupInference();
         verifyVendorCmdSetInference();
         verifyTrueAutoAddIpScope();
+        verifyDiscoveryPolicy();
         verifyNeighborIdentityMatchesDescription();
         verifyCanonicalDeviceIdentityKey();
         verifyRecursiveNeighborDiscovery();
@@ -35,21 +36,13 @@ public final class TrueLinkOpticalInputUpdaterRegression {
     }
 
     private static void verifyDestinationIpAfterUnderscore() {
-        assertEquals("10.163.199.251",
-                TrueLinkOpticalInputUpdater.extractDestinationIp(
-                        "10.167.33.41",
-                        "To_CPE-RYG0582_H910C-A_10G_0/2/3_10.163.199.251",
-                        "CPE-RYG0582",
-                        "CPE-RYG0582"));
+        assertEquals("10.163.199.251", com.truelinkoptical.shared.DiscoveryPeer.destination(
+                "10.167.33.41", "To_CPE-RYG0582_H910C-A_10G_0/2/3_10.163.199.251"));
     }
 
     private static void verifySourceIpIsNotRediscovered() {
-        assertEquals("",
-                TrueLinkOpticalInputUpdater.extractDestinationIp(
-                        "10.167.33.41",
-                        "To_DN-RYG2113_10.167.33.41",
-                        "DN-RYG2113-1_RYG0600100M",
-                        "DN-RYG2113-1_RYG0600100M"));
+        assertEquals("", com.truelinkoptical.shared.DiscoveryPeer.destination(
+                "10.167.33.41", "To_DN-RYG2113_10.167.33.41"));
     }
 
     private static void verifyGroupInference() {
@@ -79,12 +72,12 @@ public final class TrueLinkOpticalInputUpdaterRegression {
                 "10.150.1.1",
                 "10.163.1.1",
                 "10.167.1.1",
-                "10.207.1.1",
                 "10.165.1.1")) {
             assertEquals("true", Boolean.toString(
                     TrueLinkOpticalInputUpdater.isAllowedTrueAutoAddIp(ip)));
         }
         for (String ip : Arrays.asList(
+                "10.207.1.1",
                 "10.168.1.1",
                 "10.186.1.1",
                 "192.168.1.1",
@@ -93,6 +86,22 @@ public final class TrueLinkOpticalInputUpdaterRegression {
             assertEquals("false", Boolean.toString(
                     TrueLinkOpticalInputUpdater.isAllowedTrueAutoAddIp(ip)));
         }
+    }
+
+    private static void verifyDiscoveryPolicy() {
+        com.truelinkoptical.shared.AutoAddIpPolicy policy = new com.truelinkoptical.shared.AutoAddIpPolicy(
+                "0.0.0.0/0", "10.207/16,10.163.5.128/25,10.85.0.1");
+        for (String ip : Arrays.asList("10.207.255.255", "10.163.5.128", "10.85.0.1"))
+            assertEquals("false", Boolean.toString(policy.allows(ip)));
+        for (String ip : Arrays.asList("10.163.5.127", "10.85.0.2", "192.168.7.1"))
+            assertEquals("true", Boolean.toString(policy.allows(ip)));
+        String desc = "To_RN3-PSN0013_HCX16A_10G_2/1/18_10.163.0.163";
+        assertEquals("true", Boolean.toString(com.truelinkoptical.shared.DiscoveryPeer.confirms(
+                "RN-PSN0013-3_PLKPLK1004W", desc, "UP")));
+        for (String wrong : Arrays.asList("", "RN-PSN0013-2_PLKPLK1002M", "RN-PSN0013-30_X"))
+            assertEquals("false", Boolean.toString(com.truelinkoptical.shared.DiscoveryPeer.confirms(wrong, desc, "UP")));
+        assertEquals("10.163.0.163", com.truelinkoptical.shared.DiscoveryPeer.destination("10.167.168.1", desc));
+        assertEquals("", com.truelinkoptical.shared.DiscoveryPeer.destination("10.167.168.1", desc + "_10.163.0.164"));
     }
 
     private static void verifyNeighborIdentityMatchesDescription() {
@@ -231,6 +240,17 @@ public final class TrueLinkOpticalInputUpdaterRegression {
                 "ONE_WAY_LLDP_PAIR,CPE-SSK0075,false,10.167.120.112,10.167.1.1,To_CPE-SSK0075_H910C-A_10.167.120.112,Huawei ATN910C-A",
                 "ONE_WAY_LLDP_PAIR,CPE-SSK0075,false,10.167.120.112,10.167.1.2,To_CPE-SSK0075_H910C-A_10.167.120.112,Huawei ATN910C-A"),
                 StandardCharsets.UTF_8);
+        Path reports = dir.resolve("_output/System_Log");
+        Files.createDirectories(reports);
+        Path previous = reports.resolve("node-userinput-sync-20260810-190000.csv");
+        Files.write(previous, Arrays.asList("action,deviceName,ip,sourceSite,sourceIp,detail",
+                "removed-unreachable-orphan,CPE-OLD9999,10.167.8.4,,,No login prompt",
+                "removed-duplicate-device,RN-OLD9999,10.167.8.5,,,baseMac=00:11:22:33:44:55 keeper=RN-OLD9999"),
+                StandardCharsets.UTF_8);
+        Files.write(discovery.toPath(), Arrays.asList(
+                "ONE_WAY_LLDP_PAIR,CPE-OLD9999,false,10.167.8.4,10.167.1.1,To_CPE-OLD9999_10.167.8.4,Huawei",
+                "ONE_WAY_LLDP_PAIR,RN-OLD9999,false,10.167.8.5,10.167.1.1,To_RN-OLD9999_10.167.8.5,Nokia"),
+                StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
         PathFile paths = new PathFile() {
             @Override public String getCurrentFolder() { return dir.toString(); }
             @Override public String getUserInterface_Input() { return input.toString(); }
@@ -253,6 +273,14 @@ public final class TrueLinkOpticalInputUpdaterRegression {
             assertEquals(existingZte ? "1" : "2", Integer.toString(selection.getSiteCount()));
             assertEquals(Boolean.toString(!existingZte), Boolean.toString(selection.includesRow(sheet.getRow(1))));
             assertEquals("true", Boolean.toString(selection.includesRow(sheet.getRow(2))));
+        }
+        Files.delete(previous);
+        try (Workbook saved = new XSSFWorkbook(Files.newInputStream(input))) {
+            com.truelinkoptical.shared.DiscoveryHistory history = new com.truelinkoptical.shared.DiscoveryHistory(saved);
+            assertEquals("previously verified duplicate device",
+                    history.blockedReason("10.167.8.5", true, "RENAMED|N|00:11:22:33:44:55"));
+            assertEquals("", history.blockedReason("10.167.8.5", true, "RENAMED|N|00:11:22:33:44:56"));
+            assertEquals("", history.blockedReason("10.167.8.4", true, ""));
         }
         TrueLinkOpticalInputUpdater.UpdateResult repeated = TrueLinkOpticalInputUpdater.updateFromDataQualityFile(paths, discovery);
         assertEquals("0", Integer.toString(repeated.added));

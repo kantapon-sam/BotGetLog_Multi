@@ -1,6 +1,11 @@
 package com.java.botgetlog.truecorp;
 
 import com.java.tools.linkoptical.Link_Optical;
+import com.truelinkoptical.shared.AutoAddIpPolicy;
+import com.truelinkoptical.shared.DiscoveryHistory;
+import com.truelinkoptical.shared.DiscoveryRemovalReports;
+import com.truelinkoptical.shared.DiscoveryWorkbookLock;
+import com.truelinkoptical.shared.DiscoveryPeer;
 import java.io.BufferedReader;
 import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
@@ -40,14 +45,12 @@ final class TrueLinkOpticalInputUpdater {
     private static final String ZTE_CMDSET = "ZTE-LLDP-Link_OPTIC";
     // Descriptions commonly put the destination IP after an underscore. An
     // underscore is a regex word character, so a leading \\b misses that IP.
-    private static final Pattern IPV4_PATTERN = Pattern.compile(
-            "(?<![0-9.])(\\d{1,3}(?:\\.\\d{1,3}){3})(?![0-9.])");
     private static final Pattern HUAWEI_HINT_PATTERN = Pattern.compile(
             "(?i)(?:HUAWEI|H910C(?:-A)?|(?:^|[^A-Z0-9])ATN(?:[-_ ]?9\\d{2,3})?(?:$|[^A-Z0-9]))");
     private static final Pattern ZTE_HINT_PATTERN = Pattern.compile(
             "(?i)(?:ZTE|ZXCTN|M6000|ZXR10)");
     private static final Pattern GROUP_PATTERN = Pattern.compile(
-            "^(CPE|AGN|AN|DN|PN|RN|GM|GRD|GRP|SD|GA|SA)(?:[-_]|\\d|$)");
+            "^(CPE|AGN|AN|DN|PN|RN|GM|GRD|GRP|GP|SD|GA|SA)(?:[-_]|\\d|$)");
     private static final Pattern MPLS_TOKEN_PATTERN = Pattern.compile("(^|[-_])MPLS($|[-_])");
     private static final Pattern MPLS_ALIAS_PATTERN = Pattern.compile("^W\\d{5}[A-Z]?$");
     private static final Pattern SWITCH_MODEL_TOKEN_PATTERN
@@ -60,15 +63,6 @@ final class TrueLinkOpticalInputUpdater {
             "(?:NWCN|CGN|MBCN)");
     private static final Pattern TRUE_SITE_TOKEN_PATTERN = Pattern.compile(
             "[A-Z]{3,5}\\d{3,5}[A-Z]?");
-    private static final String[] TRUE_AUTO_ADD_IP_PREFIXES = new String[]{
-        "10.185.",
-        "10.85.",
-        "10.150.",
-        "10.163.",
-        "10.167.",
-        "10.207.",
-        "10.165."
-    };
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private TrueLinkOpticalInputUpdater() {
@@ -90,7 +84,7 @@ final class TrueLinkOpticalInputUpdater {
                 return UpdateResult.empty();
             }
 
-            List<DiscoveredNode> discovered = readDiscoveredNodes(neighborFile);
+            List<DiscoveredNode> discovered = readDiscoveredNodes(neighborFile, AutoAddIpPolicy.forWorkbook(excelFile.toPath()));
             if (discovered.isEmpty()) {
                 System.out.println("[AUTO-INPUT] No neighbor node with usable destination IP was found.");
                 return UpdateResult.noChanges();
@@ -114,7 +108,7 @@ final class TrueLinkOpticalInputUpdater {
                 return UpdateResult.empty();
             }
 
-            List<DiscoveredNode> discovered = readDiscoveredNodesFromDataQuality(dataQualityFile);
+            List<DiscoveredNode> discovered = readDiscoveredNodesFromDataQuality(dataQualityFile, AutoAddIpPolicy.forWorkbook(excelFile.toPath()));
             if (discovered.isEmpty()) {
                 System.out.println("[AUTO-INPUT] No usable missing destination node found in "
                         + dataQualityFile.getAbsolutePath());
@@ -128,7 +122,7 @@ final class TrueLinkOpticalInputUpdater {
         }
     }
 
-    private static List<DiscoveredNode> readDiscoveredNodes(File neighborFile) throws Exception {
+    private static List<DiscoveredNode> readDiscoveredNodes(File neighborFile, AutoAddIpPolicy policy) throws Exception {
         List<DiscoveredNode> nodes = new ArrayList<DiscoveredNode>();
         try (BufferedReader reader = new BufferedReader(new FileReader(neighborFile))) {
             String headerLine = reader.readLine();
@@ -140,6 +134,7 @@ final class TrueLinkOpticalInputUpdater {
             int descIdx = findIndex(header, "Description");
             int neighborIdx = findIndex(header, "Neighbor SysName");
             int neighborDesIdx = findIndex(header, "NeighborDes");
+            int stateIdx = findIndex(header, "Current State");
 
             String line;
             while ((line = reader.readLine()) != null) {
@@ -151,16 +146,19 @@ final class TrueLinkOpticalInputUpdater {
                 String description = valueAt(cols, descIdx);
                 String neighborSysName = valueAt(cols, neighborIdx);
                 String neighborDes = valueAt(cols, neighborDesIdx);
-                String deviceName = normalizeDeviceName(!neighborDes.isEmpty() ? neighborDes : neighborSysName);
-                String ip = extractDestinationIp(sourceIp, description, neighborSysName, neighborDes);
+                boolean verified = DiscoveryPeer.confirms(neighborSysName, description, valueAt(cols, stateIdx));
+                String deviceName = normalizeDeviceName(verified || neighborDes.isEmpty() ? neighborSysName : neighborDes);
+                String ip = DiscoveryPeer.destination(sourceIp, description);
                 if (deviceName.isEmpty() || ip.isEmpty()
-                        || !isAllowedTrueAutoAddIp(ip)
+                        || !policy.allows(ip)
                         || !isEligibleDiscoveredNodeName(deviceName)
-                        || !descriptionMatchesDiscoveredNode(deviceName, description, neighborDes)
+                        || (!verified && !descriptionMatchesDiscoveredNode(deviceName, description, neighborDes))
                         || isBlockedDiscoveredNodeName(deviceName, neighborSysName, neighborDes, description)) {
                     continue;
                 }
-                nodes.add(new DiscoveredNode(deviceName, ip, sourceIp, description));
+                DiscoveredNode node = new DiscoveredNode(deviceName, ip, sourceIp, description);
+                node.verifiedPeer = verified;
+                nodes.add(node);
             }
         }
         return nodes;
@@ -168,13 +166,13 @@ final class TrueLinkOpticalInputUpdater {
 
     static List<String> readDiscoveredDeviceNamesForTesting(File neighborFile) throws Exception {
         List<String> names = new ArrayList<String>();
-        for (DiscoveredNode node : readDiscoveredNodes(neighborFile)) {
+        for (DiscoveredNode node : readDiscoveredNodes(neighborFile, AutoAddIpPolicy.DEFAULT)) {
             names.add(node.deviceName);
         }
         return names;
     }
 
-    private static List<DiscoveredNode> readDiscoveredNodesFromDataQuality(File dataQualityFile) throws Exception {
+    private static List<DiscoveredNode> readDiscoveredNodesFromDataQuality(File dataQualityFile, AutoAddIpPolicy policy) throws Exception {
         List<DiscoveredNode> nodes = new ArrayList<DiscoveredNode>();
         try (BufferedReader reader = new BufferedReader(new FileReader(dataQualityFile))) {
             String headerLine = reader.readLine();
@@ -209,8 +207,8 @@ final class TrueLinkOpticalInputUpdater {
                 String deviceName = normalizeDeviceName(target);
                 String ip = normalizeIp(valueAt(cols, targetIpIdx));
                 String sourceIp = normalizeIp(valueAt(cols, sourceIpIdx));
-                if (deviceName.isEmpty() || ip.isEmpty() || ip.equals(sourceIp)
-                        || !isAllowedTrueAutoAddIp(ip)
+                if (deviceName.isEmpty() || ip.isEmpty() || !ip.equals(DiscoveryPeer.destination(sourceIp, description))
+                        || !policy.allows(ip)
                         || !isEligibleDiscoveredNodeName(deviceName)
                         || !descriptionMatchesDiscoveredNode(deviceName, description, detail)
                         || isBlockedDiscoveredNodeName(deviceName, target, description, detail)) {
@@ -232,6 +230,11 @@ final class TrueLinkOpticalInputUpdater {
     }
 
     private static UpdateResult writeMissingNodes(PathFile fileInput, File excelFile,
+            List<DiscoveredNode> discovered, String sourceLabel) throws Exception {
+        return DiscoveryWorkbookLock.withLock(excelFile, () -> appendDiscoveredRows(fileInput, excelFile, discovered, sourceLabel));
+    }
+
+    private static UpdateResult appendDiscoveredRows(PathFile fileInput, File excelFile,
             List<DiscoveredNode> discovered, String sourceLabel) throws Exception {
         File backup = backupWorkbook(fileInput, excelFile);
         int added = 0;
@@ -261,10 +264,12 @@ final class TrueLinkOpticalInputUpdater {
             }
 
             Map<String, DiscoveredNode> uniqueByIp = new LinkedHashMap<String, DiscoveredNode>();
+            DiscoveryHistory history = new DiscoveryHistory(workbook);
+            boolean migrated = reportFile != null && DiscoveryRemovalReports.importOnce(reportFile.getParentFile(), existingIps, history);
             for (DiscoveredNode node : discovered) {
-                if (!isAllowedTrueAutoAddIp(node.ip)
+                if (!history.blockedReason(node.ip, node.verifiedPeer, "").isEmpty()
                         || !isEligibleDiscoveredNodeName(node.deviceName)
-                        || !descriptionMatchesDiscoveredNode(node.deviceName, node.description, node.detail)
+                        || (!node.verifiedPeer && !descriptionMatchesDiscoveredNode(node.deviceName, node.description, node.detail))
                         || isBlockedDiscoveredNodeName(node.deviceName, node.description, node.detail)) {
                     continue;
                 }
@@ -291,6 +296,7 @@ final class TrueLinkOpticalInputUpdater {
                 setCell(row, 2, node.deviceName);
                 setCell(row, 3, node.ip);
                 setCell(row, 4, node.cmdSet);
+                history.forget(node.ip);
                 existingIps.add(node.ip);
                 // Name queries also select existing devices with this hostname.
                 // The recursive pass must collect only the newly appended row.
@@ -298,8 +304,18 @@ final class TrueLinkOpticalInputUpdater {
                 added++;
             }
 
-            try (FileOutputStream out = new FileOutputStream(excelFile)) {
-                workbook.write(out);
+            if (added > 0 || migrated) {
+                java.nio.file.Path temp = Files.createTempFile(excelFile.toPath().toAbsolutePath().getParent(), ".auto-input-", ".xlsx");
+                try {
+                    Files.copy(excelFile.toPath(), temp, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                    try (FileOutputStream out = new FileOutputStream(temp.toFile())) {
+                        workbook.write(out);
+                        out.getFD().sync();
+                    }
+                    Files.move(temp, excelFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(temp);
+                }
             }
         }
 
@@ -506,30 +522,7 @@ final class TrueLinkOpticalInputUpdater {
     }
 
     static boolean isAllowedTrueAutoAddIp(String value) {
-        String ip = normalizeIp(value);
-        if (ip.isEmpty()) {
-            return false;
-        }
-        for (String prefix : TRUE_AUTO_ADD_IP_PREFIXES) {
-            if (ip.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    static String extractDestinationIp(String sourceIp, String description, String neighborSysName, String neighborDes) {
-        String source = normalizeIp(sourceIp);
-        String haystack = safe(description) + " " + safe(neighborSysName) + " " + safe(neighborDes);
-        Matcher matcher = IPV4_PATTERN.matcher(haystack);
-        String last = "";
-        while (matcher.find()) {
-            String ip = matcher.group(1);
-            if (isValidIpv4(ip) && !ip.equals(source)) {
-                last = ip;
-            }
-        }
-        return last;
+        return AutoAddIpPolicy.DEFAULT.allows(value);
     }
 
     static String inferGroup(String deviceName) {
@@ -657,6 +650,7 @@ final class TrueLinkOpticalInputUpdater {
         final String cmdSet;
         final String description;
         final String detail;
+        boolean verifiedPeer;
 
         DiscoveredNode(String deviceName, String ip, String sourceIp, String description) {
             this(deviceName, ip, sourceIp, description, "");

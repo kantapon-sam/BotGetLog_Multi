@@ -5384,6 +5384,10 @@ public class Telnet_Multi {
                     failurePhaseTag(System.getenv("TRUE_LINKOPTICAL_FAILURE_PHASE"))
             );
 
+            String collectionDay = System.getenv("TRUE_COLLECTION_DAY");
+            if (collectionDay != null && collectionDay.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
+                message += ",[CYCLE=" + collectionDay + "]";
+            }
             System.out.println(message);
 
             String failLogPath = FileInput.getLogWork() + "\\" + logType;
