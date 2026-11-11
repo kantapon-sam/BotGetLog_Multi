@@ -1,6 +1,6 @@
 {
-  "version": "1.2.39",
-  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.39/BotGetLog_Multi-dist-1.2.39.zip",
-  "sha256": "e45ae020b245968f979e1df3d98e105cd1458e8c2a84bbacbccba74f8930d415",
-  "notes": "Released 1.2.39: Support ZTE xxvgei physical ports and wrapped LACP. Use interface bandwidth; Free port and Live Monitor count 25G as 10G and preserve 100G."
+  "version": "1.2.40",
+  "url": "https://github.com/kantapon-sam/BotGetLog_Multi/releases/download/v1.2.40/BotGetLog_Multi-dist-1.2.40.zip",
+  "sha256": "d409a867d2151e3a008e9650f6f53537bf35a5d4da4b404868ccd09c6a86824c",
+  "notes": "Released 1.2.40: TRUE auto-add supports IPv4 Allow and Exclude ranges. Preserve manual nodes and use same-port LLDP and Description evidence to prevent repeat additions."
 }
