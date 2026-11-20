@@ -1061,8 +1061,12 @@ public class BotGetLog_TrueCorp {
     }
 
     public static LiveProbeConfig loadLiveProbeConfig() throws IOException {
-        PathFile pathFile = new PathFile();
-        File workbookFile = new File(pathFile.getUserInterface_Input());
+        return loadLiveProbeConfig(new File(new PathFile().getUserInterface_Input()), TrueCllsCredentialStore.load());
+    }
+
+    // Control supplies the existing workbook directly. A login check must not
+    // run PathFile's workbook installation or migration.
+    static LiveProbeConfig loadLiveProbeConfig(File workbookFile, TrueCllsCredentialStore.StoredCredential primary) throws IOException {
         if (!workbookFile.isFile()) {
             throw new FileNotFoundException("UserInterface_Input.xlsx was not found.");
         }
@@ -1071,9 +1075,9 @@ public class BotGetLog_TrueCorp {
             Sheet settingSheet = getSheetAny(workbook, TRUE_SETTING_SHEET, LEGACY_SETTING_SHEET);
             settings = loadSettingsFromSheet(settingSheet);
         }
-        CredentialInput nodeCredentials = loadStartupCllsCredentials(pathFile);
         return new LiveProbeConfig(settings.gatewayServers, settings.userServer,
-                settings.pwServer, nodeCredentials.username, nodeCredentials.password);
+                settings.pwServer, primary.isComplete() ? primary.username : settings.userCLLS,
+                primary.isComplete() ? primary.password : settings.pwCLLS);
     }
 
     public static final class LiveProbeConfig {

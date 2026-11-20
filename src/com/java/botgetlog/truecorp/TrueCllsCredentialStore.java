@@ -52,7 +52,22 @@ final class TrueCllsCredentialStore {
     }
 
     static StoredCredential load() {
-        Properties properties = loadProperties();
+        return primary(loadProperties());
+    }
+
+    static StoredCredential readPrimaryForLoginCheck(File workbook) throws java.io.IOException {
+        File store = new File(new File(workbook.getAbsoluteFile().getParentFile(), "launcher-data"), STORE_FILE_NAME);
+        Properties properties = new Properties();
+        if (!Files.notExists(store.toPath())) {
+            try (FileInputStream input = new FileInputStream(store)) { properties.load(input); }
+        }
+        StoredCredential pair = primary(properties);
+        if (!pair.isComplete() && (!pair.username.isEmpty() || !properties.getProperty(KEY_PASSWORD, "").trim().isEmpty()))
+            throw new java.io.IOException("Configured primary CLLS account is unreadable.");
+        return pair;
+    }
+
+    private static StoredCredential primary(Properties properties) {
         String username = properties.getProperty(KEY_USERNAME, "").trim();
         String encryptedPassword = properties.getProperty(KEY_PASSWORD, "").trim();
         String password = decryptPassword(encryptedPassword);

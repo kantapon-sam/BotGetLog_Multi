@@ -1247,6 +1247,43 @@ public class Telnet_Multi {
         private long liveProgressLastActivityAt;
         private long liveProgressLastWriteAt;
 
+        TrueCllsLoginCheck.Status checkPrimary(String gateway, BotGetLog_TrueCorp.LiveProbeConfig config,
+                String ip, String node) {
+            String menu;
+            try {
+                menu = connectGateway(gateway, config.gatewayUsername, config.gatewayPassword, ip);
+            } catch (Exception unavailable) {
+                return TrueCllsLoginCheck.Status.GATEWAY_UNAVAILABLE;
+            }
+            if (isTimeoutResponse(menu) || !containsGatewayMenuPrompt(menu))
+                return TrueCllsLoginCheck.Status.GATEWAY_UNAVAILABLE;
+            write(ip);
+            return checkPrimaryAtNode(node, config.nodeUsername, config.nodePassword);
+        }
+
+        TrueCllsLoginCheck.Status checkPrimaryAtNode(String node, String user, String password) {
+            String login = readPreLoginBanner(12000);
+            if (CllsFallback.hardStop(login) || containsLoginFailureText(login) || !endsWithUsernamePrompt(login))
+                return TrueCllsLoginCheck.Status.UNCONFIRMED;
+            writeNoShow(user);
+            if (out.checkError()) return TrueCllsLoginCheck.Status.UNCONFIRMED;
+            String challenge = readNodeAuthentication("ssword:");
+            if (containsLoginFailureText(challenge) || CllsFallback.authenticationBlocked(challenge))
+                return TrueCllsLoginCheck.Status.REJECTED;
+            if (CllsFallback.hardStop(challenge) || !safeTrim(challenge).toLowerCase(Locale.ROOT).endsWith("ssword:"))
+                return TrueCllsLoginCheck.Status.UNCONFIRMED;
+            writeNoShow(password);
+            if (out.checkError()) return TrueCllsLoginCheck.Status.UNCONFIRMED;
+            String reply = readNodeAuthentication(">", "#");
+            if (containsLoginFailureText(reply) || CllsFallback.authenticationBlocked(reply) || endsWithUsernamePrompt(reply))
+                return TrueCllsLoginCheck.Status.REJECTED;
+            String prompt = extractPromptToken(stripTerminalControlSequences(reply));
+            if (CllsFallback.hardStop(reply) || !isInteractivePromptToken(prompt)
+                    || !node.equalsIgnoreCase(extractNodeNameFromPromptToken(prompt, false)))
+                return TrueCllsLoginCheck.Status.UNCONFIRMED;
+            return TrueCllsLoginCheck.Status.VERIFIED;
+        }
+
         LoginValidationResult validate(String server, String userServer, String pwServer,
                 String loopback, String userCLLS, String pwCLLS, String cmdSet, String device) {
 
@@ -3876,6 +3913,10 @@ public class Telnet_Multi {
     }
 
     static String extractNodeNameFromPromptToken(String promptToken) {
+        return extractNodeNameFromPromptToken(promptToken, true);
+    }
+
+    private static String extractNodeNameFromPromptToken(String promptToken, boolean forLogFile) {
         String token = stripHuaweiHrpPrefix(cleanPromptToken(promptToken));
         if (token.isEmpty()) {
             return "";
@@ -3901,10 +3942,10 @@ public class Telnet_Multi {
         // suffix because it is part of the reported node name.
         if (token.indexOf('@') >= 0) {
             token = token.substring(token.lastIndexOf('@') + 1);
-            return sanitizeFileNameComponent(token);
+            return forLogFile ? sanitizeFileNameComponent(token) : token;
         }
 
-        return sanitizeDeviceNameForFileName(token);
+        return forLogFile ? sanitizeDeviceNameForFileName(token) : token;
     }
 
     private String resolveLogDeviceName(String configuredDevice) {
