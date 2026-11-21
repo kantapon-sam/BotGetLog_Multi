@@ -145,6 +145,10 @@ final class TrueLinkOpticalAutoMode {
             return Collections.unmodifiableMap(cmdSetsByRow);
         }
 
+        Selection withRows(LinkedHashMap<Integer, List<String>> rows) {
+            return new Selection(enabled, allSites, incremental, query, rows, previewRows);
+        }
+
         List<String> getPreviewRows() {
             return Collections.unmodifiableList(previewRows);
         }
@@ -1107,7 +1111,7 @@ final class TrueLinkOpticalAutoMode {
         return !"0.0.0.0".equals(ip) && !"255.255.255.255".equals(ip);
     }
 
-    private static List<String> readLinkOpticalCmdSets(Row row) {
+    static List<String> readLinkOpticalCmdSets(Row row) {
         List<String> cmdSets = new ArrayList<String>();
         if (row == null || row.getLastCellNum() <= 4) {
             return cmdSets;

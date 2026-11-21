@@ -408,6 +408,18 @@ public class Telnet_Multi {
     private boolean unverifiedCollectionResponse = false;
     private String[] expectedCollectionCommands;
     private boolean retryableNetworkFailureRecorded = false;
+    private boolean nodeLoginPathFailed;
+
+    boolean nodeLoginPathFailed() { return nodeLoginPathFailed; }
+
+    static boolean isNodeLoginPathFailure(String reason) {
+        return reason.equals("[" + NO_LOGIN_PROMPT_REASON + "]")
+                || reason.equals("[" + NO_LOGIN_PROMPT_REASON + " - connection timed out]")
+                || reason.equals("[Connection failed after login prompt]")
+                || reason.equals("[Connection failed after login prompt - no password prompt]")
+                || reason.equals("[Connection failed - Timeout Limit]")
+                || reason.equals("[Connection failed after password]");
+    }
 
     public boolean hasSessionFailureRecorded() {
         return sessionFailureRecorded;
@@ -5392,6 +5404,7 @@ public class Telnet_Multi {
         try {
             sessionFailureRecorded = true;
             String cleanReason = reason.startsWith("_") ? reason.substring(1) : reason;
+            nodeLoginPathFailed = isNodeLoginPathFailure(cleanReason);
             String normalizedReason = cleanReason.toLowerCase(Locale.ROOT);
             retryableNetworkFailureRecorded = isRetryableNetworkFailureReason(normalizedReason);
             String timeNow = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));

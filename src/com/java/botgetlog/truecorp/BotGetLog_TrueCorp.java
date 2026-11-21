@@ -42,6 +42,7 @@ import javax.swing.JTextField;
 
 
 public class BotGetLog_TrueCorp {
+    private static volatile MultiIpCollection multiIp = MultiIpCollection.EMPTY;
     private static final Set<String> rerunOncePerRunKeys = ConcurrentHashMap.newKeySet();
     private static final Object RERUN_TASK_LOCK = new Object();
     private static final AtomicInteger ACTIVE_RERUN_TASKS = new AtomicInteger(0);
@@ -1728,6 +1729,10 @@ public class BotGetLog_TrueCorp {
                             linkOpticalSelection.getCommandCount());
                     realOut.printf("[AUTO-LINK] Export mode for this collection pass: %s%n",
                             linkOpticalExportMode);
+                    String plan = System.getenv("TRUE_MULTI_IP_PLAN");
+                    multiIp = plan == null ? MultiIpCollection.EMPTY : MultiIpCollection.load(Paths.get(plan), trueDeviceSheet);
+                    boolean exactPairs = !DailyCollectionBudget.pairsFile().isEmpty();
+                    linkOpticalSelection = multiIp.route(linkOpticalSelection, trueDeviceSheet, false, exactPairs);
                     linkOpticalSelection = applyDailyBudgetWithWorkbookCache(linkOpticalSelection, trueDeviceSheet);
                     if (TrueLinkOpticalAutoMode.shouldClearSelectedLogsBeforeRerun(linkOpticalSelection)) {
                         int movedLogs = TrueLinkOpticalAutoMode.clearSelectedLogsBeforeRerun(
@@ -1738,6 +1743,8 @@ public class BotGetLog_TrueCorp {
                         realOut.printf("[AUTO-LINK] %s cleanup: moved %d old selected log file(s) to Deleted_Log.%n",
                                 cleanupMode, movedLogs);
                     }
+                    // Standbys get their own admission check only if a prior address fails at node login.
+                    linkOpticalSelection = multiIp.route(linkOpticalSelection, trueDeviceSheet, true, exactPairs);
                     TrueDeviceInventoryUpdater.reset();
                 }
 
@@ -1988,7 +1995,7 @@ public class BotGetLog_TrueCorp {
                         // Build tasks by cmdSet order so every node in CmdSet-1
                         // finishes before CmdSet-2 starts, and so on.
                         int totalCmdSets = 0;
-                        Map<Integer, List<NodeCommandTask>> cmdSetBatches = new LinkedHashMap<>();
+                        Map<Integer, Map<Integer, List<NodeCommandTask>>> cmdSetBatches = new TreeMap<>();
                         for (int rowIdx : indexRowList) {
                             Row row = sheet.getRow(rowIdx);
                             if (!TrueLinkOpticalAutoMode.shouldRunRow(linkOpticalSelection, row)) {
@@ -2003,7 +2010,8 @@ public class BotGetLog_TrueCorp {
                                     totalCmdSets++;
                                     int cmdSetOrder = k + 1;
                                     cmdSetBatches
-                                            .computeIfAbsent(cmdSetOrder, key -> new ArrayList<>())
+                                            .computeIfAbsent(cmdSetOrder, key -> new TreeMap<>())
+                                            .computeIfAbsent(multiIp.rank(loopback), key -> new ArrayList<>())
                                             .add(new NodeCommandTask(rowIdx + 1, device, loopback, cmdSet, cmdSetOrder));
                                 }
                             }
@@ -2100,14 +2108,18 @@ public class BotGetLog_TrueCorp {
                         final int[] progress = {0};
                         final ConcurrentMap<String, NetworkRetryTask> networkRetryQueue
                                 = new ConcurrentHashMap<>();
+                        List<List<NodeCommandTask>> orderedBatches = new ArrayList<>();
+                        for (Map<Integer, List<NodeCommandTask>> ranks : cmdSetBatches.values()) {
+                            orderedBatches.addAll(ranks.values());
+                        }
                         commandBatchLoop:
-                        for (Map.Entry<Integer, List<NodeCommandTask>> batchEntry : cmdSetBatches.entrySet()) {
+                        for (List<NodeCommandTask> batchTasks : orderedBatches) {
                             if (isShutdownRequested()) {
                                 break;
                             }
-                            int cmdSetOrder = batchEntry.getKey();
-                            List<NodeCommandTask> batchTasks = batchEntry.getValue();
+                            int cmdSetOrder = batchTasks.get(0).cmdSetOrder;
                             List<Future<?>> batchFutures = new ArrayList<>();
+                            final ConcurrentMap<String, NetworkRetryTask> groupRetries = new ConcurrentHashMap<>();
 
                             realOut.printf("%n[INFO] Starting CmdSet-%d batch (%d nodes)%n",
                                     cmdSetOrder, batchTasks.size());
@@ -2119,6 +2131,10 @@ public class BotGetLog_TrueCorp {
 
                                 String Device = task.device;
                                 String Loopback = task.loopback;
+                                if (!multiIp.allowed(Loopback)) {
+                                    synchronized (progress) { progress[0]++; }
+                                    continue;
+                                }
                                 String cmdSet = task.cmdSet;
                                 int rowNum = task.rowNum;
                                 int rowIdx = rowNum - 1;
@@ -2247,6 +2263,8 @@ public class BotGetLog_TrueCorp {
                                         task, fFile,
                                         fUsrS, fPwdS, fUsrC, fPwdC, fUsrL2, fPwdL2,
                                         fFirstCommand, fLastCommand);
+                                final ConcurrentMap<String, NetworkRetryTask> retries =
+                                        multiIp.grouped(fLoop) ? groupRetries : networkRetryQueue;
 
                                 try {
                                     batchFutures.add(exec.submit(() -> {
@@ -2338,8 +2356,10 @@ public class BotGetLog_TrueCorp {
                                             }
 
                                             if (telnetObj.hasSessionFailureRecorded()) {
-                                                if (telnetObj.hasRetryableNetworkFailureRecorded()) {
-                                                    networkRetryQueue.putIfAbsent(
+                                                if (multiIp.grouped(fLoop) && telnetObj.nodeLoginPathFailed()) {
+                                                    multiIp.unavailable(fLoop);
+                                                } else if (telnetObj.hasRetryableNetworkFailureRecorded()) {
+                                                    retries.putIfAbsent(
                                                             fNetworkRetryTask.key(), fNetworkRetryTask);
                                                     realOut.printf("[RETRY-QUEUE][TRUE] Queued Row %d %s (%s) [%s] after network failure%n",
                                                             fRowNum, fDev, fLoop, fCmd);
@@ -2366,7 +2386,7 @@ public class BotGetLog_TrueCorp {
                                             }
                                             if (latestLog != null && hasConnectionFailureSignalInLog(latestLog)) {
                                                 BotGetLog_TrueCorp.recordNetworkFailure();
-                                                networkRetryQueue.putIfAbsent(
+                                                retries.putIfAbsent(
                                                         fNetworkRetryTask.key(), fNetworkRetryTask);
                                                 realOut.printf("[RETRY-QUEUE][TRUE] Queued Row %d %s (%s) [%s] after connection-failure log%n",
                                                         fRowNum, fDev, fLoop, fCmd);
@@ -2441,7 +2461,7 @@ public class BotGetLog_TrueCorp {
                             if (isShutdownRequested()) {
                                 break commandBatchLoop;
                             }
-
+                            runNetworkRetryQueue(exec, runGatewayPool, groupRetries);
                             realOut.printf("[INFO] Completed CmdSet-%d batch%n", cmdSetOrder);
                         }
 
@@ -3744,6 +3764,9 @@ public class BotGetLog_TrueCorp {
         if (isShutdownRequested()) {
             return new NetworkRetryResult(retryTask, NetworkRetryStatus.STOPPED, "shutdown requested");
         }
+        if (!multiIp.allowed(task.loopback)) {
+            return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED, "Multi-IP address unavailable");
+        }
 
         File completedBeforeRun = findLatestCompletedLog(
                 retryTask.fileInput, task.rowNum, task.loopback, task.device,
@@ -3794,6 +3817,10 @@ public class BotGetLog_TrueCorp {
             }
 
             connection.disconnect();
+            if (multiIp.grouped(task.loopback) && connection.nodeLoginPathFailed()) {
+                multiIp.unavailable(task.loopback);
+                return new NetworkRetryResult(retryTask, NetworkRetryStatus.NON_NETWORK_FAILED, "node login path unavailable");
+            }
             File completedLog = findLatestCompletedLog(
                     retryTask.fileInput, task.rowNum, task.loopback, task.device,
                     task.cmdSet, retryTask.lastCommand);
@@ -4244,6 +4271,8 @@ public class BotGetLog_TrueCorp {
 
             String devName = (device != null && !device.trim().isEmpty()) ? device.trim() : devNameFromSheet;
             String ip = (loopback != null && !loopback.trim().isEmpty()) ? loopback.trim() : ipFromSheet;
+            // The ordered collection batches own retries for these addresses.
+            if (multiIp.grouped(ip)) return;
             String cmd = cmdSet != null && !cmdSet.trim().isEmpty() ? cmdSet.trim() : "";
 
             if (!"Y".equalsIgnoreCase(group)) {
