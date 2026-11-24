@@ -22,6 +22,11 @@ timeouts remain unchanged. Partial replies survive timeouts. Explicit rejection
 text is retained even if no new prompt follows; a short bounded drain captures
 following lock details or a node disconnect instead of losing them on timeout.
 
+After a node accepts the password, Huawei may ask
+`The password needs to be changed. Change now? [Y/N]:`. The collector answers
+`N` once and waits for the device prompt within the same login deadline. A
+device that sends its prompt immediately proceeds directly to verification.
+
 When an explicitly rejected login closes Telnet or returns to SAM, each backup
 slot may reopen the same configured target once. The collector closes its old
 gateway session before reconnecting, retains its shared connection lease and

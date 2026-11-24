@@ -61,6 +61,8 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 public class Telnet_Multi {
 
     private static final String NO_LOGIN_PROMPT_REASON = "No login prompt before credentials";
+    private static final Pattern HUAWEI_OPTIONAL_PASSWORD_CHANGE = Pattern.compile(
+            "(?im)^\\h*The password needs to be changed\\.\\h+Change now\\?\\h*\\[Y/N\\]\\h*:\\z");
 
     private enum GatewayProtocol {
         AUTO,
@@ -714,16 +716,16 @@ public class Telnet_Multi {
 
     private static String readSshBootstrapResponse(InputStream input, PrintStream output,
             int timeoutMs, String... patterns) {
-        return readLoginResponse(input, output, timeoutMs, false, patterns);
+        return readLoginResponse(input, output, timeoutMs, false, null, patterns);
     }
 
     private static String readNodeLoginResponse(InputStream input, PrintStream output,
             int timeoutMs, String... patterns) {
-        return readLoginResponse(input, output, timeoutMs, true, patterns);
+        return readLoginResponse(input, output, timeoutMs, true, null, patterns);
     }
 
     private static String readLoginResponse(InputStream input, PrintStream output,
-            int timeoutMs, boolean nodeAuthentication, String... patterns) {
+            int timeoutMs, boolean nodeAuthentication, Runnable declinePasswordChange, String... patterns) {
         if (input == null) {
             return "[TIMEOUT-READ]";
         }
@@ -777,6 +779,14 @@ public class Telnet_Multi {
                     }
                     if (containsPaginationMarker(lowerTail)) {
                         sendPaginationSpace(output, lowerTail);
+                    }
+
+                    if (declinePasswordChange != null && ch == ':'
+                            && HUAWEI_OPTIONAL_PASSWORD_CHANGE.matcher(stripTerminalControlSequences(sb.toString())).find()) {
+                        declinePasswordChange.run();
+                        if (output.checkError()) return sb + "[TIMEOUT-READ]";
+                        declinePasswordChange = null;
+                        continue;
                     }
 
                     if (containsGatewayAuthPromptText(sb.toString())) {
@@ -1286,7 +1296,7 @@ public class Telnet_Multi {
                 return TrueCllsLoginCheck.Status.UNCONFIRMED;
             writeNoShow(password);
             if (out.checkError()) return TrueCllsLoginCheck.Status.UNCONFIRMED;
-            String reply = readNodeAuthentication(">", "#");
+            String reply = readPostPasswordResponse();
             if (containsLoginFailureText(reply) || CllsFallback.authenticationBlocked(reply) || endsWithUsernamePrompt(reply))
                 return TrueCllsLoginCheck.Status.REJECTED;
             String prompt = extractPromptToken(stripTerminalControlSequences(reply));
@@ -2334,7 +2344,7 @@ public class Telnet_Multi {
         }
 
         private String waitForPostPasswordPrompt(String username, String password) {
-            String firstRead = readNodeAuthentication(">", "#");
+            String firstRead = readPostPasswordResponse();
             if (firstRead == null || firstRead.isEmpty()) {
                 return firstRead;
             }
@@ -2346,11 +2356,18 @@ public class Telnet_Multi {
             String combined = firstRead;
             // Personal Live/TrueLogs accounts never borrow scheduled backups or
             // blindly resend a rejected password. Their job owns retry policy.
-            String secondRead = readNodeAuthentication(">", "#");
+            String secondRead = readPostPasswordResponse();
             if (secondRead == null || secondRead.isEmpty()) {
                 return combined;
             }
             return combined + secondRead;
+        }
+
+        private String readPostPasswordResponse() {
+            String response = readLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, true,
+                    () -> writeNoShow("N"), ">", "#");
+            lastPromptToken = extractPromptToken(response);
+            return response;
         }
 
         private String readNodeAuthentication(String... patterns) {
@@ -5162,7 +5179,7 @@ public class Telnet_Multi {
         if (containsGatewayPasswordPrompt(loginState) && password != null && !password.trim().isEmpty()) {
             logwork("[SSH-NODE] Sending password for " + loopback + "\n");
             writeNodeLoginCredential(password);
-            current = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, promptPatterns);
+            current = readPostPasswordResponse(promptPatterns);
             logwork("[SSH-NODE-RAW-PASS] " + loopback + " => "
                     + summarizeResponseForLog(current, username, password) + "\n");
             if (current != null && !current.isEmpty()) {
@@ -5173,10 +5190,14 @@ public class Telnet_Multi {
         return combined.toString();
     }
 
+    private String readPostPasswordResponse(String... patterns) {
+        return readLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, true, () -> write_NoShow("N"), patterns);
+    }
+
     private String waitForPostPasswordPrompt(String loopback, String username, String password) {
         // Read the full rejection through its next login prompt. Stopping at
         // Huawei's bare "Error:" prefix hides the actual credential rejection.
-        String firstRead = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
+        String firstRead = readPostPasswordResponse(">", "#");
         if (firstRead == null || firstRead.isEmpty()) {
             return firstRead;
         }
@@ -5192,7 +5213,7 @@ public class Telnet_Multi {
         // An echoed/stale prompt may need another read, never another blind
         // submission of the same credentials. Explicit rejection owns fallback.
 
-        String secondRead = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
+        String secondRead = readPostPasswordResponse(">", "#");
         logwork("[LOGIN-RAW-2] " + loopback + " => " + summarizeResponseForLog(secondRead, username, password) + "\n");
         if (secondRead == null || secondRead.isEmpty()) {
             return combined;
@@ -5254,7 +5275,7 @@ public class Telnet_Multi {
         if (CllsFallback.hardStop(passwordPrompt) || containsLoginFailureText(passwordPrompt)
                 || !containsPasswordPromptText(passwordPrompt)) return passwordPrompt;
         writeNodeLoginCredential(credential.password);
-        String response = readNodeLoginResponse(in, out, NODE_AUTH_TIMEOUT_MS, ">", "#");
+        String response = readPostPasswordResponse(">", "#");
         s = extractPromptToken(response);
         return response;
     }

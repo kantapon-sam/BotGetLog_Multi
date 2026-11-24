@@ -12,6 +12,12 @@ import static com.java.botgetlog.truecorp.TrueCllsLoginCheck.Status.*;
 public class TrueCllsLoginCheckRegression {
     public static void main(String[] args) throws Exception {
         String pair = "primary\nfixture-password\n";
+        String question = "\r\nThe password needs to be changed. Change now? [Y/N]:";
+        exchange("Username:Password:" + question + "\r\n<CPE-TEST>", VERIFIED, pair + "N\n");
+        exchange("Username:Password:" + question + "\r\n<WRONG-NODE>", UNCONFIRMED, pair + "N\n");
+        exchange("Username:Password:" + question + "\r\nConnection timed out\r\n", UNCONFIRMED, pair + "N\n");
+        exchange("Username:Password:\r\nAccess denied" + question, REJECTED, pair);
+        exchange("Username:Password:\r\nRestart now? [Y/N]:\r\nConnection reset\r\n", UNCONFIRMED, pair);
         exchange("Username:Password:\r\n<CPE-TEST>", VERIFIED, pair);
         exchange("login:Password:\r\n*A:CPE-TEST#", VERIFIED, pair);
         exchange("Username:Password:\r\nCPE-TEST#", VERIFIED, pair);

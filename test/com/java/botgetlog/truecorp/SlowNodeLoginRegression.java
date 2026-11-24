@@ -31,6 +31,7 @@ public final class SlowNodeLoginRegression {
         check(read(new DelayedStream(0, ""), 800).contains("[INTERRUPTED]"), "stop interrupts login wait");
         Thread.interrupted();
         reconnectCases();
+        huaweiBackupPasswordNotice();
         liveProbeCases();
         liveWhoEnableCases();
         System.out.println("PASS SlowNodeLoginRegression checks=" + checks);
@@ -106,6 +107,24 @@ public final class SlowNodeLoginRegression {
         CllsFallback.Result result = CllsFallback.attempt(REJECT + CLOSED, "primary", "p", backups,
                 (credential, rejected) -> REJECT + CLOSED, text -> false);
         check(result.attempts == 2 && result.successful == null, "closed rejections remain bounded and duplicate accounts skipped");
+    }
+
+    private static void huaweiBackupPasswordNotice() throws Exception {
+        String notice = "\r\nWarning: The initial password poses security risks.\r\n"
+                + "The password needs to be changed. Change now? [Y/N]:";
+        FakeCollector collector = fixture();
+        set(collector, "in", new ByteArrayInputStream(("Password:" + notice + "\r\n<QA-HUAWEI>")
+                .getBytes(StandardCharsets.UTF_8)));
+        ByteArrayOutputStream sent = new ByteArrayOutputStream();
+        set(collector, "out", new PrintStream(sent, true, "UTF-8"));
+        Method login = Telnet_Multi.class.getDeclaredMethod("loginCllsBackup", CllsFallback.Credential.class, String.class);
+        login.setAccessible(true);
+        String response = (String) login.invoke(collector, new CllsFallback.Credential(3, "backup", "fixture"), "Username:");
+        check(sent.toString("UTF-8").replace("\r", "").equals("backup\nfixture\nN\n"), "decline optional change once");
+        Method verify = Telnet_Multi.class.getDeclaredMethod("verifiedFallbackNodePrompt", String.class, String.class, String.class);
+        verify.setAccessible(true);
+        check((Boolean) verify.invoke(collector, response, "QA-HUAWEI", "HW-LLDP-Link_OPTIC"), "verify backup hostname after decline");
+        check(!(Boolean) verify.invoke(collector, response, "OTHER-NODE", "HW-LLDP-Link_OPTIC"), "wrong backup hostname rejected");
     }
 
     private static final class FakeCollector extends Telnet_Multi {
