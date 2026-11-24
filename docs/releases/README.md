@@ -7,6 +7,7 @@
 
 ## รุ่นปัจจุบัน
 
+- [1.2.41](release-1.2.41.md) — ตอบคำถามเปลี่ยนรหัสผ่านของ Huawei และตรวจ prompt ก่อนเก็บข้อมูล
 - [1.2.40](release-1.2.40.md) — TRUE Auto-add IP ranges and LLDP rediscovery.
 - [1.2.39](release-1.2.39.md): รองรับพอร์ต ZTE xxvgei และ LACP ที่ตัดบรรทัด; Free port และ Live Monitor นับ 25G เป็น 10G และคง 100G ตามข้อมูลจริง
 
